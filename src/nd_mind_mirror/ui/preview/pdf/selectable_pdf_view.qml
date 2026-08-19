@@ -7,9 +7,26 @@ Rectangle {
     property url source: ""
     property int reloadToken: 0
     property alias zoomScale: pdfView.renderScale
+    property int currentPageIndex: pdfView.currentPage
+    property int pageCount: pdfDocument.pageCount
+    property int fitToken: 0
+    property real fitWidthRatio: 0.95
+    property real zoomAnchorX: 0
+    property real zoomAnchorY: 0
+    property real zoomTargetScale: 1
+    property int zoomToken: 0
+    property bool zoomAnchorPending: false
+    property real zoomAnchorContentRatioX: 0
+    property real zoomAnchorContentRatioY: 0
+    property real zoomAnchorViewportX: 0
+    property real zoomAnchorViewportY: 0
     property real panDeltaX: 0
     property real panDeltaY: 0
     property int panToken: 0
+    property int syncPage: 0
+    property real syncX: 0
+    property real syncY: 0
+    property int syncToken: 0
     property bool resetPositionOnReload: false
     property bool restorePositionPending: false
     property real savedContentX: 0
@@ -181,6 +198,127 @@ Rectangle {
         }
     }
 
+    function zoomAroundAnchor(viewX, viewY, requestedScale) {
+        var target = findBestScrollable(pdfView)
+        var boundedScale = Math.max(0.20, Math.min(8.00, requestedScale))
+        if (!target) {
+            pdfView.renderScale = boundedScale
+            scrollBarRefresh.restart()
+            return
+        }
+
+        try {
+            var localPoint = target.mapFromItem(root, viewX, viewY)
+            var originX = target.originX !== undefined ? target.originX : 0
+            var originY = target.originY !== undefined ? target.originY : 0
+            var width = Math.max(target.contentWidth, 1)
+            var height = Math.max(target.contentHeight, 1)
+
+            // Store the exact content point underneath the mouse as a ratio
+            // of the laid-out scrollable document. After Qt relays out the
+            // pages at the new renderScale, restore that same content point
+            // underneath the same mouse coordinates.
+            root.zoomAnchorContentRatioX = (
+                target.contentX - originX + localPoint.x
+            ) / width
+            root.zoomAnchorContentRatioY = (
+                target.contentY - originY + localPoint.y
+            ) / height
+            root.zoomAnchorViewportX = viewX
+            root.zoomAnchorViewportY = viewY
+            root.zoomAnchorPending = true
+            pdfView.renderScale = boundedScale
+            zoomAnchorRestore.restart()
+            scrollBarRefresh.restart()
+        } catch (error) {
+            root.zoomAnchorPending = false
+            pdfView.renderScale = boundedScale
+            scrollBarRefresh.restart()
+        }
+    }
+
+    function restoreZoomAnchor() {
+        if (!root.zoomAnchorPending)
+            return
+
+        var target = findBestScrollable(pdfView)
+        if (!target)
+            return
+
+        try {
+            var localPoint = target.mapFromItem(
+                root,
+                root.zoomAnchorViewportX,
+                root.zoomAnchorViewportY
+            )
+            var originX = target.originX !== undefined ? target.originX : 0
+            var originY = target.originY !== undefined ? target.originY : 0
+            var maxX = Math.max(
+                originX,
+                originX + target.contentWidth - target.width
+            )
+            var maxY = Math.max(
+                originY,
+                originY + target.contentHeight - target.height
+            )
+            var desiredX = originX
+                + root.zoomAnchorContentRatioX * target.contentWidth
+                - localPoint.x
+            var desiredY = originY
+                + root.zoomAnchorContentRatioY * target.contentHeight
+                - localPoint.y
+
+            target.contentX = Math.max(originX, Math.min(maxX, desiredX))
+            target.contentY = Math.max(originY, Math.min(maxY, desiredY))
+            root.zoomAnchorPending = false
+        } catch (error) {
+            root.zoomAnchorPending = false
+        }
+    }
+
+    function centerHorizontally() {
+        var target = findBestScrollable(pdfView)
+        if (!target)
+            return
+
+        try {
+            var originX = target.originX !== undefined ? target.originX : 0
+            var overflowX = Math.max(0, target.contentWidth - target.width)
+            target.contentX = originX + overflowX / 2
+        } catch (error) {
+        }
+    }
+
+    function fitToPanel() {
+        try {
+            if (pdfDocument.pageCount <= 0)
+                return
+            // Width-only fit: use the requested fraction of the visible
+            // preview width. The vertical extent is deliberately not a fit
+            // constraint; tall pages may require vertical scrolling.
+            pdfView.scaleToWidth(
+                Math.max(root.width * root.fitWidthRatio, 1),
+                Math.max(root.height, 1)
+            )
+            fitCenterRestore.restart()
+            scrollBarRefresh.restart()
+        } catch (error) {
+        }
+    }
+
+    function goToSourceLocation() {
+        try {
+            pdfView.goToLocation(
+                Math.max(root.syncPage, 0),
+                Qt.point(root.syncX, root.syncY),
+                pdfView.renderScale
+            )
+            scrollBarRefresh.restart()
+        } catch (error) {
+            sourceLocationRetry.restart()
+        }
+    }
+
     // Depending on the active Qt Quick Controls style, the scrollbars inside
     // PdfMultiPageView may fade away. Keep the native bars visible and
     // interactive without replacing Qt's own multipage/text-selection view.
@@ -218,6 +356,13 @@ Rectangle {
 
     onReloadTokenChanged: reloadDocument()
     onPanTokenChanged: panBy(root.panDeltaX, root.panDeltaY)
+    onZoomTokenChanged: zoomAroundAnchor(
+        root.zoomAnchorX,
+        root.zoomAnchorY,
+        root.zoomTargetScale
+    )
+    onSyncTokenChanged: sourceLocationRetry.restart()
+    onFitTokenChanged: fitToPanel()
     onZoomScaleChanged: scrollBarRefresh.restart()
     onWidthChanged: scrollBarRefresh.restart()
     onHeightChanged: scrollBarRefresh.restart()
@@ -283,6 +428,27 @@ Rectangle {
                 root.restoreScrollState()
             }
         }
+    }
+
+    Timer {
+        id: zoomAnchorRestore
+        interval: 35
+        repeat: false
+        onTriggered: root.restoreZoomAnchor()
+    }
+
+    Timer {
+        id: fitCenterRestore
+        interval: 35
+        repeat: false
+        onTriggered: root.centerHorizontally()
+    }
+
+    Timer {
+        id: sourceLocationRetry
+        interval: 70
+        repeat: false
+        onTriggered: root.goToSourceLocation()
     }
 
     Component.onCompleted: scrollBarRefresh.start()

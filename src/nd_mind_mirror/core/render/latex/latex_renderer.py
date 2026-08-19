@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 import shutil
 import tempfile
 
@@ -6,6 +7,7 @@ from PySide6.QtCore import (
     QProcess,
     QProcessEnvironment,
     QTimer,
+    Signal,
 )
 
 from nd_mind_mirror.core.latex.input.recursive.recursive_input_resolver import (
@@ -18,12 +20,18 @@ from nd_mind_mirror.core.render.latex.latex_preview_source_builder import (
 
 
 class LatexRenderer(Renderer):
+    source_position_mapped = Signal(int, float, float)
+
     def __init__(
         self,
         template_path: str | Path,
         beamer_template_path: str | Path | None = None,
         shell_escape: bool = True,
         debounce_ms: int = 220,
+        cursor_sync_enabled: bool = True,
+        cursor_sync_debounce_ms: int = 120,
+        large_document_threshold_chars: int = 120000,
+        large_document_debounce_ms: int = 650,
         parent=None,
     ) -> None:
         super().__init__(parent)
@@ -42,6 +50,7 @@ class LatexRenderer(Renderer):
         self._published_pdf_paths: list[Path] = []
         self._shell_escape = bool(shell_escape)
         self._phase = ""
+        self._bibliography_ran_for_generation = False
         self._compile_output: list[str] = []
         self._last_process_output = ""
         self._process_environment = (
@@ -51,6 +60,21 @@ class LatexRenderer(Renderer):
         self._latex_executable = ""
         self._suppress_finished = False
         self._cache_source_path: Path | None = None
+        self._current_source_text = ""
+        self._current_prepared_text = ""
+        self._cursor_sync_enabled = bool(cursor_sync_enabled)
+        self._pending_sync_source_path: Path | None = None
+        self._pending_sync_line = 1
+        self._pending_sync_column = 1
+        self._normal_debounce_ms = max(int(debounce_ms), 50)
+        self._large_document_threshold_chars = max(
+            int(large_document_threshold_chars),
+            10000,
+        )
+        self._large_document_debounce_ms = max(
+            int(large_document_debounce_ms),
+            self._normal_debounce_ms,
+        )
 
         self._input_resolver = RecursiveInputResolver()
         self._preview_source_builder = (
@@ -67,9 +91,22 @@ class LatexRenderer(Renderer):
 
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
-        self._timer.setInterval(max(int(debounce_ms), 50))
+        self._timer.setInterval(self._normal_debounce_ms)
         self._timer.timeout.connect(
             self._compile_pending_source
+        )
+
+        self._sync_process = QProcess(self)
+        self._sync_process.finished.connect(
+            self._on_sync_process_finished
+        )
+        self._sync_timer = QTimer(self)
+        self._sync_timer.setSingleShot(True)
+        self._sync_timer.setInterval(
+            max(int(cursor_sync_debounce_ms), 30)
+        )
+        self._sync_timer.timeout.connect(
+            self._map_pending_source_position
         )
 
     def apply_settings(
@@ -78,6 +115,10 @@ class LatexRenderer(Renderer):
         shell_escape: bool,
         debounce_ms: int | None = None,
         beamer_template_path: str | Path | None = None,
+        cursor_sync_enabled: bool | None = None,
+        cursor_sync_debounce_ms: int | None = None,
+        large_document_threshold_chars: int | None = None,
+        large_document_debounce_ms: int | None = None,
     ) -> None:
         self._preview_source_builder.set_template_path(
             template_path
@@ -87,9 +128,44 @@ class LatexRenderer(Renderer):
         )
         self._shell_escape = bool(shell_escape)
         if debounce_ms is not None:
-            self._timer.setInterval(
-                max(int(debounce_ms), 50)
+            self._normal_debounce_ms = max(int(debounce_ms), 50)
+            self._timer.setInterval(self._normal_debounce_ms)
+        if large_document_threshold_chars is not None:
+            self._large_document_threshold_chars = max(
+                int(large_document_threshold_chars),
+                10000,
             )
+        if large_document_debounce_ms is not None:
+            self._large_document_debounce_ms = max(
+                int(large_document_debounce_ms),
+                self._normal_debounce_ms,
+            )
+        if cursor_sync_enabled is not None:
+            self._cursor_sync_enabled = bool(
+                cursor_sync_enabled
+            )
+            if not self._cursor_sync_enabled:
+                self._sync_timer.stop()
+        if cursor_sync_debounce_ms is not None:
+            self._sync_timer.setInterval(
+                max(int(cursor_sync_debounce_ms), 30)
+            )
+
+    def request_source_position(
+        self,
+        source_path: str | Path,
+        line: int,
+        column: int,
+    ) -> None:
+        if not self._cursor_sync_enabled:
+            return
+
+        self._pending_sync_source_path = Path(
+            source_path
+        ).expanduser().resolve()
+        self._pending_sync_line = max(int(line), 1)
+        self._pending_sync_column = max(int(column), 1)
+        self._sync_timer.start()
 
     def render(
         self,
@@ -111,12 +187,30 @@ class LatexRenderer(Renderer):
 
         if immediate:
             self._timer.stop()
+            self._stop_running_process()
             self._compile_pending_source()
             return
 
+        debounce = (
+            self._large_document_debounce_ms
+            if len(source) >= self._large_document_threshold_chars
+            else self._normal_debounce_ms
+        )
+        self._timer.setInterval(debounce)
         self._timer.start()
 
     def _compile_pending_source(self) -> None:
+        # Live edits are coalesced while LuaLaTeX is already working.  Killing
+        # and relaunching an 80-page document every few hundred milliseconds
+        # causes severe CPU churn and is the main source of periodic editor
+        # slowdowns.  The finished handler immediately starts only the newest
+        # queued generation.
+        if (
+            self._process.state()
+            != QProcess.ProcessState.NotRunning
+        ):
+            return
+
         executable = shutil.which("lualatex")
 
         if executable is None:
@@ -124,8 +218,6 @@ class LatexRenderer(Renderer):
                 "lualatex was not found on PATH."
             )
             return
-
-        self._stop_running_process()
 
         source = self._pending_source
         source_path = self._pending_source_path
@@ -157,6 +249,12 @@ class LatexRenderer(Renderer):
         else:
             self._clean_previous_outputs(keep_auxiliary=True)
 
+        # Keep the original editor source and the generated preview source
+        # together. SyncTeX line mapping depends on both; without these
+        # snapshots cursor/scroll requests have no source lines to map.
+        self._current_source_text = source
+        self._current_prepared_text = prepared
+
         try:
             self._tex_path.write_text(
                 prepared,
@@ -180,6 +278,7 @@ class LatexRenderer(Renderer):
         self._latex_executable = executable
         self._compile_output = []
         self._last_process_output = ""
+        self._bibliography_ran_for_generation = False
         self._start_lualatex("latex1")
 
     def _build_process_environment(
@@ -221,6 +320,7 @@ class LatexRenderer(Renderer):
             "-interaction=nonstopmode",
             "-halt-on-error",
             "-file-line-error",
+            "-synctex=1",
         ]
 
         if self._shell_escape:
@@ -263,6 +363,7 @@ class LatexRenderer(Renderer):
                 )
                 return "missing"
 
+            self._bibliography_ran_for_generation = True
             self._start_process(
                 phase="biber",
                 program=executable,
@@ -312,6 +413,7 @@ class LatexRenderer(Renderer):
             )
             return "missing"
 
+        self._bibliography_ran_for_generation = True
         self._start_process(
             phase="bibtex",
             program=executable,
@@ -364,6 +466,7 @@ class LatexRenderer(Renderer):
             self._compile_output.append(output)
 
         if not self._is_current_generation():
+            QTimer.singleShot(0, self._compile_pending_source)
             return
 
         if exit_code != 0:
@@ -371,18 +474,20 @@ class LatexRenderer(Renderer):
             return
 
         if self._phase == "latex1":
-            # Publish the first successful PDF immediately. This restores the
-            # genuinely live feeling of the original preview. Bibliography and
-            # cross-reference cleanup can continue afterward and republish a
-            # refined PDF without blocking the first visible update.
-            if not self._publish_current_pdf():
-                self._emit_compile_failure()
-                return
-
+            # Resolve bibliography before publishing a newly built PDF when
+            # BibTeX/Biber is actually required. Publishing latex1 first can
+            # leave a visible `?` citation even though the bibliography itself
+            # already appears later in the document. For documents that do not
+            # need a bibliography tool, keep the original fast first-pass
+            # publication behavior.
             bibliography_status = self._start_bibliography_tool()
             if bibliography_status == "started":
                 return
             if bibliography_status == "missing":
+                return
+
+            if not self._publish_current_pdf():
+                self._emit_compile_failure()
                 return
 
             if self._needs_latex_rerun(output):
@@ -394,6 +499,14 @@ class LatexRenderer(Renderer):
             return
 
         if self._phase == "latex2":
+            # A bibliography build needs the canonical two LaTeX passes after
+            # BibTeX/Biber. The first pass reads preview.bbl; the second settles
+            # citation/reference state. Do not stop early merely because the
+            # log omitted a generic rerun warning.
+            if self._bibliography_ran_for_generation:
+                self._start_lualatex("latex3")
+                return
+
             if not self._publish_current_pdf():
                 self._emit_compile_failure()
                 return
@@ -432,6 +545,8 @@ class LatexRenderer(Renderer):
             return False
 
         self.rendered.emit(str(published_pdf))
+        if self._cursor_sync_enabled:
+            self._sync_timer.start()
         return True
 
     def _publish_pdf(
@@ -469,6 +584,172 @@ class LatexRenderer(Renderer):
                 stale.unlink()
             except OSError:
                 pass
+
+    def _map_pending_source_position(self) -> None:
+        if not self._cursor_sync_enabled:
+            return
+
+        source_path = self._pending_sync_source_path
+        if source_path is None or source_path != self._cache_source_path:
+            return
+
+        if not self._pdf_path.is_file():
+            return
+
+        synctex_path = self._temp_dir / "preview.synctex.gz"
+        if not synctex_path.is_file():
+            return
+
+        executable = shutil.which("synctex")
+        if executable is None:
+            return
+
+        preview_line = self._preview_line_for_source_line(
+            self._pending_sync_line
+        )
+        if preview_line is None:
+            return
+
+        if (
+            self._sync_process.state()
+            != QProcess.ProcessState.NotRunning
+        ):
+            self._sync_process.kill()
+            self._sync_process.waitForFinished(250)
+
+        self._sync_process.setWorkingDirectory(
+            str(self._temp_dir)
+        )
+        self._sync_process.setProgram(executable)
+        self._sync_process.setArguments(
+            [
+                "view",
+                "-i",
+                (
+                    f"{preview_line}:"
+                    f"{self._pending_sync_column}:"
+                    f"{self._tex_path}"
+                ),
+                "-o",
+                str(self._pdf_path),
+            ]
+        )
+        self._sync_process.start()
+
+    def _on_sync_process_finished(
+        self,
+        exit_code: int,
+        exit_status,
+    ) -> None:
+        if exit_code != 0:
+            return
+
+        output = bytes(
+            self._sync_process.readAllStandardOutput()
+        ).decode(
+            "utf-8",
+            errors="replace",
+        )
+
+        page_match = re.search(r"(?m)^Page:(\d+)", output)
+        x_match = re.search(
+            r"(?m)^x:([-+]?\d+(?:\.\d+)?)",
+            output,
+        )
+        y_match = re.search(
+            r"(?m)^y:([-+]?\d+(?:\.\d+)?)",
+            output,
+        )
+        if page_match is None or x_match is None or y_match is None:
+            return
+
+        page = max(int(page_match.group(1)) - 1, 0)
+        x = float(x_match.group(1))
+        y = float(y_match.group(1))
+        self.source_position_mapped.emit(page, x, y)
+
+    def _preview_line_for_source_line(
+        self,
+        source_line: int,
+    ) -> int | None:
+        source_lines = self._current_source_text.splitlines()
+        prepared_lines = self._current_prepared_text.splitlines()
+        if not source_lines or not prepared_lines:
+            return None
+
+        source_index = max(
+            0,
+            min(int(source_line) - 1, len(source_lines) - 1),
+        )
+
+        # Cursor lines are often blank or syntactically repetitive. Search a
+        # small neighborhood for the nearest non-empty source line, then map
+        # that exact line into the generated preview source. This keeps cursor
+        # sync cheap enough to run while editing even for large documents.
+        candidate_source_indices = [source_index]
+        for distance in range(1, 9):
+            candidate_source_indices.extend(
+                [source_index - distance, source_index + distance]
+            )
+
+        best_rank: tuple[int, int, float, int] | None = None
+        best_offset: int | None = None
+
+        for nearby_index in candidate_source_indices:
+            if nearby_index < 0 or nearby_index >= len(source_lines):
+                continue
+
+            target = source_lines[nearby_index]
+            if not target.strip():
+                continue
+
+            for prepared_index, prepared_line in enumerate(prepared_lines):
+                if prepared_line != target:
+                    continue
+
+                score = 0
+                for delta in (-3, -2, -1, 1, 2, 3):
+                    source_neighbor = nearby_index + delta
+                    prepared_neighbor = prepared_index + delta
+                    if (
+                        0 <= source_neighbor < len(source_lines)
+                        and 0 <= prepared_neighbor < len(prepared_lines)
+                        and source_lines[source_neighbor]
+                        == prepared_lines[prepared_neighbor]
+                    ):
+                        score += 1
+
+                distance_penalty = abs(nearby_index - source_index)
+                source_ratio = nearby_index / max(len(source_lines) - 1, 1)
+                prepared_ratio = prepared_index / max(len(prepared_lines) - 1, 1)
+                ratio_penalty = abs(source_ratio - prepared_ratio)
+                rank = (
+                    score,
+                    -distance_penalty,
+                    -ratio_penalty,
+                    -prepared_index,
+                )
+                if best_rank is None or rank > best_rank:
+                    best_rank = rank
+                    best_offset = prepared_index - nearby_index
+
+            if best_rank is not None and best_rank[0] >= 3:
+                break
+
+        if best_offset is not None:
+            return max(source_index + best_offset + 1, 1)
+
+        # Last-resort approximation if the current source line was transformed
+        # by recursive input expansion. It is intentionally conservative; a
+        # later cursor move on a normal prose/command line will refine it.
+        ratio = source_index / max(len(source_lines) - 1, 1)
+        return max(
+            1,
+            min(
+                int(round(ratio * (len(prepared_lines) - 1))) + 1,
+                len(prepared_lines),
+            ),
+        )
 
     def _emit_compile_failure(self) -> None:
         output = "\n".join(

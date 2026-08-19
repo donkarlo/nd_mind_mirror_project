@@ -1,0 +1,11 @@
+# User-editable shorthand expansions for the LaTeX editor.
+# Type the beginning of a shortcut (for example: lis), choose an entry with
+# Up/Down, then press Enter or Tab. The typed shorthand is replaced by the
+# configured LaTeX text. {{cursor}} marks where the editor cursor should land.
+shortcuts:
+  list:
+    description: "itemize list"
+    replacement: |-
+      \begin{itemize}
+          \item {{cursor}}
+      \end{itemize}

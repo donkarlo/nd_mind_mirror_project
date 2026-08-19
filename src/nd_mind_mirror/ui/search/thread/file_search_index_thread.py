@@ -31,7 +31,7 @@ class FileSearchIndexThread(QThread):
 
     def run(self) -> None:
         entries: list[
-            tuple[str, str, str, str, str, bool]
+            tuple[str, str, str, str, str, bool, str]
         ] = []
         matcher = SearchIgnoreMatcher.from_file(
             self._ignore_file_path
@@ -94,8 +94,12 @@ class FileSearchIndexThread(QThread):
         path: Path,
         name: str,
         is_directory: bool,
-    ) -> tuple[str, str, str, str, str, bool]:
+    ) -> tuple[str, str, str, str, str, bool, str]:
         stem = Path(name).stem
+        try:
+            relative_path = path.relative_to(self._root_path).as_posix()
+        except ValueError:
+            relative_path = path.name
         return (
             str(path),
             name,
@@ -103,4 +107,5 @@ class FileSearchIndexThread(QThread):
             name.casefold(),
             stem.casefold(),
             is_directory,
+            relative_path.casefold(),
         )

@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nd_mind_mirror_project"
-version = "0.14.5"
-description = "Qt LaTeX editor with true hanging soft-wraps, hot-reloadable line spacing, fast selectable live PDF preview with persistent zoom scrollbars and drag panning, YAML highlighting, configurable LRU tab limits, scoped search, and external file sync."
+version = "0.20.0"
+description = "Qt LaTeX/YAML editor with bidirectional editing, citation-aware live preview, cursor-centered zoom, automatic width fit, hierarchical file search, in-editor find/replace, structure navigation, and persistent UI state."
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [

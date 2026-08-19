@@ -1,9 +1,16 @@
 editor:
   font_family: "DejaVu Sans Mono"
-  font_size: 11
+  font_size: 16
   font_min_size: 6
   font_max_size: 40
   line_height_percent: 200
+  # auto: LaTeX control/setup lines stay LTR; Persian prose becomes RTL.
+  # rtl: force ordinary prose RTL while still keeping LaTeX control lines LTR.
+  # ltr: keep every source line LTR.
+  latex_text_direction: "auto"
+  # In auto mode, an ordinary prose line becomes RTL when this fraction of
+  # strong alphabetic characters belongs to an RTL script (Persian/Arabic).
+  latex_rtl_persian_ratio: 0.35
   max_open_tabs: 20
   indent_size: 4
   cursor_width: 2
@@ -13,6 +20,10 @@ editor:
   wrap_marker_color: "#9aa0a6"
   wrap_marker_margin: 18
   current_line_highlight: "#eaf4ff"
+
+completion:
+  latex_shortcuts_file: "latex_shortcuts.yaml"
+  shortcut_min_prefix_length: 2
 
 autosave:
   enabled: true
@@ -31,6 +42,8 @@ search:
   window_width: 900
   window_height: 620
   tree_indent_width: 10
+  # Search query tokens may match different ancestor/descendant path parts.
+  hierarchical_path_matching: true
 
 input:
   double_shift_interval_ms: 450
@@ -38,9 +51,23 @@ input:
 ui:
   splitter_handle_width: 9
   navigator_indent_width: 10
+  # Slightly taller rows in both File System and Structure trees.
+  navigator_row_height: 24
 
 preview:
+  # Used when auto_fit_on_open is false.
+  default_zoom_percent: 100
+  # Fit a newly opened LaTeX source to the preview width automatically.
+  auto_fit_on_open: true
+  # Fit uses this percentage of the available preview width; height is ignored.
+  fit_width_percent: 95
   debounce_ms: 220
+  # Large documents are coalesced more aggressively so LuaLaTeX is not
+  # killed/restarted repeatedly while typing.
+  large_document_threshold_chars: 120000
+  large_document_debounce_ms: 650
+  cursor_sync_enabled: true
+  cursor_sync_debounce_ms: 120
   latex_template_path: "resources/latex_preview_template.tex"
   latex_beamer_template_path: "resources/latex_preview_beamer_template.tex"
   shell_escape: true

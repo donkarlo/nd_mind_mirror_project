@@ -1,6 +1,8 @@
 from pathlib import Path
+import re
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QTimer, Qt, Signal
+from PySide6.QtGui import QKeySequence, QShortcut, QTextCursor
 from PySide6.QtWidgets import (
     QLabel,
     QSizePolicy,
@@ -12,14 +14,23 @@ from nd_mind_mirror.ui.editor.base.text_editor import TextEditor
 from nd_mind_mirror.ui.editor.latex.latex_editor import LatexEditor
 from nd_mind_mirror.ui.editor.yaml.yaml_editor import YamlEditor
 from nd_mind_mirror.ui.panel.base.panel import Panel
+from nd_mind_mirror.ui.toolbar.editor.latex_format_toolbar import (
+    LatexFormatToolbar,
+)
+from nd_mind_mirror.ui.toolbar.editor.editor_find_replace_bar import (
+    EditorFindReplaceBar,
+)
 
 
 class EditorPanel(Panel):
     current_document_changed = Signal(str, str)
     current_content_changed = Signal(str, str)
     current_modification_changed = Signal(str, bool)
+    current_cursor_changed = Signal(str, int, int)
+    current_view_changed = Signal(str, int, int)
     capacity_reached = Signal(str)
     tab_close_requested = Signal(int, str, bool)
+    settings_apply_requested = Signal()
 
     _TAB_LABEL_LENGTH = 24
     _TAB_WIDTH = 220
@@ -41,6 +52,9 @@ class EditorPanel(Panel):
             TextEditor,
             Path,
         ] = {}
+        self._remembered_view_states: dict[str, dict[str, int]] = {}
+        self._find_matches: list[tuple[int, int]] = []
+        self._find_current_index = -1
 
         self.setMinimumWidth(120)
         self.setSizePolicy(
@@ -52,6 +66,34 @@ class EditorPanel(Panel):
             "LaTeX Editor",
             self,
         )
+
+        self._format_toolbar = LatexFormatToolbar(self)
+        self._format_toolbar.bold_requested.connect(
+            self.bold_current_selection
+        )
+        self._format_toolbar.highlight_requested.connect(
+            self.highlight_current_selection
+        )
+        self._format_toolbar.apply_settings_requested.connect(
+            self.settings_apply_requested.emit
+        )
+        self._format_toolbar.set_mode(
+            latex_enabled=False,
+            settings_enabled=False,
+        )
+
+        self._find_bar = EditorFindReplaceBar(self)
+        self._find_bar.query_changed.connect(self._refresh_find_matches)
+        self._find_bar.next_requested.connect(self.find_next)
+        self._find_bar.previous_requested.connect(self.find_previous)
+        self._find_bar.replace_requested.connect(self.replace_current_match)
+        self._find_bar.close_requested.connect(self.hide_find_replace)
+        self._find_escape_shortcut = QShortcut(QKeySequence("Escape"), self)
+        self._find_escape_shortcut.setContext(
+            Qt.ShortcutContext.WidgetWithChildrenShortcut
+        )
+        self._find_escape_shortcut.activated.connect(self.hide_find_replace)
+        self._find_escape_shortcut.setEnabled(False)
 
         self._tabs = QTabWidget(self)
         self._tabs.setDocumentMode(True)
@@ -88,6 +130,12 @@ class EditorPanel(Panel):
 
         self.panel_layout.addWidget(
             self._label
+        )
+        self.panel_layout.addWidget(
+            self._format_toolbar
+        )
+        self.panel_layout.addWidget(
+            self._find_bar
         )
         self.panel_layout.addWidget(
             self._tabs,
@@ -168,6 +216,16 @@ class EditorPanel(Panel):
             content
         )
 
+        remembered_state = self._remembered_view_states.get(
+            str(file_path)
+        )
+        if remembered_state is not None:
+            QTimer.singleShot(
+                0,
+                lambda item=editor, state=dict(remembered_state):
+                item.restore_view_state(state),
+            )
+
         self._paths[editor] = file_path
 
         editor.content_changed.connect(
@@ -183,6 +241,18 @@ class EditorPanel(Panel):
                 item,
                 modified,
             )
+        )
+        editor.cursorPositionChanged.connect(
+            lambda item=editor:
+            self._on_editor_cursor_changed(item)
+        )
+        editor.verticalScrollBar().valueChanged.connect(
+            lambda value, item=editor:
+            self._on_editor_view_changed(item)
+        )
+        editor.horizontalScrollBar().valueChanged.connect(
+            lambda value, item=editor:
+            self._remember_editor_view_state(item)
         )
 
         index = self._tabs.addTab(
@@ -219,6 +289,9 @@ class EditorPanel(Panel):
         editor = self._tabs.widget(
             index
         )
+        path = self._paths.get(editor)
+        if isinstance(editor, TextEditor) and path is not None:
+            self._remembered_view_states[str(path)] = editor.view_state()
         self._paths.pop(
             editor,
             None,
@@ -309,6 +382,20 @@ class EditorPanel(Panel):
             if editor is current_editor:
                 current_changed = True
 
+        remembered_updates: dict[str, dict[str, int]] = {}
+        remembered_remove: list[str] = []
+        for raw_path, state in self._remembered_view_states.items():
+            candidate = Path(raw_path)
+            try:
+                relative = candidate.relative_to(old_root)
+            except ValueError:
+                continue
+            remembered_remove.append(raw_path)
+            remembered_updates[str((new_root / relative).resolve())] = state
+        for raw_path in remembered_remove:
+            self._remembered_view_states.pop(raw_path, None)
+        self._remembered_view_states.update(remembered_updates)
+
         self._refresh_tab_titles()
 
         if (
@@ -328,6 +415,167 @@ class EditorPanel(Panel):
                     current_editor.toPlainText(),
                 )
 
+    def bold_current_selection(self) -> None:
+        editor = self.current_editor()
+        if isinstance(editor, LatexEditor):
+            editor.bold_selection()
+
+    def highlight_current_selection(self, color: str) -> None:
+        editor = self.current_editor()
+        if isinstance(editor, LatexEditor):
+            editor.highlight_selection(color)
+
+    def show_find_replace(self, replace_mode: bool = False) -> None:
+        editor = self.current_editor()
+        if not isinstance(editor, TextEditor):
+            return
+        selected = editor.textCursor().selectedText().replace("\u2029", "\n")
+        self._find_bar.show_for_mode(
+            replace_mode=replace_mode,
+            initial_query=selected if "\n" not in selected else "",
+        )
+        self._find_escape_shortcut.setEnabled(True)
+        self._refresh_find_matches(self._find_bar.query)
+
+    def hide_find_replace(self) -> None:
+        if not self._find_bar.isVisible():
+            return
+        self._find_bar.hide()
+        self._find_escape_shortcut.setEnabled(False)
+        self._find_matches = []
+        self._find_current_index = -1
+        for editor in self._paths:
+            editor.clear_search_highlights()
+        editor = self.current_editor()
+        if isinstance(editor, TextEditor):
+            editor.setFocus()
+
+    def find_next(self) -> None:
+        if not self._find_matches:
+            self._refresh_find_matches(self._find_bar.query)
+        if not self._find_matches:
+            return
+        self._find_current_index = (self._find_current_index + 1) % len(self._find_matches)
+        self._activate_find_match()
+
+    def find_previous(self) -> None:
+        if not self._find_matches:
+            self._refresh_find_matches(self._find_bar.query)
+        if not self._find_matches:
+            return
+        self._find_current_index = (self._find_current_index - 1) % len(self._find_matches)
+        self._activate_find_match()
+
+    def replace_current_match(self, replacement: str) -> None:
+        editor = self.current_editor()
+        if not isinstance(editor, TextEditor) or not self._find_matches:
+            return
+        if self._find_current_index < 0:
+            self._find_current_index = 0
+        start, end = self._find_matches[self._find_current_index]
+        cursor = QTextCursor(editor.document())
+        cursor.setPosition(start)
+        cursor.setPosition(end, QTextCursor.MoveMode.KeepAnchor)
+        cursor.beginEditBlock()
+        cursor.insertText(str(replacement))
+        cursor.endEditBlock()
+        editor.setTextCursor(cursor)
+        position = cursor.position()
+        self._refresh_find_matches(self._find_bar.query)
+        if self._find_matches:
+            self._find_current_index = next(
+                (i for i, (candidate_start, _) in enumerate(self._find_matches) if candidate_start >= position),
+                0,
+            )
+            self._activate_find_match()
+
+    def _refresh_find_matches(self, query: str | None = None) -> None:
+        editor = self.current_editor()
+        if not isinstance(editor, TextEditor):
+            self._find_matches = []
+            self._find_current_index = -1
+            self._find_bar.set_match_status(0, 0)
+            return
+
+        query_text = self._find_bar.query if query is None else str(query)
+        if not query_text:
+            self._find_matches = []
+            self._find_current_index = -1
+            editor.clear_search_highlights()
+            self._find_bar.set_match_status(0, 0)
+            return
+
+        source = editor.toPlainText()
+        self._find_matches = [
+            (match.start(), match.end())
+            for match in re.finditer(re.escape(query_text), source, re.IGNORECASE)
+        ]
+        if not self._find_matches:
+            self._find_current_index = -1
+            editor.clear_search_highlights()
+            self._find_bar.set_match_status(0, 0)
+            return
+
+        cursor_position = editor.textCursor().position()
+        self._find_current_index = next(
+            (i for i, (start, end) in enumerate(self._find_matches) if start <= cursor_position <= end),
+            next(
+                (i for i, (start, _) in enumerate(self._find_matches) if start >= cursor_position),
+                0,
+            ),
+        )
+        self._apply_find_highlights()
+
+    def _apply_find_highlights(self) -> None:
+        editor = self.current_editor()
+        if not isinstance(editor, TextEditor):
+            return
+        editor.set_search_highlights(
+            self._find_matches,
+            self._find_current_index,
+        )
+        total = len(self._find_matches)
+        self._find_bar.set_match_status(
+            self._find_current_index + 1 if total else 0,
+            total,
+        )
+
+    def _activate_find_match(self) -> None:
+        editor = self.current_editor()
+        if not isinstance(editor, TextEditor) or not self._find_matches:
+            return
+        self._find_current_index %= len(self._find_matches)
+        start, end = self._find_matches[self._find_current_index]
+        cursor = QTextCursor(editor.document())
+        cursor.setPosition(start)
+        cursor.setPosition(end, QTextCursor.MoveMode.KeepAnchor)
+        editor.setTextCursor(cursor)
+        editor.ensureCursorVisible()
+        self._apply_find_highlights()
+
+    def set_view_states(self, states: dict | None) -> None:
+        self._remembered_view_states = {}
+        if not isinstance(states, dict):
+            return
+        for raw_path, raw_state in states.items():
+            if not isinstance(raw_state, dict):
+                continue
+            try:
+                path = str(Path(str(raw_path)).expanduser().resolve())
+                self._remembered_view_states[path] = {
+                    "cursor": int(raw_state.get("cursor", 0)),
+                    "vertical": int(raw_state.get("vertical", 0)),
+                    "horizontal": int(raw_state.get("horizontal", 0)),
+                }
+            except (TypeError, ValueError, OSError):
+                continue
+
+    def view_states(self) -> dict[str, dict[str, int]]:
+        states = dict(self._remembered_view_states)
+        for editor, path in self._paths.items():
+            states[str(path)] = editor.view_state()
+        return states
+
     def format_current_document(
         self,
     ) -> None:
@@ -337,6 +585,12 @@ class EditorPanel(Panel):
             return
 
         editor.format_document()
+
+    def go_to_line(self, line_number: int) -> None:
+        editor = self.current_editor()
+        if editor is None:
+            return
+        editor.go_to_line(line_number)
 
     def content_at(
         self,
@@ -652,14 +906,35 @@ class EditorPanel(Panel):
             editor is None
             or path is None
         ):
+            if self._find_bar.isVisible():
+                self.hide_find_replace()
             self._label.setText(
                 "LaTeX Editor"
+            )
+            self._format_toolbar.set_mode(
+                latex_enabled=False,
+                settings_enabled=False,
             )
             return
 
         self._label.setText(
             f"LaTeX Editor — {path}"
         )
+        is_settings = False
+        try:
+            is_settings = (
+                path.resolve()
+                == self._app_settings.settings_path.resolve()
+            )
+        except OSError:
+            is_settings = False
+
+        self._format_toolbar.set_mode(
+            latex_enabled=isinstance(editor, LatexEditor),
+            settings_enabled=is_settings,
+        )
+        if self._find_bar.isVisible():
+            self._refresh_find_matches(self._find_bar.query)
         self._activation_counter += 1
         self._last_activated[editor] = self._activation_counter
         editor.setFocus()
@@ -668,6 +943,7 @@ class EditorPanel(Panel):
             str(path),
             editor.toPlainText(),
         )
+        self._emit_cursor_position(editor, path)
 
     def _on_editor_content_changed(
         self,
@@ -686,6 +962,70 @@ class EditorPanel(Panel):
                 str(path),
                 text,
             )
+
+        if self._find_bar.isVisible():
+            QTimer.singleShot(
+                0,
+                lambda: self._refresh_find_matches(self._find_bar.query),
+            )
+
+    def _on_editor_cursor_changed(
+        self,
+        editor: TextEditor,
+    ) -> None:
+        if editor is not self.current_editor():
+            return
+
+        path = self._paths.get(editor)
+        if path is None or path.suffix.lower() != ".tex":
+            return
+
+        self._emit_cursor_position(editor, path)
+
+    def _emit_cursor_position(
+        self,
+        editor: TextEditor,
+        path: Path,
+    ) -> None:
+        if path.suffix.lower() != ".tex":
+            return
+
+        cursor = editor.textCursor()
+        line = cursor.blockNumber() + 1
+        column = cursor.positionInBlock() + 1
+        self.current_cursor_changed.emit(
+            str(path),
+            line,
+            column,
+        )
+
+    def _remember_editor_view_state(
+        self,
+        editor: TextEditor,
+    ) -> None:
+        path = self._paths.get(editor)
+        if path is None:
+            return
+        self._remembered_view_states[str(path)] = editor.view_state()
+
+    def _on_editor_view_changed(
+        self,
+        editor: TextEditor,
+    ) -> None:
+        self._remember_editor_view_state(editor)
+        if editor is not self.current_editor():
+            return
+
+        path = self._paths.get(editor)
+        if path is None or path.suffix.lower() != ".tex":
+            return
+
+        line, column = editor.first_visible_source_position()
+        self.current_view_changed.emit(
+            str(path),
+            line,
+            column,
+        )
 
     def _on_editor_modification_changed(
         self,

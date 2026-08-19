@@ -3,6 +3,7 @@ import shutil
 
 from PySide6.QtCore import (
     QDir,
+    QEvent,
     QItemSelectionModel,
     Qt,
     QTimer,
@@ -28,6 +29,12 @@ from nd_mind_mirror.ui.panel.base.panel import Panel
 
 class FileSystemPanel(Panel):
     latex_file_selected = Signal(str)
+
+    _ACTIVATABLE_SUFFIXES = {
+        ".tex", ".yaml", ".yml", ".pdf",
+        ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp",
+        ".svg", ".tif", ".tiff",
+    }
     state_changed = Signal()
     path_renamed = Signal(str, str)
     path_deleted = Signal(str)
@@ -101,13 +108,14 @@ class FileSystemPanel(Panel):
         self._tree.setEditTriggers(
             QAbstractItemView.EditTrigger.NoEditTriggers
         )
-        self._tree.setExpandsOnDoubleClick(True)
+        # Double-click is handled explicitly in eventFilter(). Consuming the
+        # viewport event prevents QTreeView from also expanding/recentering
+        # the item, which previously caused missed file activations and jumps.
+        self._tree.setExpandsOnDoubleClick(False)
+        self._tree.viewport().installEventFilter(self)
 
         self._tree.clicked.connect(
             self._on_clicked
-        )
-        self._tree.doubleClicked.connect(
-            self._on_activated
         )
         self._tree.expanded.connect(
             self._on_expanded
@@ -132,6 +140,7 @@ class FileSystemPanel(Panel):
         indent_width: int,
         root_path: str | Path,
         ignore_file_path: str | Path | None,
+        row_height: int = 24,
     ) -> None:
         new_root = Path(
             root_path
@@ -150,6 +159,9 @@ class FileSystemPanel(Panel):
                 int(indent_width),
                 1,
             )
+        )
+        self._tree.setStyleSheet(
+            f"QTreeView::item {{ min-height: {max(int(row_height), 18)}px; }}"
         )
 
         self._model.setRootPath(
@@ -362,12 +374,35 @@ class FileSystemPanel(Panel):
         # the tree cannot create tabs accidentally.
         self.state_changed.emit()
 
-    def _on_activated(self, index) -> None:
+    def eventFilter(self, watched, event) -> bool:
+        if (
+            watched is self._tree.viewport()
+            and event.type() == QEvent.Type.MouseButtonDblClick
+            and event.button() == Qt.MouseButton.LeftButton
+        ):
+            index = self._tree.indexAt(
+                event.position().toPoint()
+            )
+            if index.isValid():
+                self._activate_index(index)
+            event.accept()
+            return True
+
+        return super().eventFilter(watched, event)
+
+    def _activate_index(self, index) -> None:
         if not index.isValid():
             return
 
         source_index = self._source_index(index)
+        if not source_index.isValid():
+            return
+
         if self._model.isDir(source_index):
+            if self._tree.isExpanded(index):
+                self._tree.collapse(index)
+            else:
+                self._tree.expand(index)
             self.state_changed.emit()
             return
 
@@ -375,7 +410,7 @@ class FileSystemPanel(Panel):
             self._model.filePath(source_index)
         )
 
-        if path.suffix.lower() in {".tex", ".yaml", ".yml"}:
+        if path.suffix.lower() in self._ACTIVATABLE_SUFFIXES:
             self.latex_file_selected.emit(
                 str(path)
             )

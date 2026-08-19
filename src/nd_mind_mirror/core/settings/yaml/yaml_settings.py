@@ -40,8 +40,8 @@ class YamlSettings:
     @property
     def editor_font_size(self) -> int:
         return self._positive_int(
-            self._get("editor", "font_size", default=11),
-            11,
+            self._get("editor", "font_size", default=16),
+            16,
         )
 
     @property
@@ -65,11 +65,35 @@ class YamlSettings:
             self._get(
                 "editor",
                 "line_height_percent",
-                default=120,
+                default=200,
             ),
-            120,
+            200,
         )
         return max(60, min(value, 300))
+
+    @property
+    def editor_latex_text_direction(self) -> str:
+        value = str(
+            self._get(
+                "editor",
+                "latex_text_direction",
+                default="auto",
+            )
+        ).strip().casefold()
+        return value if value in {"auto", "rtl", "ltr"} else "auto"
+
+    @property
+    def editor_latex_rtl_persian_ratio(self) -> float:
+        return self._bounded_float(
+            self._get(
+                "editor",
+                "latex_rtl_persian_ratio",
+                default=0.35,
+            ),
+            default=0.35,
+            minimum=0.05,
+            maximum=0.95,
+        )
 
     @property
     def editor_max_open_tabs(self) -> int:
@@ -152,6 +176,40 @@ class YamlSettings:
                 default="#eaf4ff",
             )
         ).strip() or "#eaf4ff"
+
+    @property
+    def latex_shortcuts_file_path(self) -> Path:
+        raw = str(
+            self._get(
+                "completion",
+                "latex_shortcuts_file",
+                default="latex_shortcuts.yaml",
+            )
+        ).strip()
+
+        candidate = Path(
+            raw or "latex_shortcuts.yaml"
+        ).expanduser()
+
+        if not candidate.is_absolute():
+            candidate = self._project_root / candidate
+
+        try:
+            return candidate.resolve()
+        except OSError:
+            return candidate.absolute()
+
+    @property
+    def shortcut_min_prefix_length(self) -> int:
+        value = self._positive_int(
+            self._get(
+                "completion",
+                "shortcut_min_prefix_length",
+                default=2,
+            ),
+            2,
+        )
+        return max(1, min(value, 12))
 
     @property
     def autosave_enabled(self) -> bool:
@@ -303,6 +361,52 @@ class YamlSettings:
         )
 
     @property
+    def search_hierarchical_path_matching(self) -> bool:
+        return self._bool(
+            self._get(
+                "search",
+                "hierarchical_path_matching",
+                default=True,
+            ),
+            True,
+        )
+
+    @property
+    def preview_default_zoom_percent(self) -> int:
+        value = self._positive_int(
+            self._get(
+                "preview",
+                "default_zoom_percent",
+                default=100,
+            ),
+            100,
+        )
+        return max(20, min(value, 800))
+
+    @property
+    def preview_auto_fit_on_open(self) -> bool:
+        return self._bool(
+            self._get(
+                "preview",
+                "auto_fit_on_open",
+                default=True,
+            ),
+            True,
+        )
+
+    @property
+    def preview_fit_width_percent(self) -> int:
+        value = self._positive_int(
+            self._get(
+                "preview",
+                "fit_width_percent",
+                default=95,
+            ),
+            95,
+        )
+        return max(50, min(value, 100))
+
+    @property
     def preview_debounce_ms(self) -> int:
         return max(
             self._positive_int(
@@ -314,6 +418,59 @@ class YamlSettings:
                 220,
             ),
             50,
+        )
+
+    @property
+    def preview_large_document_threshold_chars(self) -> int:
+        return max(
+            self._positive_int(
+                self._get(
+                    "preview",
+                    "large_document_threshold_chars",
+                    default=120000,
+                ),
+                120000,
+            ),
+            10000,
+        )
+
+    @property
+    def preview_large_document_debounce_ms(self) -> int:
+        return max(
+            self._positive_int(
+                self._get(
+                    "preview",
+                    "large_document_debounce_ms",
+                    default=650,
+                ),
+                650,
+            ),
+            self.preview_debounce_ms,
+        )
+
+    @property
+    def preview_cursor_sync_enabled(self) -> bool:
+        return self._bool(
+            self._get(
+                "preview",
+                "cursor_sync_enabled",
+                default=True,
+            ),
+            True,
+        )
+
+    @property
+    def preview_cursor_sync_debounce_ms(self) -> int:
+        return max(
+            self._positive_int(
+                self._get(
+                    "preview",
+                    "cursor_sync_debounce_ms",
+                    default=120,
+                ),
+                120,
+            ),
+            30,
         )
 
     @property
@@ -403,6 +560,18 @@ class YamlSettings:
             ),
             10,
         )
+
+    @property
+    def navigator_row_height(self) -> int:
+        value = self._positive_int(
+            self._get(
+                "ui",
+                "navigator_row_height",
+                default=24,
+            ),
+            24,
+        )
+        return max(18, min(value, 60))
 
     def reload(self) -> bool:
         try:

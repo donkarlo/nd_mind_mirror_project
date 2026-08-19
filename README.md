@@ -1,7 +1,64 @@
 # nd_mind_mirror_project
 
+## v0.20.0 citation, preview-fit, hierarchical search, and in-tab find/replace
+
+- Natbib/BibTeX previews now wait for the complete `LuaLaTeX -> BibTeX -> LuaLaTeX -> LuaLaTeX` bibliography cycle before publishing a bibliography rebuild. This prevents a bibliography from appearing while its `\cite{...}` still renders as `?`.
+- New LaTeX sources automatically fit to the preview width by default. `preview.fit_width_percent` defaults to `95`; page height is not used as the fit target. `preview.auto_fit_on_open` can disable this behavior, in which case `preview.default_zoom_percent` is used.
+- `Ctrl + mouse wheel` keeps the PDF content point under the mouse as the zoom anchor.
+- File search keeps the previous query when reopened. Multi-word queries can match hierarchically across path components, so a token can match a parent folder while another token matches a descendant file/folder. Adjacent-letter transpositions such as `nueral`/`neural` are tolerated without loosening exact filename searches such as `neuron.tex`.
+- File System and Structure row height is configurable with `ui.navigator_row_height` (default `24`).
+- `Ctrl+F` opens Find for the current tab and `Ctrl+R` opens Replace. All matches are highlighted, previous/next arrow buttons cycle matches, Replace changes only the current match, and Esc closes the bar and removes highlights.
+- YAML hierarchy in Structure and YAML smart indentation remain enabled.
+
+## v0.15.0 Persian preview compatibility and LaTeX structure navigator
+
+- Full Persian documents that already use `polyglossia`, `xepersian`, or an existing Persian Babel setup are left untouched by the preview source builder. This prevents the preview-only Babel fallback from being mixed with Polyglossia.
+- The navigator column is split vertically: the existing file/folder tree stays on top and a live LaTeX structure tree is shown below it.
+- The structure tree shows `part`, `chapter`, `section`, `subsection`, `subsubsection`, `paragraph`, and `subparagraph` hierarchically and indented. Double-clicking a structure entry moves the current editor to that source line.
+- The default `editor.line_height_percent` is now `200`.
+- Release ZIPs must exclude `.idea/` (as well as cache/bytecode directories).
+
+## v0.14.7 Persian preview and navigator fixes
+
+- Navigator files open on an explicitly handled double-click; a single click only selects.
+- LuaLaTeX preview injects temporary Babel Persian support when Persian text is detected and the source does not already configure Persian. The source `.tex` file is never changed.
+- Pressing Enter after ordinary prose preserves only the current source indentation instead of adding a logical LaTeX hierarchy indent. Structural LaTeX lines still use smart indentation.
+
+
 A PySide6/Qt LaTeX editor with a filesystem navigator, tabbed editor,
 live LuaLaTeX preview, persistent state, fuzzy file search, and PDF export.
+
+## v0.14.6 Persian/English bidirectional LaTeX editing
+
+- LaTeX source blocks now have per-line visual direction without changing the
+  source text saved to disk.
+- Structural/setup commands such as `\section`, `\begin`, `\end`,
+  `\documentclass`, `\usepackage`, `\input`, and `\includegraphics` stay
+  left-to-right for predictable source-code editing.
+- Ordinary Persian prose is laid out right-to-left. English terms inside a
+  Persian sentence are left to Qt's Unicode bidirectional text engine, so the
+  Latin run keeps its natural left-to-right order inside the RTL paragraph.
+- Citation/reference keys are ignored for language detection so a long English
+  BibTeX key does not incorrectly turn a short Persian sentence LTR.
+- RTL blocks mirror hanging soft-wrap margins to the right side.
+
+The behavior is configurable in `settings.yaml`:
+
+```yaml
+editor:
+  latex_text_direction: "auto"
+  latex_rtl_persian_ratio: 0.35
+```
+
+`latex_text_direction` accepts:
+
+- `auto`: LaTeX control lines remain LTR and prose direction is detected.
+- `rtl`: ordinary prose is forced RTL while LaTeX control lines remain LTR.
+- `ltr`: all source lines remain LTR.
+
+`latex_rtl_persian_ratio` is used only in `auto` mode. For mixed prose, a line
+becomes RTL when Persian/Arabic-script strong letters reach the configured
+fraction of all strong alphabetic characters.
 
 ## v0.13 preview, soft-wrap, and Ctrl+Tab fixes
 
@@ -267,7 +324,7 @@ The source editor is explicitly writable. Editor line height is configurable in
 
 ```yaml
 editor:
-  line_height_percent: 120
+  line_height_percent: 200
 ```
 
 Reload `settings.yaml` from the Settings menu after changing it.
@@ -379,3 +436,52 @@ backward. Releasing Control activates the selected file and hides the switcher.
 When a fragment has no `\documentclass` but contains a Beamer `frame` environment,
 the previewer automatically uses `preview.latex_beamer_template_path` instead of the
 article fragment template. The source fragment is never modified.
+## LaTeX shorthand shortcuts
+
+`latex_shortcuts.yaml` contains user-editable shorthand expansions. For example,
+typing `lis` shows matching shortcut names below the cursor. Use Up/Down to choose
+and Enter or Tab to replace the typed shorthand. The special `{{cursor}}` marker in
+a replacement controls where the editor caret is placed after expansion.
+
+The file can be opened from **Settings -> Edit latex_shortcuts.yaml** and is reloaded
+automatically after it is saved.
+
+## Preview cursor synchronization
+
+The LaTeX renderer compiles with SyncTeX enabled. When the editor cursor moves, the
+PDF preview follows the corresponding source location without changing the current
+preview zoom. This behavior can be disabled with `preview.cursor_sync_enabled`.
+
+## v0.17.0
+
+- Structure items activate on a single click; the selected source line is placed at the top of the editor viewport and Preview follows through SyncTeX.
+- Editor scrolling now drives Preview source-position synchronization as well as cursor movement.
+- Added a compact LaTeX formatting toolbar above the editor: square **B** button for `\textbf{...}` and a pastel highlight menu using `\colorbox{...}{...}`. `Ctrl+B` applies the same bold wrapper to the selected text.
+- Preview-only package injection recognizes `algorithm`/`algorithmic` and toolbar `\colorbox` usage, adding `algorithm`, `algpseudocode`, or `xcolor` only to the temporary preview source when needed.
+- Per-file cursor, horizontal scroll, and vertical scroll positions are remembered when tabs are switched/closed and persisted across application restarts.
+- Large-file editor performance was improved by applying block direction/line-height/wrap layout only to changed blocks during normal typing instead of walking the entire document after every edit. Full layout is still applied when visual settings change.
+- Default editor font size remains 16 and default line height remains 200%.
+
+## v0.18.0
+
+- Keeps a passive caret visible at the last editor cursor position when focus moves to another panel or application.
+- Saves/restores main-window position and size together with the existing editor/tab/session state.
+- `settings.yaml` changes are no longer applied by autosave or external-file reload; use the **Apply** button shown above the editor while `settings.yaml` is active.
+- Keeps the last successful PDF visible when a transient live-LaTeX compile fails while typing.
+- Coalesces live-render requests instead of repeatedly killing/restarting LuaLaTeX. Large documents use a longer configurable render debounce to reduce CPU spikes and editor slowdowns.
+- Adds `preview.large_document_threshold_chars` and `preview.large_document_debounce_ms` settings.
+
+## v0.18.2 notes
+
+- PDF and image results open with Ubuntu's configured default desktop app.
+- YAML files open in the built-in syntax-highlighted editor from Navigator/Search.
+- Window geometry plus Navigator/Editor/Preview widths and Navigator/Structure heights are persisted under `~/.config/nd_mind_mirror_project/ui_state.json` with QSettings fallback.
+- Live preview repairs incomplete one-line `\colorbox` wrappers only in the temporary preview source, preventing a transient `\color@b@x` runaway from permanently stopping preview.
+
+
+## v0.19.0 additions
+
+- PDF preview toolbar: Fit, editable zoom percentage, and current/total page status.
+- Search: Down moves from the query field to results; Enter activates the highlighted result; double-click still activates files.
+- Structure panel now understands both LaTeX headings and YAML key/list hierarchy.
+- YAML editor applies nesting-aware indentation after Enter.

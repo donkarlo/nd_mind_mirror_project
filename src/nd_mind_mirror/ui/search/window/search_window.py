@@ -1,8 +1,9 @@
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, Qt, QTimer, Signal
 from PySide6.QtGui import QKeyEvent
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -24,6 +25,13 @@ from nd_mind_mirror.ui.search.thread.file_search_thread import (
 
 class SearchWindow(QWidget):
     latex_file_selected = Signal(str)
+    _HIT_ROLE = int(Qt.ItemDataRole.UserRole) + 1
+
+    _ACTIVATABLE_SUFFIXES = {
+        ".tex", ".yaml", ".yml", ".pdf",
+        ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp",
+        ".svg", ".tif", ".tiff",
+    }
 
     def __init__(
         self,
@@ -35,6 +43,7 @@ class SearchWindow(QWidget):
         window_width: int,
         window_height: int,
         tree_indent_width: int,
+        hierarchical_path_matching: bool = True,
         parent=None,
     ) -> None:
         super().__init__(
@@ -59,6 +68,9 @@ class SearchWindow(QWidget):
         self._fuzzy_threshold = float(
             fuzzy_threshold
         )
+        self._hierarchical_path_matching = bool(
+            hierarchical_path_matching
+        )
         self._window_width = max(
             int(window_width),
             420,
@@ -75,7 +87,7 @@ class SearchWindow(QWidget):
         self._index_generation = 0
         self._index_thread: FileSearchIndexThread | None = None
         self._search_index: list[
-            tuple[str, str, str, str, str, bool]
+            tuple[str, str, str, str, str, bool, str]
         ] = []
         self._index_ready = False
 
@@ -91,6 +103,7 @@ class SearchWindow(QWidget):
         self._search_edit.textChanged.connect(
             self._schedule_search
         )
+        self._search_edit.installEventFilter(self)
 
         self._close_button = QPushButton(
             "Close",
@@ -122,6 +135,7 @@ class SearchWindow(QWidget):
         self._tree.itemDoubleClicked.connect(
             self._on_item_double_clicked
         )
+        self._tree.installEventFilter(self)
 
         self._status_label = QLabel(self)
 
@@ -175,12 +189,13 @@ class SearchWindow(QWidget):
         self.activateWindow()
         self._search_edit.setFocus()
 
-        if not was_visible:
-            self._search_edit.selectAll()
-        else:
-            self._search_edit.setCursorPosition(
-                len(self._search_edit.text())
-            )
+        # Keep the previous query exactly as typed between invocations. Put
+        # the caret at the end rather than selecting it, so reopening search
+        # never makes the first keystroke silently erase the old query.
+        self._search_edit.deselect()
+        self._search_edit.setCursorPosition(
+            len(self._search_edit.text())
+        )
 
         if self._search_edit.text().strip():
             self._schedule_search()
@@ -195,6 +210,7 @@ class SearchWindow(QWidget):
         window_width: int,
         window_height: int,
         tree_indent_width: int,
+        hierarchical_path_matching: bool = True,
     ) -> None:
         new_root = self._validated_root(
             root_path
@@ -210,6 +226,9 @@ class SearchWindow(QWidget):
         self._ignore_file_path = new_ignore_file
         self._fuzzy_threshold = float(
             fuzzy_threshold
+        )
+        self._hierarchical_path_matching = bool(
+            hierarchical_path_matching
         )
         self._window_width = max(
             int(window_width),
@@ -275,6 +294,34 @@ class SearchWindow(QWidget):
             self._remove_index_thread(item)
         )
         thread.start()
+
+    def eventFilter(self, watched, event) -> bool:
+        if event.type() == QEvent.Type.KeyPress:
+            key = event.key()
+
+            if watched is self._search_edit:
+                if key == Qt.Key.Key_Down:
+                    if self._focus_first_search_result():
+                        return True
+                if key in {Qt.Key.Key_Return, Qt.Key.Key_Enter}:
+                    item = self._tree.currentItem()
+                    if item is None or not bool(
+                        item.data(0, self._HIT_ROLE)
+                    ):
+                        self._focus_first_search_result()
+                        item = self._tree.currentItem()
+                    if item is not None:
+                        self._activate_item(item)
+                    return True
+
+            if watched is self._tree:
+                if key in {Qt.Key.Key_Return, Qt.Key.Key_Enter}:
+                    item = self._tree.currentItem()
+                    if item is not None:
+                        self._activate_item(item)
+                    return True
+
+        return super().eventFilter(watched, event)
 
     def keyPressEvent(
         self,
@@ -390,6 +437,9 @@ class SearchWindow(QWidget):
             fuzzy_threshold=(
                 self._fuzzy_threshold
             ),
+            hierarchical_path_matching=(
+                self._hierarchical_path_matching
+            ),
             parent=self,
         )
         self._threads.append(thread)
@@ -489,6 +539,7 @@ class SearchWindow(QWidget):
         ] = {
             self._root_path: root_item
         }
+        result_paths = {path.resolve() for path in paths}
 
         for path in paths:
             try:
@@ -538,6 +589,18 @@ class SearchWindow(QWidget):
                 parent_item = item
                 parent_path = current_path
 
+        for node_path, node_item in nodes.items():
+            is_hit = node_path.resolve() in result_paths
+            node_item.setData(
+                0,
+                self._HIT_ROLE,
+                is_hit,
+            )
+            if is_hit:
+                font = node_item.font(0)
+                font.setBold(True)
+                node_item.setFont(0, font)
+
         root_item.setExpanded(True)
         self._tree.expandAll()
 
@@ -546,29 +609,48 @@ class SearchWindow(QWidget):
         item: QTreeWidgetItem,
         column: int,
     ) -> None:
-        path_text = item.data(
-            0,
-            Qt.ItemDataRole.UserRole,
-        )
+        del column
+        self._activate_item(item)
 
+    def _activate_item(self, item: QTreeWidgetItem) -> None:
+        path_text = item.data(0, Qt.ItemDataRole.UserRole)
         if not path_text:
             return
 
         path = Path(str(path_text))
-
         if path.is_dir():
-            item.setExpanded(
-                not item.isExpanded()
-            )
+            item.setExpanded(not item.isExpanded())
             return
 
-        if path.suffix.lower() != ".tex":
+        if path.suffix.lower() not in self._ACTIVATABLE_SUFFIXES:
             return
 
-        self.latex_file_selected.emit(
-            str(path.resolve())
-        )
+        self.latex_file_selected.emit(str(path.resolve()))
         self.close()
+
+    def _focus_first_search_result(self) -> bool:
+        iterator = self._tree.invisibleRootItem()
+
+        def walk(parent: QTreeWidgetItem):
+            for index in range(parent.childCount()):
+                child = parent.child(index)
+                if bool(child.data(0, self._HIT_ROLE)):
+                    return child
+                nested = walk(child)
+                if nested is not None:
+                    return nested
+            return None
+
+        item = walk(iterator)
+        if item is None:
+            return False
+        self._tree.setCurrentItem(item)
+        self._tree.scrollToItem(
+            item,
+            QAbstractItemView.ScrollHint.PositionAtCenter,
+        )
+        self._tree.setFocus()
+        return True
 
     def _show_idle_state(self) -> None:
         self._generation += 1

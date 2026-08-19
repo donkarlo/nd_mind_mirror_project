@@ -12,11 +12,12 @@ class FileSearchThread(QThread):
         self,
         generation: int,
         entries: list[
-            tuple[str, str, str, str, str, bool]
+            tuple[str, str, str, str, str, bool, str]
         ],
         query: str,
         max_results: int,
         fuzzy_threshold: float,
+        hierarchical_path_matching: bool = True,
         parent=None,
     ) -> None:
         super().__init__(parent)
@@ -37,6 +38,9 @@ class FileSearchThread(QThread):
         self._strict_filename_query = (
             "." in self._query
         )
+        self._hierarchical_path_matching = bool(
+            hierarchical_path_matching
+        )
 
     def run(self) -> None:
         if not self._tokens:
@@ -56,6 +60,7 @@ class FileSearchThread(QThread):
             normalized_name,
             normalized_stem,
             is_directory,
+            relative_path,
         ) in self._entries:
             if self.isInterruptionRequested():
                 return
@@ -66,6 +71,13 @@ class FileSearchThread(QThread):
                 name=normalized_name,
                 stem=normalized_stem,
             )
+            if (
+                score is None
+                and self._hierarchical_path_matching
+                and not self._strict_filename_query
+                and len(self._tokens) >= 2
+            ):
+                score = self._score_hierarchical_path(relative_path)
             if score is None:
                 continue
 
@@ -156,6 +168,67 @@ class FileSearchThread(QThread):
 
         return sum(token_scores) / len(token_scores)
 
+
+    def _score_hierarchical_path(self, relative_path: str) -> float | None:
+        components = [
+            component
+            for component in Path(relative_path).parts
+            if component
+        ]
+        if not components:
+            return None
+
+        component_candidates: list[tuple[str, str, str, int]] = []
+        for index, component in enumerate(components):
+            stem = Path(component).stem
+            component_candidates.append(
+                (component, stem, component.casefold(), index)
+            )
+
+        token_matches: list[tuple[float, int]] = []
+        for token in self._tokens:
+            best_score: float | None = None
+            best_index = -1
+            for name_text, stem_text, normalized, index in component_candidates:
+                score = self._score_token(
+                    token=token,
+                    name=normalized,
+                    stem=stem_text.casefold(),
+                    name_text=name_text,
+                    stem_text=stem_text,
+                )
+                if score is None:
+                    score = self._family_prefix_score(token, stem_text.casefold())
+                if score is not None and (best_score is None or score > best_score):
+                    best_score = score
+                    best_index = index
+            if best_score is None:
+                return None
+            token_matches.append((best_score, best_index))
+
+        base = sum(score for score, _ in token_matches) / len(token_matches)
+        indices = [index for _, index in token_matches]
+        distinct_bonus = 0.35 if len(set(indices)) > 1 else 0.0
+        ordered_bonus = 0.20 if indices == sorted(indices) else 0.0
+        # Keep hierarchical hits below a direct filename substring, but above
+        # weak unrelated fuzzy matches.
+        return min(3.45, base + distinct_bonus + ordered_bonus)
+
+    def _family_prefix_score(self, token: str, candidate: str) -> float | None:
+        compact_token = self._compact(token)
+        compact_candidate = self._compact(candidate)
+        if len(compact_token) < 5 or len(compact_candidate) < 5:
+            return None
+        common = 0
+        for left, right in zip(compact_token, compact_candidate):
+            if left != right:
+                break
+            common += 1
+        minimum = max(4, int(min(len(compact_token), len(compact_candidate)) * 0.65))
+        if common < minimum:
+            return None
+        return 2.05 + common / max(len(compact_token), len(compact_candidate))
+
     def _score_token(
         self,
         token: str,
@@ -174,6 +247,9 @@ class FileSearchThread(QThread):
             return 2.8
 
         compact_token = self._compact(token)
+        compact_stem = self._compact(stem)
+        if self._is_single_adjacent_transposition(compact_token, compact_stem):
+            return 2.75
         if len(compact_token) < 4:
             return None
 
@@ -218,6 +294,23 @@ class FileSearchThread(QThread):
             return None
 
         return 1.5 + best
+
+    def _is_single_adjacent_transposition(self, left: str, right: str) -> bool:
+        if len(left) != len(right) or left == right or len(left) < 2:
+            return False
+        differences = [
+            index
+            for index, (a, b) in enumerate(zip(left, right))
+            if a != b
+        ]
+        if len(differences) != 2:
+            return False
+        first, second = differences
+        return (
+            second == first + 1
+            and left[first] == right[second]
+            and left[second] == right[first]
+        )
 
     def _candidate_parts(
         self,

@@ -1,13 +1,17 @@
 from pathlib import Path
+import json
 import shutil
 
 from PySide6.QtCore import (
+    QRect,
     QSettings,
     Qt,
     QTimer,
+    QUrl,
 )
 from PySide6.QtGui import (
     QAction,
+    QDesktopServices,
     QKeySequence,
 )
 from PySide6.QtWidgets import (
@@ -34,6 +38,9 @@ from nd_mind_mirror.ui.panel.file_system.file_system_panel import (
     FileSystemPanel,
 )
 from nd_mind_mirror.ui.panel.preview.preview_panel import PreviewPanel
+from nd_mind_mirror.ui.panel.structure.latex_structure_panel import (
+    LatexStructurePanel,
+)
 from nd_mind_mirror.ui.search.window.search_window import SearchWindow
 from nd_mind_mirror.ui.switcher.recent_file.recent_file_switcher import (
     RecentFileSwitcher,
@@ -42,6 +49,11 @@ from nd_mind_mirror.ui.window.base.window import Window
 
 
 class MainWindow(Window):
+    _EXTERNAL_OPEN_SUFFIXES = {
+        ".pdf", ".png", ".jpg", ".jpeg", ".gif", ".webp",
+        ".bmp", ".svg", ".tif", ".tiff",
+    }
+
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
 
@@ -58,6 +70,14 @@ class MainWindow(Window):
         self._app_settings = YamlSettings()
         self._file_signatures: dict[Path, tuple[int, int]] = {}
         self._recent_file_paths: list[Path] = []
+        self._deferred_window_rect: tuple[int, int, int, int] | None = None
+        self._deferred_window_maximized = False
+        self._deferred_main_splitter_sizes: list[int] | None = None
+        self._deferred_navigator_splitter_sizes: list[int] | None = None
+        self._ui_layout_applied = False
+        self._ui_state_path = (
+            Path.home() / ".config" / "nd_mind_mirror_project" / "ui_state.json"
+        )
 
         QApplication.setCursorFlashTime(
             self._app_settings.editor_cursor_flash_time_ms
@@ -77,6 +97,18 @@ class MainWindow(Window):
             debounce_ms=(
                 self._app_settings.preview_debounce_ms
             ),
+            cursor_sync_enabled=(
+                self._app_settings.preview_cursor_sync_enabled
+            ),
+            cursor_sync_debounce_ms=(
+                self._app_settings.preview_cursor_sync_debounce_ms
+            ),
+            large_document_threshold_chars=(
+                self._app_settings.preview_large_document_threshold_chars
+            ),
+            large_document_debounce_ms=(
+                self._app_settings.preview_large_document_debounce_ms
+            ),
             parent=self,
         )
 
@@ -91,6 +123,15 @@ class MainWindow(Window):
             ignore_file_path=(
                 self._app_settings.search_ignore_file_path
             ),
+            row_height=self._app_settings.navigator_row_height,
+        )
+
+        self._structure_panel = LatexStructurePanel(
+            self
+        )
+        self._structure_panel.apply_settings(
+            indent_width=self._app_settings.navigator_indent_width,
+            row_height=self._app_settings.navigator_row_height,
         )
 
         self._editor_panel = EditorPanel(
@@ -100,6 +141,17 @@ class MainWindow(Window):
         )
         self._preview_panel = PreviewPanel(
             self
+        )
+        self._preview_panel.apply_settings(
+            default_zoom_percent=(
+                self._app_settings.preview_default_zoom_percent
+            ),
+            auto_fit_on_open=(
+                self._app_settings.preview_auto_fit_on_open
+            ),
+            fit_width_percent=(
+                self._app_settings.preview_fit_width_percent
+            ),
         )
 
         self._search_window = SearchWindow(
@@ -120,6 +172,9 @@ class MainWindow(Window):
             ),
             tree_indent_width=(
                 self._app_settings.search_tree_indent_width
+            ),
+            hierarchical_path_matching=(
+                self._app_settings.search_hierarchical_path_matching
             ),
             parent=self,
         )
@@ -147,6 +202,24 @@ class MainWindow(Window):
                 self._ctrl_tab_filter
             )
 
+        self._navigator_splitter = QSplitter(
+            Qt.Orientation.Vertical,
+            self,
+        )
+        self._navigator_splitter.setChildrenCollapsible(False)
+        self._navigator_splitter.setOpaqueResize(True)
+        self._navigator_splitter.setHandleWidth(
+            self._app_settings.splitter_handle_width
+        )
+        self._navigator_splitter.addWidget(
+            self._file_system_panel
+        )
+        self._navigator_splitter.addWidget(
+            self._structure_panel
+        )
+        self._navigator_splitter.setStretchFactor(0, 3)
+        self._navigator_splitter.setStretchFactor(1, 2)
+
         self._splitter = QSplitter(
             Qt.Orientation.Horizontal,
             self,
@@ -157,7 +230,7 @@ class MainWindow(Window):
             self._app_settings.splitter_handle_width
         )
         self._splitter.addWidget(
-            self._file_system_panel
+            self._navigator_splitter
         )
         self._splitter.addWidget(
             self._editor_panel
@@ -183,6 +256,13 @@ class MainWindow(Window):
             self._sync_external_file_changes
         )
 
+        self._layout_save_timer = QTimer(self)
+        self._layout_save_timer.setSingleShot(True)
+        self._layout_save_timer.setInterval(180)
+        self._layout_save_timer.timeout.connect(
+            self._save_ui_layout_state
+        )
+
         self._create_actions()
         self._connect_signals()
         self._configure_autosave()
@@ -190,7 +270,10 @@ class MainWindow(Window):
         self._restore_session()
 
         self._restoring_session = False
-
+        # Geometry and splitter widths are restored only after the window has
+        # entered the event loop. Restoring stale QSplitter/QWidget binary
+        # state during construction caused black-window startup failures on
+        # some Qt/Wayland/X11 combinations.
         self.statusBar().showMessage(
             "Ready"
         )
@@ -250,6 +333,24 @@ class MainWindow(Window):
             self._export_pdf
         )
 
+        self._find_in_tab_action = QAction(
+            "Find in Current Tab",
+            self,
+        )
+        self._find_in_tab_action.setShortcut(QKeySequence("Ctrl+F"))
+        self._find_in_tab_action.triggered.connect(
+            lambda: self._editor_panel.show_find_replace(False)
+        )
+
+        self._replace_in_tab_action = QAction(
+            "Replace in Current Tab",
+            self,
+        )
+        self._replace_in_tab_action.setShortcut(QKeySequence("Ctrl+R"))
+        self._replace_in_tab_action.triggered.connect(
+            lambda: self._editor_panel.show_find_replace(True)
+        )
+
         self._search_action = QAction(
             "Search Files (Double Shift)",
             self,
@@ -272,6 +373,14 @@ class MainWindow(Window):
         )
         self._edit_settings_action.triggered.connect(
             self._edit_settings_file
+        )
+
+        self._edit_latex_shortcuts_action = QAction(
+            "Edit latex_shortcuts.yaml",
+            self,
+        )
+        self._edit_latex_shortcuts_action.triggered.connect(
+            self._edit_latex_shortcuts_file
         )
 
         self._edit_preview_template_action = QAction(
@@ -318,6 +427,13 @@ class MainWindow(Window):
             "Search"
         )
         search_menu.addAction(
+            self._find_in_tab_action
+        )
+        search_menu.addAction(
+            self._replace_in_tab_action
+        )
+        search_menu.addSeparator()
+        search_menu.addAction(
             self._search_action
         )
 
@@ -326,6 +442,9 @@ class MainWindow(Window):
         )
         settings_menu.addAction(
             self._edit_settings_action
+        )
+        settings_menu.addAction(
+            self._edit_latex_shortcuts_action
         )
         settings_menu.addAction(
             self._edit_preview_template_action
@@ -355,6 +474,9 @@ class MainWindow(Window):
         self._file_system_panel.path_created.connect(
             self._on_navigator_path_created
         )
+        self._structure_panel.line_activated.connect(
+            self._editor_panel.go_to_line
+        )
 
         self._editor_panel.current_document_changed.connect(
             self._on_current_document_changed
@@ -365,11 +487,20 @@ class MainWindow(Window):
         self._editor_panel.current_modification_changed.connect(
             self._on_current_modification_changed
         )
+        self._editor_panel.current_cursor_changed.connect(
+            self._on_current_cursor_changed
+        )
+        self._editor_panel.current_view_changed.connect(
+            self._on_current_cursor_changed
+        )
         self._editor_panel.capacity_reached.connect(
             self._show_warning
         )
         self._editor_panel.tab_close_requested.connect(
             self._handle_tab_close_request
+        )
+        self._editor_panel.settings_apply_requested.connect(
+            self._apply_settings_from_editor
         )
 
         self._preview_panel.export_requested.connect(
@@ -380,7 +511,10 @@ class MainWindow(Window):
             self._preview_panel.preview.show_pdf
         )
         self._renderer.failed.connect(
-            self._preview_panel.preview.show_error
+            self._on_render_failed
+        )
+        self._renderer.source_position_mapped.connect(
+            self._preview_panel.preview.scroll_to_source_location
         )
 
         self._double_shift_filter.activated.connect(
@@ -402,7 +536,11 @@ class MainWindow(Window):
 
         self._splitter.splitterMoved.connect(
             lambda position, index:
-            self._save_session()
+            self._schedule_ui_layout_save()
+        )
+        self._navigator_splitter.splitterMoved.connect(
+            lambda position, index:
+            self._schedule_ui_layout_save()
         )
 
     def _open_dialog(self) -> None:
@@ -439,6 +577,12 @@ class MainWindow(Window):
         file_path = Path(
             path
         ).expanduser().resolve()
+
+        if file_path.suffix.lower() in self._EXTERNAL_OPEN_SUFFIXES:
+            self._open_with_desktop_application(file_path)
+            if reveal_in_navigator:
+                self._file_system_panel.select_path(file_path)
+            return
 
         if self._editor_panel.activate_path(
             file_path
@@ -482,6 +626,19 @@ class MainWindow(Window):
 
         if opened:
             self._save_session()
+
+    def _open_with_desktop_application(self, file_path: Path) -> None:
+        if not file_path.is_file():
+            self._show_warning(f"File does not exist: {file_path}")
+            return
+        opened = QDesktopServices.openUrl(
+            QUrl.fromLocalFile(str(file_path))
+        )
+        if not opened:
+            self._show_warning(
+                "Ubuntu could not open this file with its default application: "
+                f"{file_path}"
+            )
 
     def _load_editor_file(self, file_path: Path) -> str:
         suffix = file_path.suffix.lower()
@@ -558,8 +715,14 @@ class MainWindow(Window):
 
         self._remember_file_signature(path)
 
-        if path.resolve() == self._app_settings.settings_path.resolve():
-            self._reload_yaml_settings()
+        if path.resolve() == self._app_settings.latex_shortcuts_file_path.resolve():
+            self._editor_panel.apply_settings(
+                self._app_settings
+            )
+            self.statusBar().showMessage(
+                f"Reloaded LaTeX shortcuts from {path}",
+                3500,
+            )
 
         return True
 
@@ -649,8 +812,10 @@ class MainWindow(Window):
                     content,
                 )
 
-                if path.resolve() == self._app_settings.settings_path.resolve():
-                    self._reload_yaml_settings()
+                if path.resolve() == self._app_settings.latex_shortcuts_file_path.resolve():
+                    self._editor_panel.apply_settings(
+                        self._app_settings
+                    )
 
                 self.statusBar().showMessage(
                     f"Reloaded external change: {path}",
@@ -823,6 +988,21 @@ class MainWindow(Window):
 
         self._open_path(str(settings_path))
 
+    def _edit_latex_shortcuts_file(self) -> None:
+        shortcuts_path = (
+            self._app_settings.latex_shortcuts_file_path
+        )
+
+        if not shortcuts_path.is_file():
+            QMessageBox.warning(
+                self,
+                "LaTeX shortcuts",
+                f"Shortcut file does not exist:\n{shortcuts_path}",
+            )
+            return
+
+        self._open_path(str(shortcuts_path))
+
     def _edit_preview_template(self) -> None:
         template_path = (
             self._app_settings.preview_latex_template_path
@@ -911,6 +1091,24 @@ class MainWindow(Window):
             ]
         )
 
+    def _apply_settings_from_editor(self) -> None:
+        settings_path = self._app_settings.settings_path.resolve()
+        current_path = self._editor_panel.current_path()
+        if current_path is None or current_path.resolve() != settings_path:
+            return
+
+        content = self._editor_panel.current_content()
+        if not self._save_document(
+            settings_path,
+            content,
+            show_error=True,
+        ):
+            return
+
+        self._editor_panel.mark_saved(settings_path)
+        self._save_action.setEnabled(False)
+        self._reload_yaml_settings()
+
     def _reload_yaml_settings(self) -> bool:
         if not self._app_settings.reload():
             message = (
@@ -936,6 +1134,11 @@ class MainWindow(Window):
             ignore_file_path=(
                 self._app_settings.search_ignore_file_path
             ),
+            row_height=self._app_settings.navigator_row_height,
+        )
+        self._structure_panel.apply_settings(
+            indent_width=self._app_settings.navigator_indent_width,
+            row_height=self._app_settings.navigator_row_height,
         )
         self._search_window.apply_settings(
             root_path=self._app_settings.search_default_path,
@@ -956,6 +1159,20 @@ class MainWindow(Window):
             tree_indent_width=(
                 self._app_settings.search_tree_indent_width
             ),
+            hierarchical_path_matching=(
+                self._app_settings.search_hierarchical_path_matching
+            ),
+        )
+        self._preview_panel.apply_settings(
+            default_zoom_percent=(
+                self._app_settings.preview_default_zoom_percent
+            ),
+            auto_fit_on_open=(
+                self._app_settings.preview_auto_fit_on_open
+            ),
+            fit_width_percent=(
+                self._app_settings.preview_fit_width_percent
+            ),
         )
         self._renderer.apply_settings(
             template_path=(
@@ -970,11 +1187,26 @@ class MainWindow(Window):
             beamer_template_path=(
                 self._app_settings.preview_latex_beamer_template_path
             ),
+            cursor_sync_enabled=(
+                self._app_settings.preview_cursor_sync_enabled
+            ),
+            cursor_sync_debounce_ms=(
+                self._app_settings.preview_cursor_sync_debounce_ms
+            ),
+            large_document_threshold_chars=(
+                self._app_settings.preview_large_document_threshold_chars
+            ),
+            large_document_debounce_ms=(
+                self._app_settings.preview_large_document_debounce_ms
+            ),
         )
         self._double_shift_filter.set_interval_ms(
             self._app_settings.double_shift_interval_ms
         )
         self._splitter.setHandleWidth(
+            self._app_settings.splitter_handle_width
+        )
+        self._navigator_splitter.setHandleWidth(
             self._app_settings.splitter_handle_width
         )
         self._configure_autosave()
@@ -992,6 +1224,11 @@ class MainWindow(Window):
         content: str,
     ) -> None:
         self._touch_recent_file(path)
+        self._structure_panel.set_document(
+            path,
+            content,
+            immediate=True,
+        )
         self._render_path_content(
             path,
             content,
@@ -1029,6 +1266,11 @@ class MainWindow(Window):
         ):
             return
 
+        self._structure_panel.set_document(
+            path,
+            content,
+            immediate=False,
+        )
         self._render_path_content(
             path,
             content,
@@ -1065,8 +1307,9 @@ class MainWindow(Window):
         if file_path.suffix.lower() != ".tex":
             if file_path.resolve() == self._app_settings.settings_path.resolve():
                 self._preview_panel.preview.show_message(
-                    "settings.yaml is open in the editor. Save it to apply "
-                    "the new settings immediately."
+                    "settings.yaml is open in the editor. Changes may be saved "
+                    "normally, but they are not applied until you press Apply "
+                    "above the editor."
                 )
             else:
                 self._preview_panel.preview.show_message(
@@ -1078,6 +1321,38 @@ class MainWindow(Window):
             content,
             source_path=file_path,
             immediate=immediate,
+        )
+
+    def _on_render_failed(self, message: str) -> None:
+        # Keep the last successful PDF visible for transient syntax states
+        # while the user is typing.  The preview object only replaces the PDF
+        # with the error page when the current source has never rendered
+        # successfully.
+        self._preview_panel.preview.show_error(message)
+        first_line = next(
+            (line.strip() for line in str(message).splitlines() if line.strip()),
+            "LaTeX preview failed.",
+        )
+        self.statusBar().showMessage(first_line, 7000)
+
+    def _on_current_cursor_changed(
+        self,
+        path: str,
+        line: int,
+        column: int,
+    ) -> None:
+        current = self._editor_panel.current_path()
+        if current is None:
+            return
+
+        source_path = Path(path).expanduser().resolve()
+        if source_path != current or source_path.suffix.lower() != ".tex":
+            return
+
+        self._renderer.request_source_position(
+            source_path,
+            line,
+            column,
         )
 
     def _on_current_modification_changed(
@@ -1198,23 +1473,53 @@ class MainWindow(Window):
         self._save_session()
 
     def _restore_session(self) -> None:
-        splitter_state = (
-            self._session_settings.value(
-                "ui/splitter_state"
-            )
+        # Use explicit JSON values rather than Qt's opaque binary geometry.
+        # A small config file is the primary store; QSettings remains a fallback
+        # for compatibility with older releases.
+        file_state = self._read_ui_state_file()
+        rect_json = file_state.get(
+            "window_rect",
+            self._session_settings.value("ui/window_rect_json", ""),
         )
+        if isinstance(rect_json, list):
+            rect_json = json.dumps(rect_json)
+        try:
+            rect_values = json.loads(str(rect_json or ""))
+            if (
+                isinstance(rect_values, list)
+                and len(rect_values) == 4
+            ):
+                x, y, width, height = [int(value) for value in rect_values]
+                if width >= 400 and height >= 300:
+                    self._deferred_window_rect = (x, y, width, height)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            self._deferred_window_rect = None
 
-        if splitter_state is not None:
-            restored = self._splitter.restoreState(
-                splitter_state
-            )
+        maximized_raw = file_state.get(
+            "window_maximized",
+            self._session_settings.value("ui/window_maximized", False),
+        )
+        if isinstance(maximized_raw, str):
+            self._deferred_window_maximized = maximized_raw.strip().lower() in {
+                "1", "true", "yes", "on"
+            }
         else:
-            restored = False
+            self._deferred_window_maximized = bool(maximized_raw)
 
-        if not restored:
-            self._splitter.setSizes(
-                [320, 760, 480]
-            )
+        self._deferred_main_splitter_sizes = self._coerce_saved_sizes(
+            file_state.get(
+                "main_splitter_sizes",
+                self._session_settings.value("ui/main_splitter_sizes_json", ""),
+            ),
+            expected_count=3,
+        )
+        self._deferred_navigator_splitter_sizes = self._coerce_saved_sizes(
+            file_state.get(
+                "navigator_splitter_sizes",
+                self._session_settings.value("ui/navigator_splitter_sizes_json", ""),
+            ),
+            expected_count=2,
+        )
 
         expanded = self._session_settings.value(
             "filesystem/expanded_paths",
@@ -1232,20 +1537,21 @@ class MainWindow(Window):
             "editor/active_file",
             "",
         )
+        view_states_json = self._session_settings.value(
+            "editor/view_states_json",
+            "{}",
+        )
+        try:
+            view_states = json.loads(str(view_states_json or "{}"))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            view_states = {}
+        self._editor_panel.set_view_states(view_states)
 
         if isinstance(expanded, str):
-            expanded = (
-                [expanded]
-                if expanded
-                else []
-            )
+            expanded = [expanded] if expanded else []
 
         if isinstance(recent, str):
-            recent = (
-                [recent]
-                if recent
-                else []
-            )
+            recent = [recent] if recent else []
 
         self._file_system_panel.restore_state(
             list(expanded),
@@ -1253,44 +1559,160 @@ class MainWindow(Window):
         )
 
         valid_recent = []
-
-        for path in list(
-            recent
-        )[-10:]:
-            file_path = Path(
-                str(path)
-            ).expanduser()
-
+        for path in list(recent)[-self._app_settings.editor_max_open_tabs:]:
+            file_path = Path(str(path)).expanduser()
             if file_path.is_file():
-                valid_recent.append(
-                    str(
-                        file_path.resolve()
-                    )
-                )
+                valid_recent.append(str(file_path.resolve()))
 
         for path in valid_recent:
-            self._open_path(
-                path,
-                select=False,
-            )
+            self._open_path(path, select=False)
 
         if active:
-            if not self._editor_panel.activate_path(
-                str(active)
-            ):
+            if not self._editor_panel.activate_path(str(active)):
                 if valid_recent:
-                    self._editor_panel.activate_path(
-                        valid_recent[-1]
-                    )
+                    self._editor_panel.activate_path(valid_recent[-1])
         elif valid_recent:
-            self._editor_panel.activate_path(
-                valid_recent[-1]
+            self._editor_panel.activate_path(valid_recent[-1])
+
+    def _read_saved_sizes(
+        self,
+        key: str,
+        expected_count: int,
+    ) -> list[int] | None:
+        return self._coerce_saved_sizes(
+            self._session_settings.value(key, ""),
+            expected_count,
+        )
+
+    @staticmethod
+    def _coerce_saved_sizes(
+        raw: object,
+        expected_count: int,
+    ) -> list[int] | None:
+        values = raw
+        if isinstance(values, str):
+            try:
+                values = json.loads(values or "")
+            except (TypeError, ValueError, json.JSONDecodeError):
+                return None
+        if not isinstance(values, list) or len(values) != expected_count:
+            return None
+        try:
+            sizes = [max(int(value), 0) for value in values]
+        except (TypeError, ValueError):
+            return None
+        if sum(sizes) <= 0:
+            return None
+        return sizes
+
+    def _read_ui_state_file(self) -> dict[str, object]:
+        try:
+            raw = json.loads(self._ui_state_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError, json.JSONDecodeError):
+            return {}
+        return raw if isinstance(raw, dict) else {}
+
+    def _write_ui_state_file(self, state: dict[str, object]) -> None:
+        try:
+            self._ui_state_path.parent.mkdir(parents=True, exist_ok=True)
+            temporary = self._ui_state_path.with_suffix(".tmp")
+            temporary.write_text(
+                json.dumps(state, ensure_ascii=False, separators=(",", ":")),
+                encoding="utf-8",
             )
+            temporary.replace(self._ui_state_path)
+        except OSError:
+            # QSettings below remains a fallback if the config directory is
+            # temporarily unavailable/read-only.
+            pass
+
+    def _schedule_ui_layout_save(self) -> None:
+        if getattr(self, "_restoring_session", True):
+            return
+        timer = getattr(self, "_layout_save_timer", None)
+        if timer is not None:
+            timer.start()
+
+    def _apply_deferred_ui_layout(self) -> None:
+        if self._ui_layout_applied:
+            return
+        self._ui_layout_applied = True
+        if self._deferred_window_rect is not None:
+            x, y, width, height = self._deferred_window_rect
+            candidate = QRect(x, y, width, height)
+            screens = QApplication.screens()
+            visible = any(
+                screen.availableGeometry().intersects(candidate)
+                for screen in screens
+            )
+            if visible:
+                self.resize(candidate.width(), candidate.height())
+                self.move(candidate.x(), candidate.y())
+            elif screens:
+                available = QApplication.primaryScreen().availableGeometry()
+                width = min(width, available.width())
+                height = min(height, available.height())
+                self.resize(width, height)
+                self.move(
+                    available.x() + max((available.width() - width) // 2, 0),
+                    available.y() + max((available.height() - height) // 2, 0),
+                )
+
+        if self._deferred_main_splitter_sizes is not None:
+            self._splitter.setSizes(self._deferred_main_splitter_sizes)
+        else:
+            self._splitter.setSizes([320, 760, 480])
+
+        if self._deferred_navigator_splitter_sizes is not None:
+            self._navigator_splitter.setSizes(
+                self._deferred_navigator_splitter_sizes
+            )
+        else:
+            self._navigator_splitter.setSizes([560, 340])
+
+        if self._deferred_window_maximized:
+            self.showMaximized()
+
+    def _save_ui_layout_state(self) -> None:
+        if self._restoring_session:
+            return
+
+        rect = self.normalGeometry() if self.isMaximized() else self.geometry()
+        self._session_settings.setValue(
+            "ui/window_rect_json",
+            json.dumps([rect.x(), rect.y(), rect.width(), rect.height()]),
+        )
+        self._session_settings.setValue(
+            "ui/window_maximized",
+            bool(self.isMaximized()),
+        )
+        self._session_settings.setValue(
+            "ui/main_splitter_sizes_json",
+            json.dumps(self._splitter.sizes()),
+        )
+        navigator_sizes = self._navigator_splitter.sizes()
+        main_sizes = self._splitter.sizes()
+        self._session_settings.setValue(
+            "ui/navigator_splitter_sizes_json",
+            json.dumps(navigator_sizes),
+        )
+        self._write_ui_state_file(
+            {
+                "window_rect": [
+                    rect.x(), rect.y(), rect.width(), rect.height()
+                ],
+                "window_maximized": bool(self.isMaximized()),
+                "main_splitter_sizes": main_sizes,
+                "navigator_splitter_sizes": navigator_sizes,
+            }
+        )
+        self._session_settings.sync()
 
     def _save_session(self) -> None:
         if self._restoring_session:
             return
 
+        self._save_ui_layout_state()
         self._session_settings.setValue(
             "filesystem/expanded_paths",
             self._file_system_panel.expanded_paths(),
@@ -1307,11 +1729,6 @@ class MainWindow(Window):
                 if path in self._editor_panel.open_paths()
             ],
         )
-        self._session_settings.setValue(
-            "ui/splitter_state",
-            self._splitter.saveState(),
-        )
-
         current = (
             self._editor_panel.current_path()
         )
@@ -1322,6 +1739,14 @@ class MainWindow(Window):
                 str(current)
                 if current is not None
                 else ""
+            ),
+        )
+        self._session_settings.setValue(
+            "editor/view_states_json",
+            json.dumps(
+                self._editor_panel.view_states(),
+                ensure_ascii=False,
+                separators=(",", ":"),
             ),
         )
         self._session_settings.sync()
@@ -1372,6 +1797,22 @@ class MainWindow(Window):
             "nd_mind_mirror_project",
             message,
         )
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        if not self._ui_layout_applied:
+            # Window managers can adjust the frame during mapping. Restoring a
+            # moment after show makes width/height and all splitter columns
+            # deterministic on both X11 and Wayland.
+            QTimer.singleShot(80, self._apply_deferred_ui_layout)
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._schedule_ui_layout_save()
+
+    def moveEvent(self, event) -> None:
+        super().moveEvent(event)
+        self._schedule_ui_layout_save()
 
     def closeEvent(self, event) -> None:
         modified = (

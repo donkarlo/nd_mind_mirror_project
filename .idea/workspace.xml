@@ -1,9 +1,127 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
+  <component name="AutoImportSettings">
+    <option name="autoReloadType" value="ALL" />
+  </component>
+  <component name="ChangeListManager">
+    <list default="true" id="a52373f1-681d-4fc5-abaa-69eae5b9e03d" name="Changes" comment="">
+      <change beforePath="$PROJECT_DIR$/.idea/modules.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/modules.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/nd_mind_mirror_project.iml" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/pyproject.toml" beforeDir="false" afterPath="$PROJECT_DIR$/pyproject.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/resources/latex_preview_beamer_template.tex" beforeDir="false" afterPath="$PROJECT_DIR$/resources/latex_preview_beamer_template.tex" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/resources/latex_preview_template.tex" beforeDir="false" afterPath="$PROJECT_DIR$/resources/latex_preview_template.tex" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/settings.yaml" beforeDir="false" afterPath="$PROJECT_DIR$/settings.yaml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/nd_mind_mirror/core/render/latex/latex_preview_source_builder.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/nd_mind_mirror/core/render/latex/latex_preview_source_builder.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/nd_mind_mirror/core/render/latex/latex_renderer.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/nd_mind_mirror/core/render/latex/latex_renderer.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/nd_mind_mirror/core/settings/yaml/yaml_settings.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/nd_mind_mirror/core/settings/yaml/yaml_settings.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/nd_mind_mirror/ui/editor/base/text_editor.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/nd_mind_mirror/ui/editor/base/text_editor.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/nd_mind_mirror/ui/editor/latex/latex_editor.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/nd_mind_mirror/ui/editor/latex/latex_editor.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/nd_mind_mirror/ui/editor/yaml/yaml_editor.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/nd_mind_mirror/ui/editor/yaml/yaml_editor.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/nd_mind_mirror/ui/panel/editor/editor_panel.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/nd_mind_mirror/ui/panel/editor/editor_panel.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/nd_mind_mirror/ui/panel/file_system/file_system_panel.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/nd_mind_mirror/ui/panel/file_system/file_system_panel.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/nd_mind_mirror/ui/panel/preview/preview_panel.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/nd_mind_mirror/ui/panel/preview/preview_panel.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/nd_mind_mirror/ui/preview/latex/latex_preview.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/nd_mind_mirror/ui/preview/latex/latex_preview.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/nd_mind_mirror/ui/preview/pdf/selectable_pdf_view.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/nd_mind_mirror/ui/preview/pdf/selectable_pdf_view.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/nd_mind_mirror/ui/preview/pdf/selectable_pdf_view.qml" beforeDir="false" afterPath="$PROJECT_DIR$/src/nd_mind_mirror/ui/preview/pdf/selectable_pdf_view.qml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/nd_mind_mirror/ui/search/window/search_window.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/nd_mind_mirror/ui/search/window/search_window.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/nd_mind_mirror/ui/window/main/main_window.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/nd_mind_mirror/ui/window/main/main_window.py" afterDir="false" />
+    </list>
+    <option name="SHOW_DIALOG" value="false" />
+    <option name="HIGHLIGHT_CONFLICTS" value="true" />
+    <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
+    <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="Git.Settings">
+    <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
+  </component>
+  <component name="ProjectColorInfo">{
+  &quot;associatedIndex&quot;: 7
+}</component>
+  <component name="ProjectId" id="3I7UaSrytpMCHvirh2jIWduBCIX" />
   <component name="ProjectViewState">
     <option name="autoscrollFromSource" value="true" />
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent">{}</component>
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "ModuleVcsDetector.initialDetectionPerformed": "true",
+    "Python.nd_mind_mirror_project.executor": "Run",
+    "RunOnceActivity.ShowReadmeOnStart": "true",
+    "RunOnceActivity.git.unshallow": "true",
+    "RunOnceActivity.typescript.service.memoryLimit.init": "true",
+    "git-widget-placeholder": "main",
+    "last_opened_file_path": "/home/donkarlo/Dropbox/repo/nd_robotic_ai_project",
+    "node.js.detected.package.eslint": "true",
+    "node.js.selected.package.eslint": "(autodetect)",
+    "nodejs_package_manager_path": "npm"
+  }
+}]]></component>
+  <component name="RunManager">
+    <configuration default="true" type="LATEX_RUN_CONFIGURATION" factoryName="LaTeX configuration factory">
+      <steps>
+        <latexmkCompile id="68d0cfa3-f8c5-4c8b-9c4a-239fb71baa15" />
+        <pdfViewer id="3e3c82fa-c1ca-4845-9594-94674fd20182" />
+      </steps>
+      <method v="2" />
+    </configuration>
+    <configuration name="nd_mind_mirror_project" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
+      <module name="nd_mind_mirror_project@1" />
+      <option name="ENV_FILES" value="" />
+      <option name="INTERPRETER_OPTIONS" value="" />
+      <option name="PARENT_ENVS" value="true" />
+      <envs>
+        <env name="PYTHONUNBUFFERED" value="1" />
+      </envs>
+      <option name="SDK_HOME" value="" />
+      <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$" />
+      <option name="IS_MODULE_SDK" value="true" />
+      <option name="ADD_CONTENT_ROOTS" value="true" />
+      <option name="ADD_SOURCE_ROOTS" value="true" />
+      <option name="DEBUG_JUST_MY_CODE" value="false" />
+      <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
+      <option name="RUN_TOOL" value="" />
+      <option name="SCRIPT_NAME" value="$PROJECT_DIR$/nd_mind_mirror_project" />
+      <option name="PARAMETERS" value="" />
+      <option name="SHOW_COMMAND_LINE" value="false" />
+      <option name="EMULATE_TERMINAL" value="false" />
+      <option name="MODULE_MODE" value="false" />
+      <option name="REDIRECT_INPUT" value="false" />
+      <option name="INPUT_FILE" value="" />
+      <method v="2" />
+    </configuration>
+    <recent_temporary>
+      <list>
+        <item itemvalue="Python.nd_mind_mirror_project" />
+      </list>
+    </recent_temporary>
+  </component>
+  <component name="SharedIndexes">
+    <attachedChunks>
+      <set>
+        <option value="bundled-python-sdk-6fa658e1df1a-5bd6d13a2a75-com.jetbrains.pycharm.pro.sharedIndexes.bundled-PY-262.8665.369" />
+      </set>
+    </attachedChunks>
+  </component>
+  <component name="TaskManager">
+    <task active="true" id="Default" summary="Default task">
+      <changelist id="a52373f1-681d-4fc5-abaa-69eae5b9e03d" name="Changes" comment="" />
+      <created>1787115163963</created>
+      <option name="number" value="Default" />
+      <option name="presentableId" value="Default" />
+      <updated>1787115163963</updated>
+      <workItem from="1787115165071" duration="240000" />
+      <workItem from="1787115426062" duration="917000" />
+      <workItem from="1787124479855" duration="628000" />
+    </task>
+    <servers />
+  </component>
+  <component name="TypeScriptGeneratedFilesManager">
+    <option name="version" value="3" />
+  </component>
+  <component name="com.intellij.coverage.CoverageDataManagerImpl">
+    <SUITE FILE_PATH="coverage/nd_mind_mirror_project$nd_mind_mirror_project.coverage" NAME="nd_mind_mirror_project Coverage Results" MODIFIED="1787115429929" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+  </component>
 </project>
