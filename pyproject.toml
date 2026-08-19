@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nd_mind_mirror_project"
+version = "0.14.5"
+description = "Qt LaTeX editor with true hanging soft-wraps, hot-reloadable line spacing, fast selectable live PDF preview with persistent zoom scrollbars and drag panning, YAML highlighting, configurable LRU tab limits, scoped search, and external file sync."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "PySide6>=6.8",
+    "PyYAML>=6.0"
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+namespaces = true
+
+[tool.setuptools.package-data]
+"nd_mind_mirror.ui.preview.pdf" = ["*.qml"]

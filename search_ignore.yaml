@@ -1,0 +1,15 @@
+# Search/Navigator ignore rules.
+# The syntax is intentionally close to .gitignore:
+# - a plain directory name such as "out/" ignores that directory at any depth
+# - glob patterns such as "*.aux" or "**/build/**" are supported
+# - a leading slash anchors a rule to the configured search root
+# - a leading ! negates a previous rule when the parent directory is still traversed
+ignore:
+  - ".git/"
+  - ".idea/"
+  - ".vscode/"
+  - "__pycache__/"
+  - ".venv/"
+  - "venv/"
+  - "node_modules/"
+  - "out/"

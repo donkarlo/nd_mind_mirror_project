@@ -1,0 +1,46 @@
+editor:
+  font_family: "DejaVu Sans Mono"
+  font_size: 11
+  font_min_size: 6
+  font_max_size: 40
+  line_height_percent: 200
+  max_open_tabs: 20
+  indent_size: 4
+  cursor_width: 2
+  cursor_flash_time_ms: 650
+  soft_wrap: true
+  wrap_marker: "↳"
+  wrap_marker_color: "#9aa0a6"
+  wrap_marker_margin: 18
+  current_line_highlight: "#eaf4ff"
+
+autosave:
+  enabled: true
+  interval_ms: 1000
+
+external_file_sync:
+  enabled: true
+  interval_ms: 1000
+
+search:
+  default_path: "~/Dropbox/repo"
+  ignore_file: "search_ignore.yaml"
+  max_results: 100
+  debounce_ms: 70
+  fuzzy_threshold: 0.86
+  window_width: 900
+  window_height: 620
+  tree_indent_width: 10
+
+input:
+  double_shift_interval_ms: 450
+
+ui:
+  splitter_handle_width: 9
+  navigator_indent_width: 10
+
+preview:
+  debounce_ms: 220
+  latex_template_path: "resources/latex_preview_template.tex"
+  latex_beamer_template_path: "resources/latex_preview_beamer_template.tex"
+  shell_escape: true
