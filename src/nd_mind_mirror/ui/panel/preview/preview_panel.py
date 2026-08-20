@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QHBoxLayout,
@@ -5,10 +7,12 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QPushButton,
     QSizePolicy,
+    QStackedWidget,
 )
 
 from nd_mind_mirror.ui.panel.base.panel import Panel
 from nd_mind_mirror.ui.preview.latex.latex_preview import LatexPreview
+from nd_mind_mirror.ui.preview.markdown.markdown_preview import MarkdownPreview
 
 
 class PreviewPanel(Panel):
@@ -29,7 +33,11 @@ class PreviewPanel(Panel):
         self._export_button.clicked.connect(self.export_requested.emit)
 
         self._fit_button = QPushButton("Fit", self)
-        self._fit_button.setToolTip("Fit the whole PDF page in the preview panel")
+        self._fit_button.setToolTip(
+            "Fit the widest rendered PDF content to 95% of the preview panel "
+            "while cropping unused white page margins horizontally. The Zoom "
+            "field shows the resulting render scale."
+        )
 
         self._zoom_label = QLabel("Zoom:", self)
         self._zoom_edit = QLineEdit("100%", self)
@@ -45,6 +53,11 @@ class PreviewPanel(Panel):
         )
 
         self._preview = LatexPreview(self)
+        self._markdown_preview = MarkdownPreview(self)
+        self._stack = QStackedWidget(self)
+        self._stack.addWidget(self._preview)
+        self._stack.addWidget(self._markdown_preview)
+        self._stack.setCurrentWidget(self._preview)
 
         self._fit_button.clicked.connect(self._preview.fit_to_panel)
         self._zoom_edit.editingFinished.connect(self._apply_zoom_edit)
@@ -58,9 +71,40 @@ class PreviewPanel(Panel):
         controls.addWidget(self._zoom_edit)
         controls.addWidget(self._page_label)
 
+        self._controls_layout = controls
+        self._latex_controls = [
+            self._export_button,
+            self._fit_button,
+            self._zoom_label,
+            self._zoom_edit,
+            self._page_label,
+        ]
+
         self.panel_layout.addWidget(self._label)
         self.panel_layout.addLayout(controls)
-        self.panel_layout.addWidget(self._preview, 1)
+        self.panel_layout.addWidget(self._stack, 1)
+
+
+    def show_latex_mode(self) -> None:
+        self._stack.setCurrentWidget(self._preview)
+        self._label.setText("Live LaTeX Preview")
+        for widget in self._latex_controls:
+            widget.setVisible(True)
+
+    def show_pdf(self, pdf_path) -> None:
+        self.show_latex_mode()
+        self._preview.show_pdf(pdf_path)
+
+    def show_markdown(self, source: str, source_path: str | Path) -> None:
+        self._markdown_preview.show_markdown(source, source_path)
+        self._stack.setCurrentWidget(self._markdown_preview)
+        self._label.setText(f"Rendered Markdown — {Path(source_path).name}")
+        for widget in self._latex_controls:
+            widget.setVisible(False)
+
+    def show_message(self, message: str) -> None:
+        self.show_latex_mode()
+        self._preview.show_message(message)
 
     @property
     def preview(self) -> LatexPreview:
@@ -78,6 +122,13 @@ class PreviewPanel(Panel):
         self._preview.configure_initial_view(
             auto_fit_on_open=auto_fit_on_open,
             fit_width_percent=fit_width_percent,
+        )
+        fit_value = max(50, min(int(round(float(fit_width_percent))), 100))
+        self._fit_button.setText("Fit")
+        self._fit_button.setToolTip(
+            f"Fit the widest rendered PDF content to {fit_value}% of the "
+            "preview panel, ignoring unused white page margins horizontally. "
+            "The Zoom field shows the resulting render scale."
         )
 
     def _apply_zoom_edit(self) -> None:

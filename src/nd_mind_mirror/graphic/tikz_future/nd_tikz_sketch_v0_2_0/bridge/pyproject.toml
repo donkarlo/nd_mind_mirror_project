@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nd-tikz-bridge"
+version = "0.2.0"
+description = "Live WebSocket bridge between nd_tikz_sketch on iPad and TikZ files on Ubuntu"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.116,<1",
+  "uvicorn[standard]>=0.35,<1",
+  "watchfiles>=1.1,<2",
+]
+
+[project.scripts]
+nd-tikz-bridge = "nd_tikz_bridge.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["nd_tikz_bridge*"]

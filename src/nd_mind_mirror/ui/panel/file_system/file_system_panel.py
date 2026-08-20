@@ -5,12 +5,14 @@ from PySide6.QtCore import (
     QDir,
     QEvent,
     QItemSelectionModel,
+    QProcess,
     Qt,
     QTimer,
     Signal,
 )
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QApplication,
     QFileSystemModel,
     QInputDialog,
     QLabel,
@@ -21,6 +23,9 @@ from PySide6.QtWidgets import (
     QTreeView,
 )
 
+from nd_mind_mirror.core.clipboard.image.clipboard_image_saver import (
+    ClipboardImageSaver,
+)
 from nd_mind_mirror.ui.model.file_system.ignored_file_system_proxy_model import (
     IgnoredFileSystemProxyModel,
 )
@@ -30,12 +35,8 @@ from nd_mind_mirror.ui.panel.base.panel import Panel
 class FileSystemPanel(Panel):
     latex_file_selected = Signal(str)
 
-    _ACTIVATABLE_SUFFIXES = {
-        ".tex", ".yaml", ".yml", ".pdf",
-        ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp",
-        ".svg", ".tif", ".tiff",
-    }
     state_changed = Signal()
+    path_about_to_move = Signal(str)
     path_renamed = Signal(str, str)
     path_deleted = Signal(str)
     path_created = Signal(str)
@@ -47,6 +48,12 @@ class FileSystemPanel(Panel):
         self._pending_reveal: Path | None = None
         self._root_path = Path.home().resolve()
         self._ignore_file_path: Path | None = None
+        self._latex_templates: list[tuple[str, Path]] = []
+        self._image_saver = ClipboardImageSaver()
+        self._clipboard_generation = 0
+        self._last_saved_clipboard_generation = -1
+        self._clipboard = QApplication.clipboard()
+        self._clipboard.dataChanged.connect(self._on_clipboard_changed)
 
         self.setMinimumWidth(90)
         self.setSizePolicy(
@@ -60,6 +67,7 @@ class FileSystemPanel(Panel):
         )
 
         self._model = QFileSystemModel(self)
+        self._model.setReadOnly(False)
         self._model.setFilter(
             QDir.Filter.AllDirs
             | QDir.Filter.Files
@@ -94,6 +102,14 @@ class FileSystemPanel(Panel):
         self._tree.setContextMenuPolicy(
             Qt.ContextMenuPolicy.CustomContextMenu
         )
+        self._tree.setDragEnabled(True)
+        self._tree.setAcceptDrops(True)
+        self._tree.viewport().setAcceptDrops(True)
+        self._tree.setDropIndicatorShown(True)
+        self._tree.setDragDropMode(
+            QAbstractItemView.DragDropMode.DragDrop
+        )
+        self._tree.setDefaultDropAction(Qt.DropAction.MoveAction)
 
         for column in range(1, 4):
             self._tree.setColumnHidden(
@@ -113,6 +129,7 @@ class FileSystemPanel(Panel):
         # the item, which previously caused missed file activations and jumps.
         self._tree.setExpandsOnDoubleClick(False)
         self._tree.viewport().installEventFilter(self)
+        self._tree.installEventFilter(self)
 
         self._tree.clicked.connect(
             self._on_clicked
@@ -141,6 +158,7 @@ class FileSystemPanel(Panel):
         root_path: str | Path,
         ignore_file_path: str | Path | None,
         row_height: int = 24,
+        latex_templates: list[tuple[str, Path]] | None = None,
     ) -> None:
         new_root = Path(
             root_path
@@ -154,6 +172,11 @@ class FileSystemPanel(Panel):
 
         self._root_path = new_root
         self._ignore_file_path = new_ignore
+        if latex_templates is not None:
+            self._latex_templates = [
+                (str(label), Path(path).expanduser())
+                for label, path in latex_templates
+            ]
         self._tree.setIndentation(
             max(
                 int(indent_width),
@@ -224,6 +247,8 @@ class FileSystemPanel(Panel):
     def select_path(
         self,
         path: str | Path,
+        *,
+        force_reveal: bool = False,
     ) -> None:
         target = Path(
             path
@@ -236,7 +261,7 @@ class FileSystemPanel(Panel):
             return
 
         current_path = self.selected_path()
-        if current_path:
+        if current_path and not force_reveal:
             try:
                 if Path(current_path).resolve() == target:
                     # The navigator already owns this selection (for
@@ -369,26 +394,157 @@ class FileSystemPanel(Panel):
         if not index.isValid():
             return
 
+        # A copied image is a one-shot paste target: the first normal click
+        # on a directory after the clipboard image changes stores it there as
+        # img.jpg / img_2.jpg / ... . Re-clicking folders with the same
+        # clipboard contents cannot create accidental duplicates.
+        source_index = self._source_index(index)
+        if source_index.isValid() and self._model.isDir(source_index):
+            directory = Path(self._model.filePath(source_index))
+            self._save_current_clipboard_image(directory, one_shot=True)
+
         # A single click only changes the navigator selection. Opening a
         # document is intentionally reserved for double-click so browsing
         # the tree cannot create tabs accidentally.
         self.state_changed.emit()
 
-    def eventFilter(self, watched, event) -> bool:
+    def _on_clipboard_changed(self) -> None:
+        self._clipboard_generation += 1
+
+    def _save_current_clipboard_image(
+        self,
+        directory: Path,
+        *,
+        one_shot: bool,
+    ) -> Path | None:
         if (
-            watched is self._tree.viewport()
-            and event.type() == QEvent.Type.MouseButtonDblClick
-            and event.button() == Qt.MouseButton.LeftButton
+            one_shot
+            and self._last_saved_clipboard_generation
+            == self._clipboard_generation
         ):
-            index = self._tree.indexAt(
-                event.position().toPoint()
-            )
-            if index.isValid():
-                self._activate_index(index)
-            event.accept()
-            return True
+            return None
+
+        saved = self._image_saver.save_to_directory(
+            self._clipboard.mimeData(),
+            directory,
+            base_name="img",
+            extension=".jpg",
+        )
+        if saved is None:
+            return None
+
+        self._last_saved_clipboard_generation = self._clipboard_generation
+        self._proxy_model.invalidateFilter()
+        self.path_created.emit(str(saved))
+        self.select_path(saved, force_reveal=True)
+        self.state_changed.emit()
+        return saved
+
+    def eventFilter(self, watched, event) -> bool:
+        if watched is self._tree and event.type() == QEvent.Type.KeyPress:
+            if event.key() == Qt.Key.Key_Delete:
+                selected = self.selected_path()
+                if selected:
+                    target = Path(selected).expanduser().resolve()
+                    if target != self._root_path and target.exists():
+                        self._delete_path(target)
+                        event.accept()
+                        return True
+
+            if (
+                event.key() == Qt.Key.Key_V
+                and bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier)
+            ):
+                selected = self.selected_path()
+                if selected:
+                    target = Path(selected)
+                    directory = target if target.is_dir() else target.parent
+                    if self._save_current_clipboard_image(directory, one_shot=False):
+                        event.accept()
+                        return True
+
+        if watched is self._tree.viewport():
+            if (
+                event.type() == QEvent.Type.MouseButtonDblClick
+                and event.button() == Qt.MouseButton.LeftButton
+            ):
+                index = self._tree.indexAt(event.position().toPoint())
+                if index.isValid():
+                    self._activate_index(index)
+                event.accept()
+                return True
+
+            if event.type() in {QEvent.Type.DragEnter, QEvent.Type.DragMove}:
+                if self._drag_source_path() is not None:
+                    event.acceptProposedAction()
+                    return True
+
+            if event.type() == QEvent.Type.Drop:
+                source = self._drag_source_path()
+                if source is None:
+                    return False
+                target_index = self._tree.indexAt(event.position().toPoint())
+                target = (
+                    Path(self._path_for_view_index(target_index))
+                    if target_index.isValid()
+                    else self._root_path
+                )
+                destination = target if target.is_dir() else target.parent
+                if self._move_path_by_drop(source, destination):
+                    event.acceptProposedAction()
+                else:
+                    event.ignore()
+                return True
 
         return super().eventFilter(watched, event)
+
+    def _drag_source_path(self) -> Path | None:
+        selected = self.selected_path()
+        if not selected:
+            return None
+        source = Path(selected).expanduser().resolve()
+        if source == self._root_path or not source.exists():
+            return None
+        return source
+
+    def _move_path_by_drop(self, source: Path, destination: Path) -> bool:
+        try:
+            destination = destination.expanduser().resolve()
+        except OSError:
+            return False
+        if not destination.is_dir():
+            return False
+        if source.parent == destination:
+            return False
+        if source.is_dir() and self._is_same_or_child(destination, source):
+            return False
+
+        target = destination / source.name
+        if target.exists():
+            QMessageBox.warning(
+                self,
+                "Move",
+                f"{target.name} already exists in {destination}.",
+            )
+            return False
+
+        old_path = source.resolve()
+        self.path_about_to_move.emit(str(old_path))
+        try:
+            moved = Path(shutil.move(str(source), str(target))).resolve()
+        except OSError as exc:
+            QMessageBox.critical(self, "Move", str(exc))
+            return False
+
+        self._expanded_paths = {
+            self._renamed_state_path(value, old_path, moved)
+            for value in self._expanded_paths
+        }
+        self._proxy_model.invalidateFilter()
+        self.path_renamed.emit(str(old_path), str(moved))
+        self.select_path(moved, force_reveal=True)
+        self.state_changed.emit()
+        return True
 
     def _activate_index(self, index) -> None:
         if not index.isValid():
@@ -410,11 +566,7 @@ class FileSystemPanel(Panel):
             self._model.filePath(source_index)
         )
 
-        if path.suffix.lower() in self._ACTIVATABLE_SUFFIXES:
-            self.latex_file_selected.emit(
-                str(path)
-            )
-
+        self.latex_file_selected.emit(str(path))
         self.state_changed.emit()
 
     def _on_expanded(self, index) -> None:
@@ -452,6 +604,19 @@ class FileSystemPanel(Panel):
 
         menu = QMenu(self)
 
+        open_in_files_action = menu.addAction(
+            "Open in Files"
+        )
+        copy_absolute_path_action = menu.addAction(
+            "Copy Absolute Path"
+        )
+        copy_file_name_action = menu.addAction(
+            "Copy File Name"
+        )
+        paste_image_action = menu.addAction(
+            "Paste Clipboard Image Here"
+        )
+        menu.addSeparator()
         new_latex_file_action = menu.addAction(
             "New LaTeX File..."
         )
@@ -479,7 +644,18 @@ class FileSystemPanel(Panel):
             )
         )
 
-        if chosen == new_latex_file_action:
+        if chosen == open_in_files_action:
+            self._open_in_file_manager(path)
+        elif chosen == copy_absolute_path_action:
+            self._clipboard.setText(str(path.expanduser().resolve()))
+        elif chosen == copy_file_name_action:
+            self._clipboard.setText(path.name)
+        elif chosen == paste_image_action:
+            self._save_current_clipboard_image(
+                self._target_directory(path),
+                one_shot=False,
+            )
+        elif chosen == new_latex_file_action:
             self._create_file(
                 path,
                 latex=True,
@@ -495,6 +671,35 @@ class FileSystemPanel(Panel):
             self._rename_path(path)
         elif chosen == delete_action:
             self._delete_path(path)
+
+    @staticmethod
+    def _start_detached(program: str, arguments: list[str]) -> bool:
+        result = QProcess.startDetached(program, arguments)
+        if isinstance(result, tuple):
+            return bool(result[0]) if result else False
+        return bool(result)
+
+    def _open_in_file_manager(self, path: Path) -> None:
+        """Reveal the selected path in Ubuntu's Files app when possible."""
+        target = path.expanduser().resolve()
+        nautilus = shutil.which("nautilus")
+        if nautilus:
+            arguments = ["--select", str(target)] if target.is_file() else [str(target)]
+            if self._start_detached(nautilus, arguments):
+                return
+
+        opener = shutil.which("xdg-open") or shutil.which("gio")
+        directory = target if target.is_dir() else target.parent
+        if opener:
+            arguments = [str(directory)] if Path(opener).name == "xdg-open" else ["open", str(directory)]
+            if self._start_detached(opener, arguments):
+                return
+
+        QMessageBox.warning(
+            self,
+            "Open in Files",
+            f"Could not open Ubuntu Files for:\n{target}",
+        )
 
     def _target_directory(
         self,
@@ -544,6 +749,21 @@ class FileSystemPanel(Panel):
                 ".tex"
             )
 
+        template_content = ""
+        if latex:
+            chosen_template = self._choose_latex_template()
+            if chosen_template is None:
+                return
+            try:
+                template_content = chosen_template.read_text(encoding="utf-8")
+            except OSError as exc:
+                QMessageBox.critical(
+                    self,
+                    title,
+                    f"Could not read LaTeX template:\n{chosen_template}\n\n{exc}",
+                )
+                return
+
         target = directory / candidate
 
         if target.exists():
@@ -560,7 +780,7 @@ class FileSystemPanel(Panel):
                 exist_ok=True,
             )
             target.write_text(
-                "",
+                template_content if latex else "",
                 encoding="utf-8",
             )
         except OSError as exc:
@@ -577,6 +797,36 @@ class FileSystemPanel(Panel):
         )
         self.select_path(target)
         self.state_changed.emit()
+
+    def _choose_latex_template(self) -> Path | None:
+        templates = [
+            (label, path)
+            for label, path in self._latex_templates
+            if str(label).strip()
+        ]
+        if not templates:
+            QMessageBox.warning(
+                self,
+                "New LaTeX File",
+                "No LaTeX templates are configured in settings.yaml.",
+            )
+            return None
+
+        labels = [label for label, _path in templates]
+        label, accepted = QInputDialog.getItem(
+            self,
+            "New LaTeX File",
+            "LaTeX template:",
+            labels,
+            0,
+            False,
+        )
+        if not accepted:
+            return None
+        for candidate_label, candidate_path in templates:
+            if candidate_label == label:
+                return candidate_path
+        return None
 
     def _create_folder(
         self,
@@ -664,6 +914,7 @@ class FileSystemPanel(Panel):
             return
 
         old_path = path.resolve()
+        self.path_about_to_move.emit(str(old_path))
 
         try:
             path.rename(target)

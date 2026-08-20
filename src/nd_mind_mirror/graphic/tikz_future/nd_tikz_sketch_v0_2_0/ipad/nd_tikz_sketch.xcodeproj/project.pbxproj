@@ -1,0 +1,81 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		A00000000000000000000001 /* NDTikZSketchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000001 /* NDTikZSketchApp.swift */; };
+		A00000000000000000000002 /* DrawingTool.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000002 /* DrawingTool.swift */; };
+		A00000000000000000000003 /* BridgeMessage.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000003 /* BridgeMessage.swift */; };
+		A00000000000000000000004 /* BridgeClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000004 /* BridgeClient.swift */; };
+		A00000000000000000000005 /* TikZSourceEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000005 /* TikZSourceEditor.swift */; };
+		A00000000000000000000006 /* TikZCoordinateMapper.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000006 /* TikZCoordinateMapper.swift */; };
+		A00000000000000000000007 /* PolylineSimplifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000007 /* PolylineSimplifier.swift */; };
+		A00000000000000000000008 /* PencilCanvasView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000008 /* PencilCanvasView.swift */; };
+		A00000000000000000000009 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000009 /* ContentView.swift */; };
+		A0000000000000000000000A /* ConnectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000000A /* ConnectionView.swift */; };
+		A0000000000000000000000B /* HandwritingRecognizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000000D /* HandwritingRecognizer.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		B00000000000000000000001 /* NDTikZSketchApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NDTikZSketchApp.swift; sourceTree = "<group>"; };
+		B00000000000000000000002 /* DrawingTool.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DrawingTool.swift; sourceTree = "<group>"; };
+		B00000000000000000000003 /* BridgeMessage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BridgeMessage.swift; sourceTree = "<group>"; };
+		B00000000000000000000004 /* BridgeClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BridgeClient.swift; sourceTree = "<group>"; };
+		B00000000000000000000005 /* TikZSourceEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TikZSourceEditor.swift; sourceTree = "<group>"; };
+		B00000000000000000000006 /* TikZCoordinateMapper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TikZCoordinateMapper.swift; sourceTree = "<group>"; };
+		B00000000000000000000007 /* PolylineSimplifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PolylineSimplifier.swift; sourceTree = "<group>"; };
+		B00000000000000000000008 /* PencilCanvasView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PencilCanvasView.swift; sourceTree = "<group>"; };
+		B00000000000000000000009 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		B0000000000000000000000A /* ConnectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionView.swift; sourceTree = "<group>"; };
+		B0000000000000000000000B /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		B0000000000000000000000C /* nd_tikz_sketch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = nd_tikz_sketch.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		B0000000000000000000000D /* HandwritingRecognizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HandwritingRecognizer.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		C00000000000000000000001 /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		D00000000000000000000001 = {isa = PBXGroup; children = (D00000000000000000000002 /* nd_tikz_sketch */, D00000000000000000000007 /* Products */); sourceTree = "<group>"; };
+		D00000000000000000000002 /* nd_tikz_sketch */ = {isa = PBXGroup; path = nd_tikz_sketch; sourceTree = "<group>"; children = (B00000000000000000000001, D00000000000000000000003 /* Models */, D00000000000000000000004 /* Services */, D00000000000000000000005 /* Views */, D00000000000000000000006 /* Utilities */, B0000000000000000000000B); };
+		D00000000000000000000003 /* Models */ = {isa = PBXGroup; path = Models; sourceTree = "<group>"; children = (B00000000000000000000002, B00000000000000000000003); };
+		D00000000000000000000004 /* Services */ = {isa = PBXGroup; path = Services; sourceTree = "<group>"; children = (B00000000000000000000004, B00000000000000000000005, B0000000000000000000000D); };
+		D00000000000000000000005 /* Views */ = {isa = PBXGroup; path = Views; sourceTree = "<group>"; children = (B00000000000000000000008, B00000000000000000000009, B0000000000000000000000A); };
+		D00000000000000000000006 /* Utilities */ = {isa = PBXGroup; path = Utilities; sourceTree = "<group>"; children = (B00000000000000000000006, B00000000000000000000007); };
+		D00000000000000000000007 /* Products */ = {isa = PBXGroup; name = Products; sourceTree = "<group>"; children = (B0000000000000000000000C); };
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		E00000000000000000000001 /* nd_tikz_sketch */ = {isa = PBXNativeTarget; buildConfigurationList = F00000000000000000000002; buildPhases = (C00000000000000000000002 /* Sources */, C00000000000000000000001 /* Frameworks */, C00000000000000000000003 /* Resources */); buildRules = (); dependencies = (); name = nd_tikz_sketch; productName = nd_tikz_sketch; productReference = B0000000000000000000000C; productType = "com.apple.product-type.application"; };
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		E00000000000000000000002 /* Project object */ = {isa = PBXProject; attributes = {BuildIndependentTargetsInParallel = 1; LastSwiftUpdateCheck = 1600; LastUpgradeCheck = 1600; TargetAttributes = {E00000000000000000000001 = {CreatedOnToolsVersion = 16.0; };};}; buildConfigurationList = F00000000000000000000001; compatibilityVersion = "Xcode 14.0"; developmentRegion = en; hasScannedForEncodings = 0; knownRegions = (en, Base); mainGroup = D00000000000000000000001; productRefGroup = D00000000000000000000007; projectDirPath = ""; projectRoot = ""; targets = (E00000000000000000000001); };
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		C00000000000000000000003 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		C00000000000000000000002 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A00000000000000000000001, A00000000000000000000002, A00000000000000000000003, A00000000000000000000004, A00000000000000000000005, A00000000000000000000006, A00000000000000000000007, A00000000000000000000008, A00000000000000000000009, A0000000000000000000000A, A0000000000000000000000B); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		F00000000000000000000003 /* Debug */ = {isa = XCBuildConfiguration; buildSettings = {CLANG_ENABLE_MODULES = YES; SDKROOT = iphoneos; IPHONEOS_DEPLOYMENT_TARGET = 17.0;}; name = Debug; };
+		F00000000000000000000004 /* Release */ = {isa = XCBuildConfiguration; buildSettings = {CLANG_ENABLE_MODULES = YES; SDKROOT = iphoneos; IPHONEOS_DEPLOYMENT_TARGET = 17.0;}; name = Release; };
+		F00000000000000000000005 /* Debug */ = {isa = XCBuildConfiguration; buildSettings = {ASSETCATALOG_COMPILER_APPICON_NAME = ""; CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 2; DEVELOPMENT_TEAM = ""; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = nd_tikz_sketch/Info.plist; IPHONEOS_DEPLOYMENT_TARGET = 17.0; MARKETING_VERSION = 0.2.0; PRODUCT_BUNDLE_IDENTIFIER = com.nd.ndtikzsketch; PRODUCT_NAME = "$(TARGET_NAME)"; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = NO; SWIFT_EMIT_LOC_STRINGS = YES; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = 2;}; name = Debug; };
+		F00000000000000000000006 /* Release */ = {isa = XCBuildConfiguration; buildSettings = {ASSETCATALOG_COMPILER_APPICON_NAME = ""; CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 2; DEVELOPMENT_TEAM = ""; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = nd_tikz_sketch/Info.plist; IPHONEOS_DEPLOYMENT_TARGET = 17.0; MARKETING_VERSION = 0.2.0; PRODUCT_BUNDLE_IDENTIFIER = com.nd.ndtikzsketch; PRODUCT_NAME = "$(TARGET_NAME)"; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = NO; SWIFT_EMIT_LOC_STRINGS = YES; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = 2;}; name = Release; };
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		F00000000000000000000001 /* Build configuration list for PBXProject */ = {isa = XCConfigurationList; buildConfigurations = (F00000000000000000000003, F00000000000000000000004); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+		F00000000000000000000002 /* Build configuration list for PBXNativeTarget */ = {isa = XCConfigurationList; buildConfigurations = (F00000000000000000000005, F00000000000000000000006); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+/* End XCConfigurationList section */
+	};
+	rootObject = E00000000000000000000002 /* Project object */;
+}

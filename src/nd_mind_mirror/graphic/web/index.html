@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="theme-color" content="#f3f3f3" />
+  <link rel="manifest" href="/graphic/manifest.webmanifest" />
+  <link rel="stylesheet" href="/graphic/app.css" />
+  <title>Mind Mirror Graphic</title>
+</head>
+<body>
+  <header class="toolbar">
+    <div class="brand">Mind Mirror Graphic</div>
+    <button id="pencilButton" class="tool active" type="button">Pencil</button>
+    <button id="eraserButton" class="tool" type="button">Eraser</button>
+    <label>Width <input id="widthInput" type="range" min="1" max="36" step="0.5" value="6" /></label>
+    <span id="widthValue">6</span>
+    <label>Color <input id="colorInput" type="color" value="#202020" /></label>
+    <button id="undoButton" type="button">Undo</button>
+    <button id="redoButton" type="button">Redo</button>
+    <button id="clearButton" type="button">Clear</button>
+    <span id="status" class="status">Connecting…</span>
+  </header>
+  <main class="workspace">
+    <div class="documentBar">
+      <span id="documentName">No graphic selected</span>
+      <span class="hint">Apple Pencil pressure controls width and darkness.</span>
+    </div>
+    <div id="canvasShell" class="canvasShell">
+      <canvas id="canvas" width="1600" height="1000"></canvas>
+    </div>
+  </main>
+  <script src="/graphic/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,8 @@
+{
+  "name": "Mind Mirror Graphic",
+  "short_name": "MM Graphic",
+  "start_url": "/graphic/",
+  "display": "standalone",
+  "background_color": "#ececec",
+  "theme_color": "#f3f3f3"
+}

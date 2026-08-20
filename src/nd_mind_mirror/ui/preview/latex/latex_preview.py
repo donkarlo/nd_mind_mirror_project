@@ -27,10 +27,18 @@ class LatexPreview(Preview):
         self._default_zoom_percent = 100.0
         self._auto_fit_on_open = True
         self._fit_width_percent = 95
+        # View mode is sticky across live re-renders of the same source.
+        # Once the user chooses Fit, later LuaLaTeX passes and Source/Visual
+        # mode switches reapply Fit until the user explicitly zooms.
+        self._fit_active = True
+        self._fit_pending_for_source = True
 
         self._pdf_view = SelectablePdfView(self)
         self._pdf_view.view_status_changed.connect(
             self.view_status_changed.emit
+        )
+        self._pdf_view.user_zoomed.connect(
+            self._leave_fit_mode
         )
         self._pdf_view.setMinimumWidth(0)
 
@@ -65,9 +73,9 @@ class LatexPreview(Preview):
         self,
         percent: int | float,
     ) -> None:
-        value = max(20.0, min(float(percent), 800.0))
+        value = max(20.0, min(float(percent), 500.0))
         self._default_zoom_percent = value
-        if self._current_pdf_path is not None:
+        if self._current_pdf_path is not None and not self._fit_active:
             self._pdf_view.set_zoom_percent(value)
 
     def configure_initial_view(
@@ -88,6 +96,8 @@ class LatexPreview(Preview):
 
         self._source_document_path = source_path
         self._reset_position_on_next_pdf = True
+        self._fit_active = self._auto_fit_on_open
+        self._fit_pending_for_source = self._auto_fit_on_open
         self._has_success_for_current_source = False
         self._current_pdf_path = None
         self._last_error = ""
@@ -114,16 +124,18 @@ class LatexPreview(Preview):
             )
             return
 
-        if reset_position:
-            if self._auto_fit_on_open:
-                # PdfDocument/page geometry becomes available shortly after
-                # the source URL is loaded. Fit once the QML view has laid out
-                # the first page; subsequent LaTeX passes keep the user's view.
-                QTimer.singleShot(120, self.fit_to_panel)
-            else:
-                self._pdf_view.set_zoom_percent(
-                    self._default_zoom_percent
-                )
+        if self._fit_active and self._fit_pending_for_source:
+            # Compute the expensive content-aware Fit only for the first PDF
+            # of a newly opened source. QML preserves the resulting zoom and
+            # scroll position across later live reloads. Re-running Fit after
+            # every keystroke caused visible jumps and a costly PDF raster scan.
+            self._fit_pending_for_source = False
+            QTimer.singleShot(120, self._apply_fit_without_mode_change)
+            QTimer.singleShot(300, self._apply_fit_without_mode_change)
+        elif reset_position:
+            self._pdf_view.set_zoom_percent(
+                self._default_zoom_percent
+            )
 
         self._reset_position_on_next_pdf = False
         self._current_pdf_path = pdf_path
@@ -137,11 +149,23 @@ class LatexPreview(Preview):
     def fit_to_panel(self) -> None:
         if self._current_pdf_path is None:
             return
+        self._fit_active = True
+        self._fit_pending_for_source = False
         self._pdf_view.fit_to_panel(self._fit_width_percent)
+
+    def _apply_fit_without_mode_change(self) -> None:
+        if self._current_pdf_path is None or not self._fit_active:
+            return
+        self._pdf_view.fit_to_panel(self._fit_width_percent)
+
+    def _leave_fit_mode(self) -> None:
+        self._fit_active = False
+        self._fit_pending_for_source = False
 
     def set_zoom_percent(self, percent: int | float) -> None:
         if self._current_pdf_path is None:
             return
+        self._fit_active = False
         self._pdf_view.set_zoom_percent(percent)
 
     def scroll_to_source_location(
@@ -156,7 +180,11 @@ class LatexPreview(Preview):
             page,
             x,
             y,
+            keep_horizontal_center=self._fit_active,
         )
+
+    def set_edit_highlight(self, text: str) -> None:
+        self._pdf_view.set_edit_highlight(text)
 
     def show_error(self, message: str) -> None:
         self._last_error = str(message)

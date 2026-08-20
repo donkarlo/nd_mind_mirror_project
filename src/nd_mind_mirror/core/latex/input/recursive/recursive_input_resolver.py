@@ -23,6 +23,9 @@ class RecursiveInputResolver(InputResolver):
         r"(?:\[[^\]]*\])?"
         r"\{(?P<name>[^}]+)\}"
     )
+    _TITLE_PATTERN = re.compile(
+        r"\\title(?:\[[^\]]*\])?\s*\{"
+    )
     _USEPACKAGE_PATTERN = re.compile(
         r"^\s*\\usepackage"
         r"(?:\[(?P<options>[^\]]*)\])?"
@@ -56,6 +59,7 @@ class RecursiveInputResolver(InputResolver):
 
     def __init__(self) -> None:
         self._unresolved: list[str] = []
+        self._resolved_paths: list[Path] = []
         self._project_root: Path | None = None
         self._master_file: Path | None = None
         self._preamble_additions: list[str] = []
@@ -68,6 +72,11 @@ class RecursiveInputResolver(InputResolver):
     @property
     def unresolved(self) -> list[str]:
         return list(self._unresolved)
+
+    @property
+    def resolved_paths(self) -> list[Path]:
+        """Files reached through recursive ``\\input``/``\\include`` expansion."""
+        return list(self._resolved_paths)
 
     @property
     def project_root(self) -> Path | None:
@@ -83,6 +92,7 @@ class RecursiveInputResolver(InputResolver):
         source_path: Path | None,
     ) -> str:
         self._unresolved = []
+        self._resolved_paths = []
         self._preamble_additions = []
 
         if source_path is None:
@@ -315,6 +325,9 @@ class RecursiveInputResolver(InputResolver):
 
         resolved = target_path.resolve()
 
+        if resolved not in self._resolved_paths:
+            self._resolved_paths.append(resolved)
+
         if resolved in stack:
             return (
                 "\n% nd_mind_mirror: recursive "
@@ -363,10 +376,16 @@ class RecursiveInputResolver(InputResolver):
                     f"preamble merged from {resolved}\n"
                 )
 
-            target_heading = (
-                self._hierarchy.target_for_child(
-                    parent_heading
-                )
+            # An included standalone document is a *sibling partition* of
+            # the heading at the include site.  This is preview-only: the
+            # source files are never rewritten.  For example, including
+            # language.tex after ``\section{Neuron types}`` makes the child's
+            # root a parallel ``\section`` and then preserves the child's
+            # own relative hierarchy beneath that root.
+            child_headings = self._hierarchy.headings_in(nested_body)
+            target_heading = self._target_heading_for_inserted_child(
+                nested_body,
+                parent_heading,
             )
 
             child_mapping = (
@@ -374,11 +393,27 @@ class RecursiveInputResolver(InputResolver):
                     nested_body,
                     target_heading,
                 )
+                if target_heading is not None and child_headings
+                else {}
             )
 
             cleaned_body = self._sanitize_child_body(
                 nested_body
             )
+
+            # Standalone child files often contain only ``\title{Language}``
+            # plus prose.  Since ``\maketitle`` is intentionally removed when
+            # embedding, synthesize a preview-only sibling heading from that
+            # title so the inserted document still owns a visible partition.
+            # If the child already has a structural heading, that heading is
+            # used instead and no synthetic source is added.
+            if not child_headings and target_heading is not None:
+                child_title = self._extract_title(nested_source)
+                if child_title:
+                    cleaned_body = (
+                        f"\\{target_heading}{{{child_title}}}\n"
+                        + cleaned_body.lstrip("\n")
+                    )
 
             expanded_child_body, _ = (
                 self._resolve_source(
@@ -399,22 +434,137 @@ class RecursiveInputResolver(InputResolver):
                 heading_mapping=child_mapping,
             )
 
+        fragment_mapping: dict[str, str] = {}
+        fragment_target: str | None = None
+        if context == "body":
+            fragment_headings = self._hierarchy.headings_in(nested_source)
+            if fragment_headings:
+                fragment_target = self._target_heading_for_inserted_child(
+                    nested_source,
+                    parent_heading,
+                )
+                if fragment_target is not None:
+                    fragment_mapping = self._hierarchy.build_mapping(
+                        nested_source,
+                        fragment_target,
+                    )
+
         expanded, _ = self._resolve_source(
             source=nested_source,
             containing_file=resolved,
             stack=nested_stack,
             context=context,
             inherited_heading=parent_heading,
-            heading_mapping={},
+            heading_mapping=fragment_mapping,
         )
 
         return self._wrap_inserted_body(
             command=command,
             resolved=resolved,
             content=expanded,
-            target_heading=None,
-            heading_mapping={},
+            target_heading=fragment_target,
+            heading_mapping=fragment_mapping,
         )
+
+    def _target_heading_for_inserted_child(
+        self,
+        source: str,
+        parent_heading: str | None,
+    ) -> str | None:
+        """Choose the preview-only root level for an included child.
+
+        When the include site is already inside a structural partition, the
+        child root is a sibling at that same level.  With no preceding heading,
+        use the ordinary document root below ``\title`` (``section`` for
+        article/beamer-like classes, ``chapter`` for book/report-like classes).
+        Relative child levels are shifted from that root by ``build_mapping``.
+        """
+        allowed = self._hierarchy.allowed_headings
+        if parent_heading in allowed:
+            return parent_heading
+        if parent_heading == "chapter" and "chapter" in allowed:
+            return "chapter"
+        if parent_heading == "part" and "part" in allowed:
+            return "part"
+
+        headings = self._hierarchy.headings_in(source)
+        if parent_heading is None:
+            if "chapter" in allowed:
+                return "chapter"
+            if "section" in allowed:
+                return "section"
+
+        if headings:
+            return self._preserved_child_target_heading(source)
+        if "section" in allowed:
+            return "section"
+        return allowed[0] if allowed else None
+
+    def _extract_title(self, source: str) -> str | None:
+        structural = self._hierarchy._structural_source(source)
+        match = self._TITLE_PATTERN.search(structural)
+        if match is None:
+            return None
+        opening = match.end() - 1
+        depth = 0
+        escaped = False
+        for index in range(opening, len(structural)):
+            character = structural[index]
+            if escaped:
+                escaped = False
+                continue
+            if character == "\\":
+                escaped = True
+                continue
+            if character == "{":
+                depth += 1
+            elif character == "}":
+                depth -= 1
+                if depth == 0:
+                    value = structural[opening + 1:index].strip()
+                    return value or None
+        return None
+
+    def _preserved_child_target_heading(
+        self,
+        source: str,
+    ) -> str | None:
+        headings = self._hierarchy.headings_in(source)
+        if not headings:
+            return None
+
+        top_heading = min(
+            headings,
+            key=self._canonical_heading_index,
+        )
+        allowed = self._hierarchy.allowed_headings
+        if top_heading in allowed:
+            return top_heading
+
+        # Article-like classes do not support chapter. Map a child chapter
+        # to section and let build_mapping() shift its descendants by the
+        # same relative amount.
+        if top_heading == "chapter" and "section" in allowed:
+            return "section"
+
+        # Fall back to the closest available structural level.
+        canonical = (
+            "part",
+            "chapter",
+            "section",
+            "subsection",
+            "subsubsection",
+            "paragraph",
+            "subparagraph",
+        )
+        top_index = self._canonical_heading_index(top_heading)
+        candidates = sorted(
+            allowed,
+            key=lambda heading: abs(
+                canonical.index(heading) - top_index
+            ),
+        )
+        return candidates[0] if candidates else None
 
     def _transform_headings(
         self,

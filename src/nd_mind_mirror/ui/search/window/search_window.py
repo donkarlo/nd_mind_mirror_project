@@ -27,12 +27,6 @@ class SearchWindow(QWidget):
     latex_file_selected = Signal(str)
     _HIT_ROLE = int(Qt.ItemDataRole.UserRole) + 1
 
-    _ACTIVATABLE_SUFFIXES = {
-        ".tex", ".yaml", ".yml", ".pdf",
-        ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp",
-        ".svg", ".tif", ".tiff",
-    }
-
     def __init__(
         self,
         root_path: str | Path,
@@ -173,14 +167,11 @@ class SearchWindow(QWidget):
     def show_and_focus(self) -> None:
         was_visible = self.isVisible()
 
-        if (
-            not self._index_ready
-            and (
-                self._index_thread is None
-                or not self._index_thread.isRunning()
-            )
-        ):
-            self.rebuild_index()
+        # The workspace may be changed by Dropbox, git, a terminal, or another
+        # editor while Mind Mirror is running. Rebuild the lightweight name
+        # index whenever Double Shift opens search so newly created/moved
+        # files and folders are searchable immediately without restarting.
+        self.rebuild_index()
 
         self._center_on_parent()
         self.show()
@@ -189,13 +180,10 @@ class SearchWindow(QWidget):
         self.activateWindow()
         self._search_edit.setFocus()
 
-        # Keep the previous query exactly as typed between invocations. Put
-        # the caret at the end rather than selecting it, so reopening search
-        # never makes the first keystroke silently erase the old query.
-        self._search_edit.deselect()
-        self._search_edit.setCursorPosition(
-            len(self._search_edit.text())
-        )
+        # Keep the previous query between invocations, but select it all so the
+        # next typed character or Backspace replaces the complete previous
+        # query immediately.  Arrow keys can still move the caret normally.
+        self._search_edit.selectAll()
 
         if self._search_edit.text().strip():
             self._schedule_search()
@@ -620,9 +608,6 @@ class SearchWindow(QWidget):
         path = Path(str(path_text))
         if path.is_dir():
             item.setExpanded(not item.isExpanded())
-            return
-
-        if path.suffix.lower() not in self._ACTIVATABLE_SUFFIXES:
             return
 
         self.latex_file_selected.emit(str(path.resolve()))

@@ -157,3 +157,15 @@ def test_section_only_fragment_keeps_article_preview_class(tmp_path: Path) -> No
 
     assert r"\documentclass{article}" in result
     assert r"\documentclass{report}" not in result
+
+
+def test_includegraphics_gets_preview_only_graphicx(tmp_path: Path) -> None:
+    builder = _builder(tmp_path)
+    source = (
+        "\\documentclass{article}\n"
+        "\\begin{document}\n"
+        "\\includegraphics[width=.9\\linewidth]{graphics/graphic.png}\n"
+        "\\end{document}\n"
+    )
+    result = builder.build(source)
+    assert r"\usepackage{graphicx}" in result

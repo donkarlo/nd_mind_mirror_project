@@ -43,12 +43,23 @@ class YamlEditor(TextEditor):
         self._indent_size = max(int(app_settings.editor_indent_size), 1)
         self.apply_font_preferences(
             font_family=app_settings.editor_font_family,
-            font_size=app_settings.editor_font_size,
+            font_size=app_settings.editor_source_font_size,
             font_min_size=app_settings.editor_font_min_size,
             font_max_size=app_settings.editor_font_max_size,
         )
+        self.apply_indentation_preferences(
+            tab_size=app_settings.editor_tab_size,
+            guides_enabled=app_settings.editor_indent_guides_enabled,
+            guide_color=app_settings.editor_indent_guide_color,
+            guide_width=app_settings.editor_indent_guide_width,
+        )
         self.apply_line_height(
             app_settings.editor_line_height_percent
+        )
+        self.apply_content_padding(
+            top=app_settings.editor_source_padding_top,
+            left=app_settings.editor_source_padding_left,
+            right=app_settings.editor_source_padding_right,
         )
         self.apply_visual_preferences(
             soft_wrap=app_settings.editor_soft_wrap,

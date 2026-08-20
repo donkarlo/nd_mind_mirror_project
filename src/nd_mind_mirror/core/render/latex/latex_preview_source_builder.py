@@ -58,6 +58,9 @@ class LatexPreviewSourceBuilder:
     _DOCUMENT_CLASS_LINE_PATTERN = re.compile(
         r"(?m)^\s*\\documentclass(?:\[[^\]]*\])?\{[^}]+\}\s*$"
     )
+    _DOCUMENT_CLASS_PATTERN = re.compile(
+        r"\\documentclass(?:\[[^\]]*\])?\{[^}]+\}"
+    )
     _ALGORITHM_ENVIRONMENT_PATTERN = re.compile(
         r"\\begin\s*\{algorithm\}"
     )
@@ -65,6 +68,7 @@ class LatexPreviewSourceBuilder:
         r"\\begin\s*\{algorithmic\}"
     )
     _COLORBOX_PATTERN = re.compile(r"\\colorbox\s*\{")
+    _INCLUDEGRAPHICS_PATTERN = re.compile(r"\\includegraphics(?:\s*\[[^\]]*\])?\s*\{")
 
     def __init__(
         self,
@@ -109,6 +113,7 @@ class LatexPreviewSourceBuilder:
         title_source: str | None = None,
     ) -> str:
         if "\\documentclass" in source:
+            source = self._select_standalone_document_for_preview(source)
             prepared = self._repair_preview_wrappers(source)
             prepared = self._add_preview_package_support(prepared)
             return self._add_persian_preview_support(prepared)
@@ -141,6 +146,57 @@ class LatexPreviewSourceBuilder:
         prepared = self._repair_preview_wrappers(prepared)
         prepared = self._add_preview_package_support(prepared)
         return self._add_persian_preview_support(prepared)
+
+
+
+    def _select_standalone_document_for_preview(self, source: str) -> str:
+        """Choose one complete standalone document when a file contains several.
+
+        TeX stops at the first ``\\end{document}``, so a file accidentally
+        containing two full documents can compile only the first (often empty)
+        one.  For live preview we choose the most substantial complete document
+        without modifying the user's file.  Leading newlines are preserved so
+        SyncTeX line numbers continue to correspond to the original source.
+        """
+        matches: list[tuple[int, int]] = []
+        offset = 0
+        for line in source.splitlines(keepends=True):
+            comment_index = self._unescaped_comment_index(line)
+            code = line if comment_index is None else line[:comment_index]
+            for match in self._DOCUMENT_CLASS_PATTERN.finditer(code):
+                matches.append((offset + match.start(), offset + match.end()))
+            offset += len(line)
+
+        if len(matches) <= 1:
+            return source
+
+        candidates: list[tuple[int, int, int]] = []
+        for index, (start, _end) in enumerate(matches):
+            next_start = matches[index + 1][0] if index + 1 < len(matches) else len(source)
+            segment = source[start:next_start]
+            begin = self._DOCUMENT_BEGIN_PATTERN.search(segment)
+            if begin is None:
+                continue
+            end = self._DOCUMENT_END_PATTERN.search(segment, begin.end())
+            if end is None:
+                continue
+            body = segment[begin.end():end.start()]
+            cleaned_body = self._strip_comments(body)
+            meaningful = re.sub(r"\\maketitle\b", "", cleaned_body)
+            meaningful = re.sub(r"\\s+", "", meaningful)
+            candidates.append((len(meaningful), index, start))
+
+        if not candidates:
+            return source
+
+        # Prefer the document with the most real body content; if two are
+        # equally substantial, the later one is usually the intended version.
+        _score, _index, chosen_start = max(candidates, key=lambda item: (item[0], item[1]))
+        if chosen_start <= 0:
+            return source
+
+        prefix = "\n" * source[:chosen_start].count("\n")
+        return prefix + source[chosen_start:]
 
 
     def _repair_preview_wrappers(self, source: str) -> str:
@@ -267,6 +323,12 @@ class LatexPreviewSourceBuilder:
             and not self._has_package(cleaned, "color")
         ):
             packages.append("xcolor")
+
+        if (
+            self._INCLUDEGRAPHICS_PATTERN.search(cleaned) is not None
+            and not self._has_package(cleaned, "graphicx")
+        ):
+            packages.append("graphicx")
 
         if not packages:
             return source

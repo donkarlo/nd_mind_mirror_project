@@ -13,6 +13,7 @@ from nd_mind_mirror.core.settings.yaml.yaml_settings import YamlSettings
 from nd_mind_mirror.ui.editor.base.text_editor import TextEditor
 from nd_mind_mirror.ui.editor.latex.latex_editor import LatexEditor
 from nd_mind_mirror.ui.editor.yaml.yaml_editor import YamlEditor
+from nd_mind_mirror.ui.editor.generic.generic_text_editor import GenericTextEditor
 from nd_mind_mirror.ui.panel.base.panel import Panel
 from nd_mind_mirror.ui.toolbar.editor.latex_format_toolbar import (
     LatexFormatToolbar,
@@ -31,6 +32,8 @@ class EditorPanel(Panel):
     capacity_reached = Signal(str)
     tab_close_requested = Signal(int, str, bool)
     settings_apply_requested = Signal()
+    active_tab_clicked = Signal(str)
+    bookmarks_changed = Signal(object)
 
     _TAB_LABEL_LENGTH = 24
     _TAB_WIDTH = 220
@@ -41,7 +44,7 @@ class EditorPanel(Panel):
         app_settings: YamlSettings,
         parent=None,
     ) -> None:
-        super().__init__("LaTeX Editor", parent)
+        super().__init__("Editor", parent)
 
         self._completions = completions
         self._app_settings = app_settings
@@ -53,6 +56,7 @@ class EditorPanel(Panel):
             Path,
         ] = {}
         self._remembered_view_states: dict[str, dict[str, int]] = {}
+        self._bookmarks_by_path: dict[str, list[dict[str, object]]] = {}
         self._find_matches: list[tuple[int, int]] = []
         self._find_current_index = -1
 
@@ -63,7 +67,7 @@ class EditorPanel(Panel):
         )
 
         self._label = QLabel(
-            "LaTeX Editor",
+            "Editor",
             self,
         )
 
@@ -71,8 +75,23 @@ class EditorPanel(Panel):
         self._format_toolbar.bold_requested.connect(
             self.bold_current_selection
         )
+        self._format_toolbar.italic_requested.connect(
+            self.italic_current_selection
+        )
+        self._format_toolbar.text_color_requested.connect(
+            self.color_current_selection
+        )
         self._format_toolbar.highlight_requested.connect(
             self.highlight_current_selection
+        )
+        self._format_toolbar.heading_requested.connect(
+            self.set_current_heading
+        )
+        self._format_toolbar.list_requested.connect(
+            self.set_current_list
+        )
+        self._format_toolbar.edit_mode_requested.connect(
+            self.set_current_edit_mode
         )
         self._format_toolbar.apply_settings_requested.connect(
             self.settings_apply_requested.emit
@@ -94,6 +113,16 @@ class EditorPanel(Panel):
         )
         self._find_escape_shortcut.activated.connect(self.hide_find_replace)
         self._find_escape_shortcut.setEnabled(False)
+
+        self._bold_shortcut = QShortcut(QKeySequence("Ctrl+B"), self)
+        self._bold_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        self._bold_shortcut.activated.connect(self.bold_current_selection)
+
+        self._reset_zoom_shortcut = QShortcut(QKeySequence("Ctrl+0"), self)
+        self._reset_zoom_shortcut.setContext(
+            Qt.ShortcutContext.WidgetWithChildrenShortcut
+        )
+        self._reset_zoom_shortcut.activated.connect(self.reset_current_zoom)
 
         self._tabs = QTabWidget(self)
         self._tabs.setDocumentMode(True)
@@ -126,6 +155,9 @@ class EditorPanel(Panel):
         )
         self._tabs.tabBar().tabMoved.connect(
             self._on_tab_moved
+        )
+        self._tabs.tabBar().tabBarClicked.connect(
+            self._on_tab_bar_clicked
         )
 
         self.panel_layout.addWidget(
@@ -205,9 +237,15 @@ class EditorPanel(Panel):
                 app_settings=self._app_settings,
                 parent=self,
             )
-        else:
+        elif file_path.suffix.lower() in {".tex", ".tikz"}:
             editor = LatexEditor(
                 completions=self._completions,
+                source_path=file_path,
+                app_settings=self._app_settings,
+                parent=self,
+            )
+        else:
+            editor = GenericTextEditor(
                 source_path=file_path,
                 app_settings=self._app_settings,
                 parent=self,
@@ -215,6 +253,10 @@ class EditorPanel(Panel):
         editor.set_content(
             content
         )
+        if isinstance(editor, LatexEditor):
+            editor.set_bookmarks(
+                self._bookmarks_by_path.get(str(file_path), [])
+            )
 
         remembered_state = self._remembered_view_states.get(
             str(file_path)
@@ -242,14 +284,25 @@ class EditorPanel(Panel):
                 modified,
             )
         )
-        editor.cursorPositionChanged.connect(
-            lambda item=editor:
-            self._on_editor_cursor_changed(item)
-        )
-        editor.verticalScrollBar().valueChanged.connect(
-            lambda value, item=editor:
-            self._on_editor_view_changed(item)
-        )
+        if isinstance(editor, LatexEditor):
+            editor.active_cursor_changed.connect(
+                lambda item=editor: self._on_editor_cursor_changed(item)
+            )
+            editor.active_view_changed.connect(
+                lambda item=editor: self._on_editor_view_changed(item)
+            )
+            editor.bookmarks_changed.connect(
+                lambda bookmarks, item=editor: self._on_editor_bookmarks_changed(
+                    item, bookmarks
+                )
+            )
+        else:
+            editor.cursorPositionChanged.connect(
+                lambda item=editor: self._on_editor_cursor_changed(item)
+            )
+            editor.verticalScrollBar().valueChanged.connect(
+                lambda value, item=editor: self._on_editor_view_changed(item)
+            )
         editor.horizontalScrollBar().valueChanged.connect(
             lambda value, item=editor:
             self._remember_editor_view_state(item)
@@ -396,6 +449,22 @@ class EditorPanel(Panel):
             self._remembered_view_states.pop(raw_path, None)
         self._remembered_view_states.update(remembered_updates)
 
+        bookmark_updates: dict[str, list[dict[str, object]]] = {}
+        bookmark_remove: list[str] = []
+        for raw_path, bookmarks in self._bookmarks_by_path.items():
+            candidate = Path(raw_path)
+            try:
+                relative = candidate.relative_to(old_root)
+            except ValueError:
+                continue
+            bookmark_remove.append(raw_path)
+            bookmark_updates[str((new_root / relative).resolve())] = bookmarks
+        for raw_path in bookmark_remove:
+            self._bookmarks_by_path.pop(raw_path, None)
+        self._bookmarks_by_path.update(bookmark_updates)
+        if bookmark_remove:
+            self.bookmarks_changed.emit(self.bookmarks())
+
         self._refresh_tab_titles()
 
         if (
@@ -408,22 +477,56 @@ class EditorPanel(Panel):
 
             if current_path is not None:
                 self._label.setText(
-                    f"LaTeX Editor — {current_path}"
+                    f"Editor — {current_path}"
                 )
                 self.current_document_changed.emit(
                     str(current_path),
                     current_editor.toPlainText(),
                 )
 
+    def reset_current_zoom(self) -> None:
+        editor = self.current_editor()
+        if isinstance(editor, LatexEditor):
+            editor.reset_zoom_to_settings()
+        elif isinstance(editor, TextEditor):
+            editor.reset_font_zoom()
+
     def bold_current_selection(self) -> None:
         editor = self.current_editor()
         if isinstance(editor, LatexEditor):
             editor.bold_selection()
 
-    def highlight_current_selection(self, color: str) -> None:
+    def italic_current_selection(self) -> None:
         editor = self.current_editor()
         if isinstance(editor, LatexEditor):
-            editor.highlight_selection(color)
+            editor.italic_selection()
+
+    def color_current_selection(self, color: str, css_color: str) -> None:
+        editor = self.current_editor()
+        if isinstance(editor, LatexEditor):
+            editor.text_color_selection(color, css_color)
+
+    def highlight_current_selection(self, color: str, css_color: str = "") -> None:
+        editor = self.current_editor()
+        if isinstance(editor, LatexEditor):
+            editor.highlight_selection(color, css_color or None)
+
+    def set_current_heading(self, command: str) -> None:
+        editor = self.current_editor()
+        if isinstance(editor, LatexEditor):
+            editor.set_heading(command)
+
+    def set_current_list(self, kind: str) -> None:
+        editor = self.current_editor()
+        if isinstance(editor, LatexEditor):
+            editor.set_list(kind)
+
+    def set_current_edit_mode(self, mode: str) -> None:
+        editor = self.current_editor()
+        if not isinstance(editor, LatexEditor):
+            return
+        editor.set_edit_mode(mode)
+        self._format_toolbar.set_edit_mode(editor.edit_mode)
 
     def show_find_replace(self, replace_mode: bool = False) -> None:
         editor = self.current_editor()
@@ -553,6 +656,54 @@ class EditorPanel(Panel):
         editor.ensureCursorVisible()
         self._apply_find_highlights()
 
+    def set_bookmarks(self, data: dict | None) -> None:
+        self._bookmarks_by_path = {}
+        if not isinstance(data, dict):
+            return
+        for raw_path, raw_bookmarks in data.items():
+            if not isinstance(raw_bookmarks, list):
+                continue
+            try:
+                path = str(Path(str(raw_path)).expanduser().resolve())
+            except OSError:
+                continue
+            items = [dict(item) for item in raw_bookmarks if isinstance(item, dict)]
+            if items:
+                self._bookmarks_by_path[path] = items
+
+    def bookmarks(self) -> dict[str, list[dict[str, object]]]:
+        result = {
+            path: [dict(item) for item in items]
+            for path, items in self._bookmarks_by_path.items()
+            if items
+        }
+        for editor, path in self._paths.items():
+            if isinstance(editor, LatexEditor):
+                items = editor.bookmarks()
+                if items:
+                    result[str(path)] = items
+                else:
+                    result.pop(str(path), None)
+        return result
+
+    def toggle_current_bookmark(self) -> None:
+        editor = self.current_editor()
+        if isinstance(editor, LatexEditor):
+            editor.toggle_bookmark_at_cursor()
+
+    def _on_editor_bookmarks_changed(
+        self, editor: LatexEditor, bookmarks: list[dict[str, object]]
+    ) -> None:
+        path = self._paths.get(editor)
+        if path is None:
+            return
+        key = str(path)
+        if bookmarks:
+            self._bookmarks_by_path[key] = [dict(item) for item in bookmarks]
+        else:
+            self._bookmarks_by_path.pop(key, None)
+        self.bookmarks_changed.emit(self.bookmarks())
+
     def set_view_states(self, states: dict | None) -> None:
         self._remembered_view_states = {}
         if not isinstance(states, dict):
@@ -591,6 +742,15 @@ class EditorPanel(Panel):
         if editor is None:
             return
         editor.go_to_line(line_number)
+
+    def go_to_location(self, line_number: int, column: int = 1) -> None:
+        editor = self.current_editor()
+        if editor is None:
+            return
+        if isinstance(editor, LatexEditor):
+            editor.go_to_source_location(line_number, column, align_top=True)
+        else:
+            editor.go_to_line(line_number)
 
     def content_at(
         self,
@@ -684,6 +844,11 @@ class EditorPanel(Panel):
             return widget
 
         return None
+
+    def refresh_current_visual_graphics(self) -> None:
+        editor = self.current_editor()
+        if isinstance(editor, LatexEditor):
+            editor.refresh_visual_graphics()
 
     def current_content(
         self,
@@ -893,6 +1058,20 @@ class EditorPanel(Panel):
         if index >= 0:
             self._on_tab_close_requested(index)
 
+
+    def _on_tab_bar_clicked(self, index: int) -> None:
+        """Request an explicit navigator reveal even for the already-active tab.
+
+        ``QTabWidget.currentChanged`` is not emitted when the user clicks the
+        tab that is already active.  The navigator therefore used to stay on
+        whatever file the user had last single-clicked.  A tab click is an
+        explicit request to reveal that tab's backing file, without forcing a
+        preview rebuild.
+        """
+        path = self.path_at(index)
+        if path is not None:
+            self.active_tab_clicked.emit(str(path))
+
     def _on_current_changed(
         self,
         index: int,
@@ -909,7 +1088,7 @@ class EditorPanel(Panel):
             if self._find_bar.isVisible():
                 self.hide_find_replace()
             self._label.setText(
-                "LaTeX Editor"
+                "Editor"
             )
             self._format_toolbar.set_mode(
                 latex_enabled=False,
@@ -918,7 +1097,7 @@ class EditorPanel(Panel):
             return
 
         self._label.setText(
-            f"LaTeX Editor — {path}"
+            f"Editor — {path}"
         )
         is_settings = False
         try:
@@ -933,6 +1112,8 @@ class EditorPanel(Panel):
             latex_enabled=isinstance(editor, LatexEditor),
             settings_enabled=is_settings,
         )
+        if isinstance(editor, LatexEditor):
+            self._format_toolbar.set_edit_mode(editor.edit_mode)
         if self._find_bar.isVisible():
             self._refresh_find_matches(self._find_bar.query)
         self._activation_counter += 1
@@ -977,7 +1158,7 @@ class EditorPanel(Panel):
             return
 
         path = self._paths.get(editor)
-        if path is None or path.suffix.lower() != ".tex":
+        if path is None or path.suffix.lower() not in {".tex", ".tikz"}:
             return
 
         self._emit_cursor_position(editor, path)
@@ -987,12 +1168,15 @@ class EditorPanel(Panel):
         editor: TextEditor,
         path: Path,
     ) -> None:
-        if path.suffix.lower() != ".tex":
+        if path.suffix.lower() not in {".tex", ".tikz"}:
             return
 
-        cursor = editor.textCursor()
-        line = cursor.blockNumber() + 1
-        column = cursor.positionInBlock() + 1
+        if isinstance(editor, LatexEditor):
+            line, column = editor.active_source_location()
+        else:
+            cursor = editor.textCursor()
+            line = cursor.blockNumber() + 1
+            column = cursor.positionInBlock() + 1
         self.current_cursor_changed.emit(
             str(path),
             line,
@@ -1017,7 +1201,7 @@ class EditorPanel(Panel):
             return
 
         path = self._paths.get(editor)
-        if path is None or path.suffix.lower() != ".tex":
+        if path is None or path.suffix.lower() not in {".tex", ".tikz"}:
             return
 
         line, column = editor.first_visible_source_position()

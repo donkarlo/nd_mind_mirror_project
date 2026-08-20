@@ -1,5 +1,7 @@
 from pathlib import Path
 import json
+import re
+import mimetypes
 import shutil
 
 from PySide6.QtCore import (
@@ -27,6 +29,9 @@ from nd_mind_mirror.core.completion.latex.latex_completion_provider import (
 from nd_mind_mirror.core.document.latex.latex_document import LatexDocument
 from nd_mind_mirror.core.render.latex.latex_renderer import LatexRenderer
 from nd_mind_mirror.core.settings.yaml.yaml_settings import YamlSettings
+from nd_mind_mirror.core.workspace.path.path_reference_updater import (
+    PathReferenceUpdater,
+)
 from nd_mind_mirror.ui.input.double_shift.double_shift_event_filter import (
     DoubleShiftEventFilter,
 )
@@ -34,6 +39,7 @@ from nd_mind_mirror.ui.input.ctrl_tab.ctrl_tab_event_filter import (
     CtrlTabEventFilter,
 )
 from nd_mind_mirror.ui.panel.editor.editor_panel import EditorPanel
+from nd_mind_mirror.ui.editor.latex.latex_editor import LatexEditor
 from nd_mind_mirror.ui.panel.file_system.file_system_panel import (
     FileSystemPanel,
 )
@@ -63,21 +69,25 @@ class MainWindow(Window):
         self.resize(1500, 900)
 
         self._restoring_session = True
-        self._session_settings = QSettings(
-            "nd_mind_mirror",
-            "nd_mind_mirror_project",
-        )
         self._app_settings = YamlSettings()
+        self._session_settings = QSettings(
+            str(self._app_settings.session_settings_path),
+            QSettings.Format.IniFormat,
+        )
+        self._migrate_legacy_qsettings_if_needed()
         self._file_signatures: dict[Path, tuple[int, int]] = {}
+        self._preview_dependency_signatures: dict[Path, tuple[int, int] | None] = {}
         self._recent_file_paths: list[Path] = []
         self._deferred_window_rect: tuple[int, int, int, int] | None = None
         self._deferred_window_maximized = False
         self._deferred_main_splitter_sizes: list[int] | None = None
         self._deferred_navigator_splitter_sizes: list[int] | None = None
         self._ui_layout_applied = False
-        self._ui_state_path = (
+        legacy_ui_state = (
             Path.home() / ".config" / "nd_mind_mirror_project" / "ui_state.json"
         )
+        self._app_settings.migrate_legacy_ui_state(legacy_ui_state)
+        self._ui_state_path = self._app_settings.ui_state_path
 
         QApplication.setCursorFlashTime(
             self._app_settings.editor_cursor_flash_time_ms
@@ -124,6 +134,7 @@ class MainWindow(Window):
                 self._app_settings.search_ignore_file_path
             ),
             row_height=self._app_settings.navigator_row_height,
+            latex_templates=self._app_settings.new_latex_file_templates,
         )
 
         self._structure_panel = LatexStructurePanel(
@@ -132,6 +143,7 @@ class MainWindow(Window):
         self._structure_panel.apply_settings(
             indent_width=self._app_settings.navigator_indent_width,
             row_height=self._app_settings.navigator_row_height,
+            tab_size=self._app_settings.editor_tab_size,
         )
 
         self._editor_panel = EditorPanel(
@@ -262,6 +274,17 @@ class MainWindow(Window):
         self._layout_save_timer.timeout.connect(
             self._save_ui_layout_state
         )
+
+        self._preview_edit_highlight_timer = QTimer(self)
+        self._preview_edit_highlight_timer.setSingleShot(True)
+        self._preview_edit_highlight_timer.setInterval(
+            self._app_settings.preview_edit_location_highlight_debounce_ms
+        )
+        self._preview_edit_highlight_timer.timeout.connect(
+            self._apply_pending_preview_edit_highlight
+        )
+        self._pending_preview_edit_highlight = ""
+        self._last_preview_edit_highlight = ""
 
         self._create_actions()
         self._connect_signals()
@@ -399,6 +422,14 @@ class MainWindow(Window):
             self._edit_beamer_preview_template
         )
 
+        self._toggle_bookmark_action = QAction(
+            "Toggle Bookmark at Cursor", self
+        )
+        self._toggle_bookmark_action.setShortcut(QKeySequence("Ctrl+Shift+B"))
+        self._toggle_bookmark_action.triggered.connect(
+            self._editor_panel.toggle_current_bookmark
+        )
+
         file_menu = self.menuBar().addMenu(
             "File"
         )
@@ -437,6 +468,10 @@ class MainWindow(Window):
             self._search_action
         )
 
+        self._bookmarks_menu = self.menuBar().addMenu("Bookmarks")
+        self._bookmarks_menu.aboutToShow.connect(self._refresh_bookmarks_menu)
+        self._refresh_bookmarks_menu()
+
         settings_menu = self.menuBar().addMenu(
             "Settings"
         )
@@ -465,6 +500,9 @@ class MainWindow(Window):
         self._file_system_panel.state_changed.connect(
             self._save_session
         )
+        self._file_system_panel.path_about_to_move.connect(
+            lambda _path: self._autosave_modified_documents()
+        )
         self._file_system_panel.path_renamed.connect(
             self._on_navigator_path_renamed
         )
@@ -491,7 +529,10 @@ class MainWindow(Window):
             self._on_current_cursor_changed
         )
         self._editor_panel.current_view_changed.connect(
-            self._on_current_cursor_changed
+            self._on_current_view_changed
+        )
+        self._editor_panel.bookmarks_changed.connect(
+            self._on_bookmarks_changed
         )
         self._editor_panel.capacity_reached.connect(
             self._show_warning
@@ -502,19 +543,25 @@ class MainWindow(Window):
         self._editor_panel.settings_apply_requested.connect(
             self._apply_settings_from_editor
         )
+        self._editor_panel.active_tab_clicked.connect(
+            self._reveal_active_editor_tab
+        )
 
         self._preview_panel.export_requested.connect(
             self._export_pdf
         )
 
         self._renderer.rendered.connect(
-            self._preview_panel.preview.show_pdf
+            self._preview_panel.show_pdf
         )
         self._renderer.failed.connect(
             self._on_render_failed
         )
         self._renderer.source_position_mapped.connect(
             self._preview_panel.preview.scroll_to_source_location
+        )
+        self._renderer.dependencies_changed.connect(
+            self._on_renderer_dependencies_changed
         )
 
         self._double_shift_filter.activated.connect(
@@ -556,11 +603,19 @@ class MainWindow(Window):
             self,
             "Open LaTeX file",
             start_directory,
-            "Editable files (*.tex *.yaml *.yml);;LaTeX files (*.tex);;YAML files (*.yaml *.yml);;All files (*)",
+            "Text files (*);;LaTeX files (*.tex);;Markdown files (*.md *.markdown);;YAML files (*.yaml *.yml);;All files (*)",
         )
 
         if path:
             self._open_path(path)
+
+
+    def _reveal_active_editor_tab(self, path: str) -> None:
+        """Center and highlight the backing file for a clicked editor tab."""
+        self._file_system_panel.select_path(
+            path,
+            force_reveal=True,
+        )
 
     def _open_path_from_navigator(self, path: str) -> None:
         self._open_path(
@@ -579,6 +634,12 @@ class MainWindow(Window):
         ).expanduser().resolve()
 
         if file_path.suffix.lower() in self._EXTERNAL_OPEN_SUFFIXES:
+            self._open_with_desktop_application(file_path)
+            if reveal_in_navigator:
+                self._file_system_panel.select_path(file_path)
+            return
+
+        if file_path.is_file() and not self._is_text_file(file_path):
             self._open_with_desktop_application(file_path)
             if reveal_in_navigator:
                 self._file_system_panel.select_path(file_path)
@@ -641,20 +702,68 @@ class MainWindow(Window):
             )
 
     def _load_editor_file(self, file_path: Path) -> str:
-        suffix = file_path.suffix.lower()
-
-        if suffix == ".tex":
+        if file_path.suffix.lower() in {".tex", ".tikz"}:
             return self._document.load(file_path)
 
-        if suffix in {".yaml", ".yml"}:
-            try:
-                return file_path.read_text(encoding="utf-8")
-            except UnicodeDecodeError:
-                return file_path.read_text(encoding="latin-1")
+        if not self._is_text_file(file_path):
+            raise ValueError(f"{file_path.name} is not a text file.")
 
-        raise ValueError(
-            "Only .tex, .yaml, and .yml files can be opened in the editor."
+        for encoding in ("utf-8-sig", "utf-16", "latin-1"):
+            try:
+                return file_path.read_text(encoding=encoding)
+            except UnicodeError:
+                continue
+        raise ValueError(f"Could not decode text file: {file_path}")
+
+    def _is_text_file(self, file_path: Path) -> bool:
+        """Return True for editable text while rejecting obvious binary data."""
+        if not file_path.is_file():
+            return False
+
+        suffix = file_path.suffix.lower()
+        if suffix in {
+            ".tex", ".tikz", ".yaml", ".yml", ".md", ".markdown", ".txt", ".rst",
+            ".py", ".pyi", ".js", ".jsx", ".ts", ".tsx", ".java", ".c",
+            ".h", ".hpp", ".cc", ".cpp", ".cs", ".go", ".rs", ".rb",
+            ".php", ".sh", ".bash", ".zsh", ".fish", ".ps1", ".sql",
+            ".html", ".htm", ".css", ".scss", ".sass", ".less", ".xml",
+            ".json", ".toml", ".ini", ".cfg", ".conf", ".env", ".csv",
+            ".tsv", ".log", ".bib", ".sty", ".cls", ".lua", ".r", ".jl",
+            ".kt", ".kts", ".swift", ".scala", ".clj", ".edn", ".vue",
+            ".svelte", ".dockerfile", ".make", ".mk",
+        }:
+            return True
+
+        if file_path.name.casefold() in {
+            "readme", "readme.md", "license", "copying", "makefile",
+            "dockerfile", ".gitignore", ".gitattributes", ".editorconfig",
+        }:
+            return True
+
+        mime_type, _ = mimetypes.guess_type(str(file_path))
+        if mime_type and mime_type.startswith("text/"):
+            return True
+
+        try:
+            sample = file_path.read_bytes()[:8192]
+        except OSError:
+            return False
+        if not sample:
+            return True
+        if b"\x00" in sample:
+            return False
+        try:
+            sample.decode("utf-8")
+            return True
+        except UnicodeDecodeError:
+            pass
+        # Latin-1 itself is always decodable, so reject samples with too many
+        # control bytes before using it as a fallback for legacy text files.
+        controls = sum(
+            1 for value in sample
+            if value < 32 and value not in {9, 10, 12, 13}
         )
+        return controls / max(len(sample), 1) < 0.02
 
     def _save_current_document(self) -> None:
         path = self._editor_panel.current_path()
@@ -823,6 +932,56 @@ class MainWindow(Window):
                 )
 
             self._file_signatures[path] = signature
+
+        self._sync_preview_dependency_changes()
+
+    def _on_renderer_dependencies_changed(self, paths: object) -> None:
+        """Track files used by the currently rendered LaTeX document.
+
+        Included TikZ/TeX files do not need to be open in an editor tab. When
+        an iPad/Dropbox/WebSocket bridge rewrites one of them, the dependency
+        timer sees the signature change and asks the active parent document to
+        render again without modifying its source.
+        """
+        signatures: dict[Path, tuple[int, int] | None] = {}
+        if isinstance(paths, (list, tuple, set)):
+            for raw_path in paths:
+                try:
+                    path = Path(str(raw_path)).expanduser().resolve()
+                except (OSError, ValueError):
+                    continue
+                signatures[path] = self._file_signature(path)
+        self._preview_dependency_signatures = signatures
+
+    def _sync_preview_dependency_changes(self) -> None:
+        if not self._preview_dependency_signatures:
+            return
+
+        current = self._editor_panel.current_path()
+        if current is None or current.suffix.lower() not in {".tex", ".tikz"}:
+            return
+
+        changed: list[Path] = []
+        for path, known_signature in list(
+            self._preview_dependency_signatures.items()
+        ):
+            signature = self._file_signature(path)
+            if signature == known_signature:
+                continue
+            self._preview_dependency_signatures[path] = signature
+            changed.append(path)
+
+        if not changed:
+            return
+
+        self.statusBar().showMessage(
+            "LaTeX dependency changed: "
+            + ", ".join(path.name for path in changed[:3]),
+            2500,
+        )
+        if any(path.suffix.lower() in {".png", ".jpg", ".jpeg", ".pdf", ".svg"} for path in changed):
+            self._editor_panel.refresh_current_visual_graphics()
+        self._refresh_current_preview(immediate=False)
 
     def _file_signature(
         self,
@@ -1135,10 +1294,12 @@ class MainWindow(Window):
                 self._app_settings.search_ignore_file_path
             ),
             row_height=self._app_settings.navigator_row_height,
+            latex_templates=self._app_settings.new_latex_file_templates,
         )
         self._structure_panel.apply_settings(
             indent_width=self._app_settings.navigator_indent_width,
             row_height=self._app_settings.navigator_row_height,
+            tab_size=self._app_settings.editor_tab_size,
         )
         self._search_window.apply_settings(
             root_path=self._app_settings.search_default_path,
@@ -1211,6 +1372,12 @@ class MainWindow(Window):
         )
         self._configure_autosave()
         self._configure_external_file_sync()
+        self._preview_edit_highlight_timer.setInterval(
+            self._app_settings.preview_edit_location_highlight_debounce_ms
+        )
+        if not self._app_settings.preview_edit_location_highlight_enabled:
+            self._pending_preview_edit_highlight = ""
+            self._preview_panel.preview.set_edit_highlight("")
 
         self.statusBar().showMessage(
             f"Applied {self._app_settings.settings_path}",
@@ -1243,7 +1410,7 @@ class MainWindow(Window):
             self._editor_panel.is_current_modified()
         )
         self._format_action.setEnabled(
-            Path(path).suffix.lower() == ".tex"
+            Path(path).suffix.lower() in {".tex", ".tikz"}
         )
 
         self._save_session()
@@ -1299,21 +1466,23 @@ class MainWindow(Window):
     ) -> None:
         file_path = Path(path).expanduser().resolve()
 
-        if file_path.suffix.lower() == ".tex":
-            self._preview_panel.preview.set_source_document(
-                file_path
-            )
-
-        if file_path.suffix.lower() != ".tex":
+        suffix = file_path.suffix.lower()
+        if suffix in {".tex", ".tikz"}:
+            self._preview_panel.show_latex_mode()
+            self._preview_panel.preview.set_source_document(file_path)
+        elif suffix in {".md", ".markdown"} or file_path.name.casefold() == "readme.md":
+            self._preview_panel.show_markdown(content, file_path)
+            return
+        else:
             if file_path.resolve() == self._app_settings.settings_path.resolve():
-                self._preview_panel.preview.show_message(
+                self._preview_panel.show_message(
                     "settings.yaml is open in the editor. Changes may be saved "
                     "normally, but they are not applied until you press Apply "
                     "above the editor."
                 )
             else:
-                self._preview_panel.preview.show_message(
-                    f"No LaTeX preview for {file_path.name}."
+                self._preview_panel.show_message(
+                    f"No rendered preview for {file_path.name}."
                 )
             return
 
@@ -1341,19 +1510,76 @@ class MainWindow(Window):
         line: int,
         column: int,
     ) -> None:
+        if not self._request_preview_source_position(path, line, column):
+            return
+        if self._app_settings.preview_edit_location_highlight_enabled:
+            editor = self._editor_panel.current_editor()
+            if isinstance(editor, LatexEditor):
+                self._pending_preview_edit_highlight = (
+                    editor.active_preview_highlight_text()
+                )
+            else:
+                self._pending_preview_edit_highlight = self._edit_phrase_for_position(
+                    path, line, column
+                )
+            self._preview_edit_highlight_timer.start()
+
+    def _on_current_view_changed(
+        self,
+        path: str,
+        line: int,
+        column: int,
+    ) -> None:
+        self._request_preview_source_position(path, line, column)
+
+    def _request_preview_source_position(
+        self, path: str, line: int, column: int
+    ) -> bool:
         current = self._editor_panel.current_path()
         if current is None:
-            return
-
+            return False
         source_path = Path(path).expanduser().resolve()
-        if source_path != current or source_path.suffix.lower() != ".tex":
-            return
-
+        if source_path != current or source_path.suffix.lower() not in {".tex", ".tikz"}:
+            return False
         self._renderer.request_source_position(
-            source_path,
-            line,
-            column,
+            source_path, int(line), int(column)
         )
+        return True
+
+    def _edit_phrase_for_position(self, path: str, line: int, column: int) -> str:
+        content = self._editor_panel.content_for_path(path)
+        if content is None:
+            return ""
+        lines = content.splitlines()
+        if not lines or int(line) < 1 or int(line) > len(lines):
+            return ""
+        raw = lines[int(line) - 1]
+        if not raw.strip():
+            return ""
+        cursor_index = max(0, min(int(column) - 1, len(raw)))
+        end = cursor_index
+        while end < len(raw) and not raw[end].isspace():
+            end += 1
+        prefix = raw[:end]
+        # Search visible prose, not LaTeX control syntax. Keep Unicode letters
+        # and numbers so Persian and English phrases both work.
+        prefix = re.sub(r"\\[A-Za-z@]+\*?(?:\[[^]]*\])?", " ", prefix)
+        prefix = prefix.replace("{", " ").replace("}", " ").replace("$", " ")
+        words = re.findall(r"[^\W_]+(?:[’'‌-][^\W_]+)*", prefix, flags=re.UNICODE)
+        if not words:
+            return ""
+        phrase = " ".join(words[-4:]).strip()
+        return phrase if len(phrase) >= 2 else ""
+
+    def _apply_pending_preview_edit_highlight(self) -> None:
+        if not self._app_settings.preview_edit_location_highlight_enabled:
+            target = ""
+        else:
+            target = self._pending_preview_edit_highlight
+        if target == self._last_preview_edit_highlight:
+            return
+        self._last_preview_edit_highlight = target
+        self._preview_panel.preview.set_edit_highlight(target)
 
     def _on_current_modification_changed(
         self,
@@ -1373,6 +1599,13 @@ class MainWindow(Window):
 
         old_root = Path(old_path).resolve()
         new_root = Path(new_path).resolve()
+
+        changed_references = PathReferenceUpdater.update_workspace_references(
+            self._app_settings.search_default_path,
+            old_root,
+            new_root,
+            ignore_file_path=self._app_settings.search_ignore_file_path,
+        )
         updated_signatures: dict[Path, tuple[int, int]] = {}
         for signature_path, signature in self._file_signatures.items():
             try:
@@ -1402,6 +1635,25 @@ class MainWindow(Window):
         if current is not None:
             self._file_system_panel.select_path(
                 current
+            )
+
+        for changed_path in changed_references:
+            if self._editor_panel.content_for_path(changed_path) is None:
+                continue
+            try:
+                changed_content = self._load_editor_file(changed_path)
+            except (OSError, ValueError):
+                continue
+            self._editor_panel.replace_content_from_disk(
+                changed_path,
+                changed_content,
+            )
+            self._remember_file_signature(changed_path)
+
+        if changed_references:
+            self.statusBar().showMessage(
+                f"Updated {len(changed_references)} path reference file(s) after move.",
+                5000,
             )
 
         self._save_session()
@@ -1443,8 +1695,8 @@ class MainWindow(Window):
                 current
             )
         else:
-            self._preview_panel.preview.show_message(
-                "Open a .tex file to render its preview."
+            self._preview_panel.show_message(
+                "Open a LaTeX or Markdown file to render its preview."
             )
 
         self._save_session()
@@ -1471,6 +1723,18 @@ class MainWindow(Window):
             created
         )
         self._save_session()
+
+    def _migrate_legacy_qsettings_if_needed(self) -> None:
+        """Copy the old Qt settings store into the persistent data folder once."""
+        if self._session_settings.allKeys():
+            return
+        legacy = QSettings("nd_mind_mirror", "nd_mind_mirror_project")
+        copied = False
+        for key in legacy.allKeys():
+            self._session_settings.setValue(key, legacy.value(key))
+            copied = True
+        if copied:
+            self._session_settings.sync()
 
     def _restore_session(self) -> None:
         # Use explicit JSON values rather than Qt's opaque binary geometry.
@@ -1537,6 +1801,16 @@ class MainWindow(Window):
             "editor/active_file",
             "",
         )
+        bookmarks_json = self._session_settings.value(
+            "editor/bookmarks_json",
+            "{}",
+        )
+        try:
+            bookmarks = json.loads(str(bookmarks_json or "{}"))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            bookmarks = {}
+        self._editor_panel.set_bookmarks(bookmarks)
+
         view_states_json = self._session_settings.value(
             "editor/view_states_json",
             "{}",
@@ -1567,12 +1841,31 @@ class MainWindow(Window):
         for path in valid_recent:
             self._open_path(path, select=False)
 
+        active_path: Path | None = None
         if active:
-            if not self._editor_panel.activate_path(str(active)):
-                if valid_recent:
-                    self._editor_panel.activate_path(valid_recent[-1])
+            if self._editor_panel.activate_path(str(active)):
+                active_path = Path(str(active)).expanduser().resolve()
+            elif valid_recent:
+                fallback = Path(valid_recent[-1]).resolve()
+                self._editor_panel.activate_path(fallback)
+                active_path = fallback
         elif valid_recent:
-            self._editor_panel.activate_path(valid_recent[-1])
+            fallback = Path(valid_recent[-1]).resolve()
+            self._editor_panel.activate_path(fallback)
+            active_path = fallback
+
+        # QFileSystemModel is populated asynchronously.  Re-reveal the active
+        # restored tab after the model has had time to expose its ancestors so
+        # the very first application launch state highlights the active file.
+        if active_path is not None:
+            for delay in (250, 800, 1800, 2800):
+                QTimer.singleShot(
+                    delay,
+                    lambda item=active_path: self._file_system_panel.select_path(
+                        item,
+                        force_reveal=True,
+                    ),
+                )
 
     def _read_saved_sizes(
         self,
@@ -1708,6 +2001,76 @@ class MainWindow(Window):
         )
         self._session_settings.sync()
 
+    def _on_bookmarks_changed(self, data: object) -> None:
+        if self._restoring_session:
+            return
+        self._session_settings.setValue(
+            "editor/bookmarks_json",
+            json.dumps(
+                data if isinstance(data, dict) else self._editor_panel.bookmarks(),
+                ensure_ascii=False,
+                separators=(",", ":"),
+            ),
+        )
+        self._session_settings.sync()
+        self._refresh_bookmarks_menu()
+
+    def _refresh_bookmarks_menu(self) -> None:
+        if not hasattr(self, "_bookmarks_menu"):
+            return
+        self._bookmarks_menu.clear()
+        self._bookmarks_menu.addAction(self._toggle_bookmark_action)
+        data = self._editor_panel.bookmarks()
+        entries: list[tuple[str, int, int, str, str]] = []
+        for raw_path, bookmarks in data.items():
+            for bookmark in bookmarks:
+                try:
+                    line = max(int(bookmark.get("line", 1)), 1)
+                except (TypeError, ValueError):
+                    line = 1
+                try:
+                    column = max(int(bookmark.get("column", 1)), 1)
+                except (TypeError, ValueError):
+                    column = 1
+                name = str(bookmark.get("name", "")).strip()
+                anchor = str(bookmark.get("anchor", "")).strip()
+                label = name or anchor[:48] or f"Line {line}"
+                entries.append(
+                    (str(raw_path), line, column, label, Path(str(raw_path)).name)
+                )
+        if not entries:
+            empty = self._bookmarks_menu.addAction("No bookmarks")
+            empty.setEnabled(False)
+            return
+        self._bookmarks_menu.addSeparator()
+        for raw_path, line, column, label, filename in sorted(
+            entries, key=lambda item: (item[0].casefold(), item[1], item[2])
+        ):
+            action = self._bookmarks_menu.addAction(
+                f"{label} — {filename}:{line}:{column}"
+            )
+            action.setToolTip(raw_path)
+            action.triggered.connect(
+                lambda checked=False, path=raw_path, target=line, col=column: self._activate_bookmark(
+                    path, target, col
+                )
+            )
+
+    def _activate_bookmark(
+        self, path: str, line: int, column: int = 1
+    ) -> None:
+        file_path = Path(path).expanduser().resolve()
+        if not file_path.is_file():
+            self._show_warning(f"Bookmarked file does not exist: {file_path}")
+            return
+        self._open_path(str(file_path), select=True, reveal_in_navigator=True)
+        QTimer.singleShot(
+            0,
+            lambda target=int(line), col=int(column): self._editor_panel.go_to_location(
+                target, col
+            ),
+        )
+
     def _save_session(self) -> None:
         if self._restoring_session:
             return
@@ -1745,6 +2108,14 @@ class MainWindow(Window):
             "editor/view_states_json",
             json.dumps(
                 self._editor_panel.view_states(),
+                ensure_ascii=False,
+                separators=(",", ":"),
+            ),
+        )
+        self._session_settings.setValue(
+            "editor/bookmarks_json",
+            json.dumps(
+                self._editor_panel.bookmarks(),
                 ensure_ascii=False,
                 separators=(",", ":"),
             ),

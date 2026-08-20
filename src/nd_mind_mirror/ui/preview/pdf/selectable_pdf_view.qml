@@ -7,10 +7,16 @@ Rectangle {
     property url source: ""
     property int reloadToken: 0
     property alias zoomScale: pdfView.renderScale
+    property real minSafeZoomScale: 0.20
+    property real maxSafeZoomScale: 5.00
     property int currentPageIndex: pdfView.currentPage
     property int pageCount: pdfDocument.pageCount
     property int fitToken: 0
     property real fitWidthRatio: 0.95
+    property real fitTargetWidth: 0
+    property real fitPageWidthPoints: 0
+    property real fitContentWidthPoints: 0
+    property real fitContentCenterRatioX: 0.5
     property real zoomAnchorX: 0
     property real zoomAnchorY: 0
     property real zoomTargetScale: 1
@@ -27,13 +33,32 @@ Rectangle {
     property real syncX: 0
     property real syncY: 0
     property int syncToken: 0
+    property bool syncRecenterHorizontal: false
+    property string editHighlightText: ""
+    property int highlightSearchAttempts: 0
     property bool resetPositionOnReload: false
     property bool restorePositionPending: false
     property real savedContentX: 0
     property real savedContentY: 0
     property real savedOriginX: 0
     property real savedOriginY: 0
-    color: "white"
+    property real savedRenderScale: 1.0
+    property bool explicitHorizontalOverflow: false
+    property bool explicitVerticalOverflow: false
+    property real explicitHorizontalPosition: 0
+    property real explicitVerticalPosition: 0
+    property real explicitHorizontalSize: 1
+    property real explicitVerticalSize: 1
+    // A faint canvas makes the real PDF page edges visible, so a 95%
+    // width fit can be judged visually instead of blending into a white panel.
+    color: "#f5f7fa"
+
+    function safeScale(value) {
+        if (!isFinite(value) || value <= 0)
+            return 1.0
+        return Math.max(root.minSafeZoomScale,
+                        Math.min(root.maxSafeZoomScale, value))
+    }
 
     function captureScrollState() {
         var target = findBestScrollable(pdfView)
@@ -47,6 +72,7 @@ Rectangle {
             root.savedContentY = target.contentY
             root.savedOriginX = target.originX !== undefined ? target.originX : 0
             root.savedOriginY = target.originY !== undefined ? target.originY : 0
+            root.savedRenderScale = root.safeScale(pdfView.renderScale)
             root.restorePositionPending = true
         } catch (error) {
             root.restorePositionPending = false
@@ -62,6 +88,12 @@ Rectangle {
             return
 
         try {
+            // Reloading a QPdfDocument can reset PdfMultiPageView.renderScale
+            // to 1.0. Restore the user's current zoom immediately; sticky Fit
+            // may refine it again a moment later using the new page geometry.
+            if (root.savedRenderScale > 0)
+                pdfView.renderScale = root.savedRenderScale
+
             var originX = target.originX !== undefined ? target.originX : 0
             var originY = target.originY !== undefined ? target.originY : 0
             var maxX = Math.max(originX, originX + target.contentWidth - target.width)
@@ -101,6 +133,10 @@ Rectangle {
             root.captureScrollState()
         }
 
+        // Never carry an invalid/huge render scale into a newly loaded PDF.
+        // A bad Fit calculation in an earlier generation must not be able to
+        // trigger a giant texture allocation before the next Fit pass runs.
+        pdfView.renderScale = root.safeScale(pdfView.renderScale)
         var target = root.source
         pdfDocument.source = ""
         pdfDocument.source = target
@@ -200,7 +236,7 @@ Rectangle {
 
     function zoomAroundAnchor(viewX, viewY, requestedScale) {
         var target = findBestScrollable(pdfView)
-        var boundedScale = Math.max(0.20, Math.min(8.00, requestedScale))
+        var boundedScale = root.safeScale(requestedScale)
         if (!target) {
             pdfView.renderScale = boundedScale
             scrollBarRefresh.restart()
@@ -284,7 +320,20 @@ Rectangle {
         try {
             var originX = target.originX !== undefined ? target.originX : 0
             var overflowX = Math.max(0, target.contentWidth - target.width)
-            target.contentX = originX + overflowX / 2
+            var desired = originX + overflowX / 2
+
+            // When Fit intentionally crops the white paper margins, center the
+            // actual content span rather than the physical A4 sheet.  For
+            // normal symmetric LaTeX pages this adjustment is near zero, but
+            // it also handles deliberately asymmetric layouts.
+            if (root.fitContentWidthPoints > 1 &&
+                    root.fitPageWidthPoints > 1) {
+                var pagePixels = root.fitPageWidthPoints * pdfView.renderScale
+                desired += (root.fitContentCenterRatioX - 0.5) * pagePixels
+            }
+
+            var maxX = Math.max(originX, originX + overflowX)
+            target.contentX = Math.max(originX, Math.min(maxX, desired))
         } catch (error) {
         }
     }
@@ -293,13 +342,40 @@ Rectangle {
         try {
             if (pdfDocument.pageCount <= 0)
                 return
-            // Width-only fit: use the requested fraction of the visible
-            // preview width. The vertical extent is deliberately not a fit
-            // constraint; tall pages may require vertical scrolling.
-            pdfView.scaleToWidth(
-                Math.max(root.width * root.fitWidthRatio, 1),
-                Math.max(root.height, 1)
+
+            // Reading-oriented Fit deliberately ignores the unused white A4
+            // margins when Python could extract a content/text bounding box.
+            // The widest visible content then occupies fitWidthRatio of the
+            // preview viewport. Pages without extractable text fall back to
+            // the complete physical PDF page width.
+            var pageIndex = Math.max(0, Math.min(pdfView.currentPage,
+                                                  pdfDocument.pageCount - 1))
+            var pageSize = pdfDocument.pagePointSize(pageIndex)
+            if (!pageSize || pageSize.width <= 0 || pageSize.height <= 0)
+                return
+
+            var scrollTarget = findBestScrollable(pdfView)
+            var viewportWidth = root.width
+            if (scrollTarget && scrollTarget.width !== undefined &&
+                    scrollTarget.width > 1)
+                viewportWidth = scrollTarget.width
+
+            root.fitTargetWidth = Math.max(
+                viewportWidth * root.fitWidthRatio,
+                1
             )
+
+            var rotation = Math.abs(pdfView.pageRotation) % 180
+            var pageWidthPoints = rotation === 90
+                ? pageSize.height
+                : pageSize.width
+            if (pageWidthPoints <= 0)
+                return
+
+            var effectiveWidthPoints = root.fitContentWidthPoints > 1
+                ? root.fitContentWidthPoints
+                : pageWidthPoints
+            pdfView.renderScale = root.safeScale(root.fitTargetWidth / effectiveWidthPoints)
             fitCenterRestore.restart()
             scrollBarRefresh.restart()
         } catch (error) {
@@ -313,6 +389,8 @@ Rectangle {
                 Qt.point(root.syncX, root.syncY),
                 pdfView.renderScale
             )
+            if (root.syncRecenterHorizontal)
+                syncHorizontalCenter.restart()
             scrollBarRefresh.restart()
         } catch (error) {
             sourceLocationRetry.restart()
@@ -350,8 +428,131 @@ Rectangle {
             keepNativeScrollBarsVisible(visualChildren[i])
     }
 
+    function updateExplicitScrollBars() {
+        var target = findBestScrollable(pdfView)
+        if (!target) {
+            root.explicitHorizontalOverflow = false
+            root.explicitVerticalOverflow = false
+            return
+        }
+
+        try {
+            var originX = target.originX !== undefined ? target.originX : 0
+            var originY = target.originY !== undefined ? target.originY : 0
+            var contentWidth = Math.max(target.contentWidth, 1)
+            var contentHeight = Math.max(target.contentHeight, 1)
+            var overflowX = Math.max(0, contentWidth - target.width)
+            var overflowY = Math.max(0, contentHeight - target.height)
+
+            root.explicitHorizontalOverflow = overflowX > 0.5
+            root.explicitVerticalOverflow = overflowY > 0.5
+            root.explicitHorizontalSize = Math.max(0.02, Math.min(1, target.width / contentWidth))
+            root.explicitVerticalSize = Math.max(0.02, Math.min(1, target.height / contentHeight))
+            root.explicitHorizontalPosition = root.explicitHorizontalOverflow
+                ? Math.max(0, Math.min(1 - root.explicitHorizontalSize,
+                                      (target.contentX - originX) / contentWidth))
+                : 0
+            root.explicitVerticalPosition = root.explicitVerticalOverflow
+                ? Math.max(0, Math.min(1 - root.explicitVerticalSize,
+                                      (target.contentY - originY) / contentHeight))
+                : 0
+            if (!explicitHorizontalBar.pressed)
+                explicitHorizontalBar.position = root.explicitHorizontalPosition
+            if (!explicitVerticalBar.pressed)
+                explicitVerticalBar.position = root.explicitVerticalPosition
+        } catch (error) {
+            root.explicitHorizontalOverflow = false
+            root.explicitVerticalOverflow = false
+        }
+    }
+
+    function setExplicitHorizontalPosition(position) {
+        var target = findBestScrollable(pdfView)
+        if (!target)
+            return
+        try {
+            var originX = target.originX !== undefined ? target.originX : 0
+            var maxX = Math.max(originX, originX + target.contentWidth - target.width)
+            var desired = originX + Math.max(0, position) * Math.max(target.contentWidth, 1)
+            target.contentX = Math.max(originX, Math.min(maxX, desired))
+        } catch (error) {
+        }
+    }
+
+    function setExplicitVerticalPosition(position) {
+        var target = findBestScrollable(pdfView)
+        if (!target)
+            return
+        try {
+            var originY = target.originY !== undefined ? target.originY : 0
+            var maxY = Math.max(originY, originY + target.contentHeight - target.height)
+            var desired = originY + Math.max(0, position) * Math.max(target.contentHeight, 1)
+            target.contentY = Math.max(originY, Math.min(maxY, desired))
+        } catch (error) {
+        }
+    }
+
     function refreshScrollBars() {
         keepNativeScrollBarsVisible(pdfView)
+        updateExplicitScrollBars()
+    }
+
+    function configureEditHighlightStyle() {
+        // PdfMultiPageView keeps PdfStyle internal. Find that resource and
+        // make ordinary search matches transparent; only currentResult gets
+        // a visible outline. This prevents repeated words (for example
+        // Saussure) from appearing highlighted three times at once.
+        try {
+            var candidates = pdfView.resources
+            for (var i = 0; i < candidates.length; ++i) {
+                var candidate = candidates[i]
+                if (candidate && candidate.pageSearchResultsColor !== undefined) {
+                    candidate.pageSearchResultsColor = "transparent"
+                    candidate.currentSearchResultStrokeColor = "#ff9800"
+                    candidate.currentSearchResultStrokeWidth = 3
+                    break
+                }
+            }
+        } catch (error) {
+        }
+    }
+
+    function chooseNearestHighlightResult() {
+        if (!root.editHighlightText || !pdfView.searchModel)
+            return false
+        var count = pdfView.searchModel.count
+        if (!count || count <= 0)
+            return false
+
+        var best = -1
+        var bestScore = Number.MAX_VALUE
+        for (var i = 0; i < count; ++i) {
+            try {
+                pdfView.searchModel.currentResult = i
+                var link = pdfView.searchModel.currentResultLink
+                if (!link || link.page !== root.syncPage)
+                    continue
+                var lx = link.location ? link.location.x : 0
+                var ly = link.location ? link.location.y : 0
+                var dx = lx - root.syncX
+                var dy = ly - root.syncY
+                var score = dx * dx + dy * dy
+                if (score < bestScore) {
+                    best = i
+                    bestScore = score
+                }
+            } catch (error) {
+            }
+        }
+        if (best < 0)
+            best = 0
+        pdfView.searchModel.currentResult = best
+        return true
+    }
+
+    function scheduleHighlightResultChoice() {
+        root.highlightSearchAttempts = 0
+        highlightResultRetry.restart()
     }
 
     onReloadTokenChanged: reloadDocument()
@@ -361,11 +562,26 @@ Rectangle {
         root.zoomAnchorY,
         root.zoomTargetScale
     )
-    onSyncTokenChanged: sourceLocationRetry.restart()
+    onSyncTokenChanged: {
+        sourceLocationRetry.restart()
+        scheduleHighlightResultChoice()
+    }
+    onEditHighlightTextChanged: scheduleHighlightResultChoice()
     onFitTokenChanged: fitToPanel()
     onZoomScaleChanged: scrollBarRefresh.restart()
     onWidthChanged: scrollBarRefresh.restart()
     onHeightChanged: scrollBarRefresh.restart()
+
+    Timer {
+        id: highlightResultRetry
+        interval: 80
+        repeat: true
+        onTriggered: {
+            root.highlightSearchAttempts += 1
+            if (root.chooseNearestHighlightResult() || root.highlightSearchAttempts >= 8)
+                stop()
+        }
+    }
 
     PdfDocument {
         id: pdfDocument
@@ -381,6 +597,9 @@ Rectangle {
         anchors.fill: parent
         document: pdfDocument
         clip: true
+        searchString: root.editHighlightText
+
+        Component.onCompleted: root.configureEditHighlightStyle()
 
         Shortcut {
             sequence: "Ctrl+C"
@@ -391,6 +610,77 @@ Rectangle {
             sequence: "Ctrl+A"
             onActivated: pdfView.selectAll()
         }
+    }
+
+    // Explicit non-fading scrollbars. Some Qt styles hide the internal
+    // PdfMultiPageView bars even with AlwaysOn, so these bars mirror the
+    // actual internal Flickable and remain visible whenever content exceeds
+    // the preview viewport.
+    ScrollBar {
+        id: explicitHorizontalBar
+        orientation: Qt.Horizontal
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        anchors.rightMargin: explicitVerticalBar.visible ? explicitVerticalBar.width : 0
+        height: 12
+        z: 1000
+        visible: root.explicitHorizontalOverflow
+        active: visible
+        policy: ScrollBar.AlwaysOn
+        size: root.explicitHorizontalSize
+        onPositionChanged: {
+            if (pressed)
+                root.setExplicitHorizontalPosition(position)
+        }
+    }
+
+    ScrollBar {
+        id: explicitVerticalBar
+        orientation: Qt.Vertical
+        anchors.top: parent.top
+        anchors.bottom: parent.bottom
+        anchors.right: parent.right
+        anchors.bottomMargin: explicitHorizontalBar.visible ? explicitHorizontalBar.height : 0
+        width: 12
+        z: 1000
+        visible: root.explicitVerticalOverflow
+        active: visible
+        policy: ScrollBar.AlwaysOn
+        size: root.explicitVerticalSize
+        onPositionChanged: {
+            if (pressed)
+                root.setExplicitVerticalPosition(position)
+        }
+    }
+
+    Timer {
+        id: explicitScrollBarState
+        // A 20 Hz recursive scan of the internal PdfMultiPageView tree was
+        // needlessly expensive while a fresh PDF was being laid out. Event
+        // driven refreshes handle immediate interaction; this is only a slow
+        // safety refresh for Qt styles that mutate private scrollbars.
+        interval: 200
+        repeat: true
+        running: true
+        onTriggered: root.updateExplicitScrollBars()
+    }
+
+    Timer {
+        id: syncHorizontalCenter
+        interval: 35
+        repeat: false
+        onTriggered: {
+            root.centerHorizontally()
+            syncHorizontalCenterDelayed.restart()
+        }
+    }
+
+    Timer {
+        id: syncHorizontalCenterDelayed
+        interval: 140
+        repeat: false
+        onTriggered: root.centerHorizontally()
     }
 
     Timer {

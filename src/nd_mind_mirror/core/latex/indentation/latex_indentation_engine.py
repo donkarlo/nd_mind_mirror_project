@@ -27,6 +27,7 @@ class LatexIndentationEngine:
         "lstlisting",
         "minted",
     }
+    _LIST_ENVIRONMENTS = {"itemize", "enumerate", "description"}
 
     def __init__(self, indent_size: int = 4) -> None:
         self._indent_size = max(int(indent_size), 1)
@@ -66,6 +67,44 @@ class LatexIndentationEngine:
             return leading
 
         return logical_indent
+
+
+    def list_item_continuation(
+        self,
+        document_text: str,
+        cursor_position: int,
+    ) -> str | None:
+        r"""Return the next ``\item`` prefix when Enter continues a list item.
+
+        Only the current source line and environments that are actually open at
+        the cursor are considered. The source itself is never rewritten here.
+        """
+        position = max(0, min(int(cursor_position), len(document_text)))
+        line_start = document_text.rfind("\n", 0, position) + 1
+        current_prefix = document_text[line_start:position]
+        leading = self.leading_whitespace(current_prefix)
+        code = self._remove_comment(current_prefix).strip()
+        if not re.match(r"^\\item(?:\s*\[[^\]]*\])?(?:\s|$)", code):
+            return None
+
+        structural_source = self._structural_source(document_text[:position])
+        environment_stack: list[str] = []
+        for match in self._TOKEN_PATTERN.finditer(structural_source):
+            begin = match.group("begin")
+            end = match.group("end")
+            if begin is not None:
+                if begin != "document":
+                    environment_stack.append(begin)
+                continue
+            if end is not None and end != "document":
+                self._pop_environment(environment_stack, end)
+
+        if not any(
+            environment in self._LIST_ENVIRONMENTS
+            for environment in environment_stack
+        ):
+            return None
+        return f"{leading}\\item "
 
     def indentation_at_cursor(
         self,

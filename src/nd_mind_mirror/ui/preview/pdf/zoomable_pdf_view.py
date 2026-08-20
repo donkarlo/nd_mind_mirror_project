@@ -5,7 +5,7 @@ from PySide6.QtPdfWidgets import QPdfView
 
 class ZoomablePdfView(QPdfView):
     _MIN_ZOOM = 0.20
-    _MAX_ZOOM = 8.00
+    _MAX_ZOOM = 5.00
     _ZOOM_STEP = 1.15
 
     def wheelEvent(self, event: QWheelEvent) -> None:

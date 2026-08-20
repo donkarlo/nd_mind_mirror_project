@@ -16,6 +16,12 @@ class YamlStructureNode:
 class YamlStructureParser:
     """Extract a navigable YAML hierarchy with source line numbers."""
 
+    def __init__(self, tab_size: int = 4) -> None:
+        self._tab_size = max(1, min(int(tab_size), 16))
+
+    def set_tab_size(self, tab_size: int) -> None:
+        self._tab_size = max(1, min(int(tab_size), 16))
+
     def parse(self, source: str) -> list[YamlStructureNode]:
         if not source.strip():
             return []
@@ -84,7 +90,7 @@ class YamlStructureParser:
             if not raw_line.strip() or raw_line.lstrip().startswith("#"):
                 continue
 
-            expanded = raw_line.expandtabs(4)
+            expanded = raw_line.expandtabs(self._tab_size)
             stripped = expanded.lstrip(" ")
             indent = len(expanded) - len(stripped)
 

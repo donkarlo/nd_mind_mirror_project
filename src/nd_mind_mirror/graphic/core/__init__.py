@@ -1,0 +1,1 @@
+"""Core graphic document helpers."""

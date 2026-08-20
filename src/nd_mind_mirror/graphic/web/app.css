@@ -1,0 +1,19 @@
+:root { color-scheme: light; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+* { box-sizing: border-box; }
+html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: #ececec; }
+body { display: flex; flex-direction: column; }
+.toolbar { min-height: 54px; display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: #f7f7f7; border-bottom: 1px solid #cfcfcf; overflow-x: auto; white-space: nowrap; }
+.brand { font-weight: 650; margin-right: 8px; }
+.toolbar button { border: 1px solid #aaa; border-radius: 8px; background: white; padding: 7px 11px; font-size: 15px; }
+.toolbar button.active { background: #dfeaff; border-color: #7a9bd1; }
+.toolbar label { display: inline-flex; align-items: center; gap: 6px; }
+#widthInput { width: 125px; }
+#colorInput { width: 38px; height: 32px; padding: 0; border: 0; background: transparent; }
+.status { margin-left: auto; font-size: 13px; color: #666; }
+.workspace { min-height: 0; flex: 1; display: flex; flex-direction: column; }
+.documentBar { min-height: 38px; display: flex; align-items: center; gap: 18px; padding: 6px 12px; background: #fafafa; border-bottom: 1px solid #ddd; }
+#documentName { font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
+.hint { color: #777; font-size: 13px; }
+.canvasShell { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; padding: 10px; overflow: auto; touch-action: none; }
+canvas { display: block; background: white; box-shadow: 0 1px 7px rgba(0,0,0,.18); max-width: 100%; max-height: 100%; touch-action: none; user-select: none; -webkit-user-select: none; }
+@media (max-width: 700px) { .hint { display: none; } .brand { display: none; } }

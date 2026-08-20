@@ -1,0 +1,12 @@
+[Unit]
+Description=nd_tikz_sketch live bridge
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/home/donkarlo/phd-venv/bin/nd-tikz-bridge --workspace /home/donkarlo/Dropbox/repo --host 0.0.0.0 --port 8765 --token CHANGE_ME
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target

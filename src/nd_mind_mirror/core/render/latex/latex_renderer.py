@@ -14,6 +14,7 @@ from nd_mind_mirror.core.latex.input.recursive.recursive_input_resolver import (
     RecursiveInputResolver,
 )
 from nd_mind_mirror.core.render.base.renderer import Renderer
+from nd_mind_mirror.graphic.core.dependency_resolver import GraphicDependencyResolver
 from nd_mind_mirror.core.render.latex.latex_preview_source_builder import (
     LatexPreviewSourceBuilder,
 )
@@ -21,6 +22,7 @@ from nd_mind_mirror.core.render.latex.latex_preview_source_builder import (
 
 class LatexRenderer(Renderer):
     source_position_mapped = Signal(int, float, float)
+    dependencies_changed = Signal(object)
 
     def __init__(
         self,
@@ -46,6 +48,7 @@ class LatexRenderer(Renderer):
         self._latest_requested_generation = 0
         self._pending_generation = 0
         self._active_generation = 0
+        self._last_published_generation = 0
         self._publish_counter = 0
         self._published_pdf_paths: list[Path] = []
         self._shell_escape = bool(shell_escape)
@@ -77,6 +80,7 @@ class LatexRenderer(Renderer):
         )
 
         self._input_resolver = RecursiveInputResolver()
+        self._graphic_dependency_resolver = GraphicDependencyResolver()
         self._preview_source_builder = (
             LatexPreviewSourceBuilder(
                 template_path,
@@ -165,7 +169,13 @@ class LatexRenderer(Renderer):
         ).expanduser().resolve()
         self._pending_sync_line = max(int(line), 1)
         self._pending_sync_column = max(int(column), 1)
-        self._sync_timer.start()
+        # Never map a cursor position against a stale SyncTeX/PDF while a
+        # newer source generation is queued or compiling. That race was a
+        # major cause of the preview jumping to unrelated locations while
+        # typing. The latest cursor position is retained and mapped as soon as
+        # the matching PDF generation is published.
+        if self._preview_is_current_for_sync():
+            self._sync_timer.start()
 
     def render(
         self,
@@ -227,6 +237,16 @@ class LatexRenderer(Renderer):
             source,
             source_path,
         )
+        graphic_dependencies = self._graphic_dependency_resolver.collect(
+            source,
+            source_path,
+            self._input_resolver.resolved_paths,
+        )
+        dependency_paths = list(self._input_resolver.resolved_paths)
+        for dependency in graphic_dependencies:
+            if dependency not in dependency_paths:
+                dependency_paths.append(dependency)
+        self.dependencies_changed.emit([str(path) for path in dependency_paths])
 
         try:
             prepared = self._preview_source_builder.build(
@@ -544,6 +564,7 @@ class LatexRenderer(Renderer):
         if published_pdf is None:
             return False
 
+        self._last_published_generation = self._active_generation
         self.rendered.emit(str(published_pdf))
         if self._cursor_sync_enabled:
             self._sync_timer.start()
@@ -585,8 +606,17 @@ class LatexRenderer(Renderer):
             except OSError:
                 pass
 
+    def _preview_is_current_for_sync(self) -> bool:
+        return (
+            self._last_published_generation == self._latest_requested_generation
+            and not self._timer.isActive()
+            and self._process.state() == QProcess.ProcessState.NotRunning
+        )
+
     def _map_pending_source_position(self) -> None:
         if not self._cursor_sync_enabled:
+            return
+        if not self._preview_is_current_for_sync():
             return
 
         source_path = self._pending_sync_source_path

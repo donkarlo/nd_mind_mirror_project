@@ -1,487 +1,350 @@
 # nd_mind_mirror_project
 
-## v0.20.0 citation, preview-fit, hierarchical search, and in-tab find/replace
+`nd_mind_mirror_project` is a desktop writing and source-editing environment for Ubuntu built with Python and PySide6. It is designed around LaTeX documents, but it can also open and edit Markdown, YAML, plain text, source code, configuration files, and other text-based files inside one workspace.
 
-- Natbib/BibTeX previews now wait for the complete `LuaLaTeX -> BibTeX -> LuaLaTeX -> LuaLaTeX` bibliography cycle before publishing a bibliography rebuild. This prevents a bibliography from appearing while its `\cite{...}` still renders as `?`.
-- New LaTeX sources automatically fit to the preview width by default. `preview.fit_width_percent` defaults to `95`; page height is not used as the fit target. `preview.auto_fit_on_open` can disable this behavior, in which case `preview.default_zoom_percent` is used.
-- `Ctrl + mouse wheel` keeps the PDF content point under the mouse as the zoom anchor.
-- File search keeps the previous query when reopened. Multi-word queries can match hierarchically across path components, so a token can match a parent folder while another token matches a descendant file/folder. Adjacent-letter transpositions such as `nueral`/`neural` are tolerated without loosening exact filename searches such as `neuron.tex`.
-- File System and Structure row height is configurable with `ui.navigator_row_height` (default `24`).
-- `Ctrl+F` opens Find for the current tab and `Ctrl+R` opens Replace. All matches are highlighted, previous/next arrow buttons cycle matches, Replace changes only the current match, and Esc closes the bar and removes highlights.
-- YAML hierarchy in Structure and YAML smart indentation remain enabled.
+The application keeps the original files as the source of truth. Visual editing, preview documents, temporary LaTeX wrappers, search indexes, and UI state are derived from those files and do not require rewriting the source merely to display it.
 
-## v0.15.0 Persian preview compatibility and LaTeX structure navigator
+## Main features
 
-- Full Persian documents that already use `polyglossia`, `xepersian`, or an existing Persian Babel setup are left untouched by the preview source builder. This prevents the preview-only Babel fallback from being mixed with Polyglossia.
-- The navigator column is split vertically: the existing file/folder tree stays on top and a live LaTeX structure tree is shown below it.
-- The structure tree shows `part`, `chapter`, `section`, `subsection`, `subsubsection`, `paragraph`, and `subparagraph` hierarchically and indented. Double-clicking a structure entry moves the current editor to that source line.
-- The default `editor.line_height_percent` is now `200`.
-- Release ZIPs must exclude `.idea/` (as well as cache/bytecode directories).
+### Workspace and File Navigator
 
-## v0.14.7 Persian preview and navigator fixes
+- Configurable workspace root from `settings.yaml`.
+- Tree-based File Navigator for files and directories.
+- Navigator follows the active editor tab and reveals/highlights its file.
+- Double-click opens editable text files inside the application.
+- PDF and image files can be opened with the Ubuntu default application.
+- Right-click **Open in Files** reveals a file or directory in the Ubuntu file manager.
+- If the clipboard currently contains an image, the first click on a folder saves it there as `img.jpg`; later copied images use `img_2.jpg`, `img_3.jpg`, and so on. `Ctrl+V` and **Paste Clipboard Image Here** are also supported.
+- Drag-and-drop can move files and directories inside the workspace.
+- When a file is moved, textual relative/absolute references under the configured workspace can be updated automatically.
+- `search_ignore.yaml` provides gitignore-like rules for search and workspace operations.
+- Navigator and Structure panel sizes are persisted between sessions.
 
-- Navigator files open on an explicitly handled double-click; a single click only selects.
-- LuaLaTeX preview injects temporary Babel Persian support when Persian text is detected and the source does not already configure Persian. The source `.tex` file is never changed.
-- Pressing Enter after ordinary prose preserves only the current source indentation instead of adding a logical LaTeX hierarchy indent. Structural LaTeX lines still use smart indentation.
+### Fast file search
 
+- Double Shift opens the file search window.
+- The previous query is preserved and automatically selected when search is reopened, so typing immediately replaces it.
+- Exact, prefix, substring, fuzzy, and hierarchical path matching are supported.
+- Keyboard navigation with Up/Down and Enter is supported.
+- Search results open through the same file dispatcher as the Navigator.
+- Opening search rebuilds the workspace index, so files/folders added, removed, or moved externally (Dropbox, git, terminal, another editor) are reflected without restarting Mind Mirror.
 
-A PySide6/Qt LaTeX editor with a filesystem navigator, tabbed editor,
-live LuaLaTeX preview, persistent state, fuzzy file search, and PDF export.
+### Tabs and session restore
 
-## v0.14.6 Persian/English bidirectional LaTeX editing
+- Multiple editor tabs with a configurable maximum tab count.
+- `Ctrl+W` closes the current tab.
+- `Ctrl+Tab` provides recent-tab switching.
+- Open files, active file, cursor position, scroll position, window geometry, splitter sizes, and bookmarks are persisted.
+- Externally modified open files are detected and reloaded while preserving the current view as far as possible.
 
-- LaTeX source blocks now have per-line visual direction without changing the
-  source text saved to disk.
-- Structural/setup commands such as `\section`, `\begin`, `\end`,
-  `\documentclass`, `\usepackage`, `\input`, and `\includegraphics` stay
-  left-to-right for predictable source-code editing.
-- Ordinary Persian prose is laid out right-to-left. English terms inside a
-  Persian sentence are left to Qt's Unicode bidirectional text engine, so the
-  Latin run keeps its natural left-to-right order inside the RTL paragraph.
-- Citation/reference keys are ignored for language detection so a long English
-  BibTeX key does not incorrectly turn a short Persian sentence LTR.
-- RTL blocks mirror hanging soft-wrap margins to the right side.
+## LaTeX editing
 
-The behavior is configurable in `settings.yaml`:
+### Source mode
+
+- LaTeX syntax highlighting.
+- Configurable font size, line height, tab size, indentation guides, and content padding.
+- Soft wrapping with hanging indentation.
+- Configurable per-line RTL/LTR layout.
+- Smart Enter behavior.
+- Inside `itemize`, `enumerate`, and `description`, pressing Enter after an existing `\item` creates the next sibling `\item` automatically.
+- `Ctrl+Shift+F` formats LaTeX using the configured tab/indent size.
+- `Ctrl+B` wraps the current selection in `\textbf{...}`.
+- Toolbar controls for bold, italic, text color, highlight, headings, and lists.
+- LaTeX command completion.
+- User-defined snippets in `latex_shortcuts.yaml`.
+- Pasting an image can create a relative LaTeX figure reference next to the source file.
+
+### Visual LaTeX mode
+
+LaTeX files can switch between **Source** and **Visual** modes. Source remains canonical; Visual is an editable projection of supported LaTeX structures.
+
+Visual mode supports:
+
+- Paragraph editing.
+- Part/chapter/section/subsection/subsubsection/paragraph/subparagraph headings.
+- Nested `itemize` and `enumerate` lists.
+- Bold, italic, text colors, and highlights.
+- Common inline mathematical symbols such as Greek letters while preserving their LaTeX representation.
+- Raw LaTeX blocks for unsupported constructs so source is not silently discarded.
+- Editing the LaTeX represented by a selected Visual range through **Update selected LaTeX source…**.
+- A Raw LaTeX mini source editor with LaTeX completion and `latex_shortcuts.yaml` snippets.
+- Independent Visual font size, line height, and padding settings.
+- Coalesced Visual-to-source updates for large documents so ordinary typing does not serialize the complete document after every key press.
+
+### Source / Visual cursor and selection synchronization
+
+Source and Visual represent the same canonical source position.
+
+- Switching Source → Visual keeps the cursor at the corresponding word/location.
+- Switching Visual → Source maps the cursor back to the corresponding source position.
+- A text selection is mapped to the other representation where possible.
+- Structure navigation uses the currently visible mode.
+- Visual scrolling and cursor movement participate in preview synchronization just like Source mode.
+
+## Persian and RTL support
+
+LaTeX source and Visual mode support Persian/Arabic right-to-left writing.
+
+- Ordinary Persian prose can be laid out RTL automatically.
+- LaTeX command/setup lines remain LTR where appropriate.
+- Mixed Persian/English paragraphs use Qt bidirectional text layout.
+- Visual paragraphs receive explicit RTL block direction so mouse hit-testing and caret placement follow the displayed Persian text.
+- RTL behavior is configurable with `editor.latex_text_direction` and `editor.latex_rtl_persian_ratio`.
+- Persian preview documents that already configure `polyglossia`, `xepersian`, or a Persian font setup are not rewritten merely for preview.
+
+## Structure panel
+
+For LaTeX, the Structure panel recognizes the normal section hierarchy:
+
+- `\part`
+- `\chapter`
+- `\section`
+- `\subsection`
+- `\subsubsection`
+- `\paragraph`
+- `\subparagraph`
+
+Clicking a Structure item moves the active Source or Visual editor to the corresponding location.
+
+Included/input LaTeX fragments are resolved for preview without editing the fragment on disk. Fragment preview hierarchy can be derived from the surrounding document while the original `\input`/`\include` source files remain unchanged.
+
+YAML files also receive a hierarchy-oriented Structure view.
+
+## Bookmarks
+
+LaTeX Source and Visual mode share one bookmark model.
+
+- Click the thin vertical bookmark gutter to add or remove a bookmark.
+- Bookmarks are drawn as subtle light-blue circles.
+- Bookmarks store both source line and column, so they can distinguish positions inside long wrapped paragraphs.
+- Right-click a bookmark marker to rename or remove it.
+- Bookmark names and positions are saved automatically.
+- The **Bookmarks** menu lists bookmarks across open and previously bookmarked files.
+- Clicking a bookmark opens/reveals its file and moves Source or Visual to the stored location.
+- Bookmark anchors relocate when lines are inserted or removed above them.
+
+## Live LaTeX PDF preview
+
+- LuaLaTeX-based live preview.
+- Multi-pass rendering for citations/bibliographies when needed.
+- BibTeX/Biber-aware rendering.
+- The last valid PDF stays visible during transient LaTeX errors while typing.
+- PDF text remains selectable and copyable.
+- `Ctrl+Mouse Wheel` zooms around the pointer position.
+- Middle-drag or Ctrl+left-drag pans the PDF.
+- Zoom percentage and page number are displayed.
+- PDF export is available from the preview toolbar.
+- Horizontal and vertical scrollbars stay visible whenever the rendered document is larger than the Preview viewport.
+
+### Fit mode
+
+Fit is reading-oriented rather than physical-page-oriented:
+
+- The widest rendered content is fitted to the configured percentage of Preview width.
+- Large unused white A4 side margins do not determine the scale when content bounds can be detected.
+- Vertical page height is not a Fit constraint.
+- Fit stays active across live re-renders and Source/Visual switching until the user manually zooms.
+- Source/Visual cursor synchronization preserves horizontal centering while Fit is active.
+
+### Source-to-preview synchronization
+
+- Source and Visual cursor movement can be mapped to the corresponding PDF location through SyncTeX.
+- Scrolling either editing representation updates the preview location.
+- The current editing phrase can be sent to Qt PDF's native text-search overlay after a short debounce, giving a lightweight preview highlight without adding another PDF renderer.
+- The edit-location highlight can be disabled in `settings.yaml`.
+
+## Apple Pencil graphic workflow
+
+Mind Mirror includes a **native iPad companion app** written with SwiftUI and PencilKit. It is delivered as a Swift Playgrounds app package at:
+
+```text
+src/nd_mind_mirror/graphic/ipad/nd_graphic.swiftpm
+```
+
+A Mac is not required. Install Apple's free **Swift Playgrounds** app on the iPad, copy `nd_graphic.swiftpm` to **On My iPad** or iCloud Drive in the Files app, then tap the package and run **ND Graphic**. Swift Playgrounds compiles and runs the app natively on the iPad. The older browser client remains under `src/nd_mind_mirror/graphic/web/` only as a fallback.
+
+From either LaTeX Source or Visual mode, right-click and choose **Insert / update image in iPad…**:
+
+- On a new location, Mind Mirror creates a PNG plus an editable `.ndgraphic` sidecar in the **same directory as the active `.tex` file** and inserts a complete `figure` block using `\includegraphics[width=0.9\textwidth]{...}`.
+- On an existing Mind Mirror PNG reference, the same command opens that graphic for continued editing instead of creating another one.
+- The Ubuntu graphic bridge pushes the requested document to the native iPad app immediately over WebSocket.
+- The drawing surface uses PencilKit's **pencil** ink rather than a ballpoint/pen ink. Apple Pencil pressure and tilt are handled by PencilKit, so stronger pressure naturally makes the stroke darker and somewhat broader.
+- Pencil color and base width are selectable. Eraser, Undo, Redo, and Clear are included.
+- Drawing changes are autosaved after a short debounce. The bridge atomically updates both the editable `.ndgraphic` PencilKit state and its PNG.
+- Because LaTeX includes the PNG directly, Visual mode and the live PDF preview refresh when the bridge rewrites the image. No TikZ conversion is involved in the active graphic workflow.
+- The iPad client uses Network.framework WebSocket (`NWConnection` + `NWProtocolWebSocket`) for the direct LAN `ws://` bridge, avoiding URLSession App Transport Security blocking on local clear-text WebSockets.
+- Dropbox can continue to synchronize the real PNG/sidecar files, while WebSocket is used for low-latency live editing.
+
+Graphic settings include:
+
+```yaml
+graphic:
+  directory: .
+  latex_width_ratio: 0.90
+  canvas_width: 1600
+  canvas_height: 1000
+  bridge_http_url: http://127.0.0.1:8766
+  bridge_token: ""
+```
+
+Run the Ubuntu bridge from the project root:
+
+```bash
+TOKEN='choose-a-token' ./nd_graphic_bridge
+```
+
+Find the Ubuntu LAN address:
+
+```bash
+hostname -I
+```
+
+In the native iPad app, set the connection to:
+
+```text
+ws://UBUNTU_IP:8766/ws
+```
+
+and enter the same token. Both devices must be on the same local network. The app remembers the connection settings.
+
+The previous Xcode project is archived under `src/nd_mind_mirror/graphic/native_future/`; it is not required for the Ubuntu+iPad workflow. The experimental drawing-to-TikZ code remains parked under `src/nd_mind_mirror/graphic/tikz_future/` for later development.
+
+## Markdown and other text files
+
+### Markdown
+
+- `.md` and `.markdown` files open in the internal editor.
+- Markdown receives a rendered preview.
+- Relative Markdown images are resolved from the Markdown file directory.
+
+### YAML
+
+- YAML syntax highlighting.
+- Smart indentation based on the configured tab size.
+- YAML Structure hierarchy.
+
+### Other text/source files
+
+The editor attempts to open any decodable text file internally. Pygments is used for syntax highlighting when an appropriate lexer can be determined from the filename/extension. This includes common programming languages, configuration files, shell scripts, JSON/TOML/INI, SQL, HTML/CSS, BibTeX, logs, and plain text.
+
+`.txt` files are editable but intentionally have no rendered preview.
+
+## Find and replace
+
+- `Ctrl+F` opens Find for the current tab.
+- `Ctrl+R` opens Find/Replace.
+- Matches are highlighted in the editor.
+- Next/previous navigation and replace-current are available.
+- Escape closes the search bar and clears editor match highlighting.
+
+## Editor key behavior
+
+- In any Source editor, when there is no selection, `Ctrl+C` copies the entire current line, `Ctrl+X` cuts the entire current line, and `Ctrl+D` duplicates the entire current line.
+- `Ctrl+Z` is Undo and `Ctrl+Y` (or `Ctrl+Shift+Z`) is Redo in Source editors; Visual mode also explicitly supports the same Undo/Redo keys.
+- Visual mode displays ordinary characters such as `_` and `"`, while serialization escapes them as `\_` and `\"` in canonical LaTeX source.
+- The navigator context menu provides **Copy Absolute Path** and **Copy File Name** for both files and directories.
+
+## Settings
+
+Open **Settings → Edit settings.yaml** to edit application settings inside the editor. Saving the file alone does not apply it; press the **Apply** button shown for `settings.yaml`.
+
+Important editor settings include:
 
 ```yaml
 editor:
-  latex_text_direction: "auto"
+  font_size: 16
+  line_height_percent: 200
+
+  visual_font_size: 16
+  visual_line_height_percent: 200
+
+  source_padding_top: 10
+  source_padding_left: 10
+  source_padding_right: 10
+
+  visual_padding_top: 14
+  visual_padding_left: 16
+  visual_padding_right: 16
+
+  tab_size: 4
+
+  visual_update_debounce_ms: 180
+  visual_large_document_threshold_chars: 120000
+  visual_large_document_debounce_ms: 650
+
+  latex_text_direction: auto
   latex_rtl_persian_ratio: 0.35
 ```
 
-`latex_text_direction` accepts:
-
-- `auto`: LaTeX control lines remain LTR and prose direction is detected.
-- `rtl`: ordinary prose is forced RTL while LaTeX control lines remain LTR.
-- `ltr`: all source lines remain LTR.
-
-`latex_rtl_persian_ratio` is used only in `auto` mode. For mixed prose, a line
-becomes RTL when Persian/Arabic-script strong letters reach the configured
-fraction of all strong alphabetic characters.
-
-## v0.13 preview, soft-wrap, and Ctrl+Tab fixes
-
-- Live preview requests now snapshot the active source text and source path together.
-  Older LuaLaTeX jobs are ignored as soon as a newer tab/edit render is requested.
-- Every successful preview is published to a generation-specific PDF filename before
-  it is handed to Qt Quick PDF. This avoids the stale `preview.pdf` URL cache that
-  could leave the previous tab visible after switching or opening another `.tex`.
-- Soft-wrapped continuation lines use a real hanging block margin based on the
-  source line's leading spaces/tabs. QTextDocument layout notifications are no
-  longer blocked, so wrapped continuations are relaid out at the same horizontal
-  start as the original line's first non-whitespace character. The source text is
-  never changed.
-- `editor.line_height_percent` now uses proportional QTextBlockFormat line height,
-  so the setting remains effective after font changes and settings hot reloads.
-- The Ctrl+Tab recent-file window shows up to ten rows, is slightly taller, and
-  always scrolls the selected item into view while Ctrl remains held.
-
-## v0.7 interaction improvements
-
-### Editor
-
-- The text cursor is explicitly configured to blink and has a configurable width.
-- The active logical line has a very light blue full-width highlight.
-- Long lines use soft wrapping, so the file content itself is not changed.
-- A gray `↳` marker is painted beside every visual continuation line created
-  only by soft wrapping.
-- `Ctrl + Mouse Wheel` changes editor font size.
-- Smart Enter keeps the cursor at the new indentation position.
-- `Ctrl+Shift+F` formats the current LaTeX file by changing indentation only.
-  Heading hierarchy and LaTeX environments determine indentation.
-- Clipboard images are saved beside the active `.tex` file as PNG and inserted
-  with a relative `\includegraphics` path.
-- Autosave saves every modified open tab every second by default.
-
-### File navigator
-
-Only the `Name` column is displayed.
-
-When a tab becomes active, its file is automatically:
-
-1. revealed by expanding its parent hierarchy,
-2. selected,
-3. highlighted,
-4. scrolled to the vertical center of the navigator.
-
-Folder indentation is reduced and configurable.
-
-Right-click a file or folder for:
-
-- `New LaTeX File...`
-- `New File...`
-- `New Folder...`
-- `Rename...`
-- `Delete...`
-
-Renaming a folder also updates paths of open tabs below it. Deleting a file or
-folder closes affected tabs.
-
-### Search window
-
-Press **Shift twice** to open the search window.
-
-The window opens exactly centered over the main application window.
-
-Search is fuzzy and tolerant:
-
-- any substring from the middle of a name works,
-- underscores, dashes and spaces are ignored for compact matching,
-- subsequence matching is supported,
-- small spelling mistakes are tolerated,
-- results are ranked by match quality.
-
-Search results keep their filesystem hierarchy. Double-clicking a `.tex` result
-opens it as a tab and closes the search window.
-
-### Settings
-
-All requested UI behavior is configurable from the root-level:
-
-```text
-settings.yaml
-```
-
-Important settings include:
-
-```yaml
-editor:
-  font_family: "DejaVu Sans Mono"
-  font_size: 11
-  cursor_width: 2
-  cursor_flash_time_ms: 650
-  soft_wrap: true
-  wrap_marker: "↳"
-  wrap_marker_color: "#9aa0a6"
-  wrap_marker_margin: 18
-  current_line_highlight: "#eaf4ff"
-
-autosave:
-  enabled: true
-  interval_ms: 1000
-
-search:
-  default_path: "~/Dropbox/repo"
-  fuzzy_threshold: 0.55
-  window_width: 900
-  window_height: 620
-  tree_indent_width: 10
-
-ui:
-  navigator_indent_width: 10
-  splitter_handle_width: 9
-```
-
-Use:
-
-```text
-Settings -> Reload settings.yaml
-```
-
-after editing the YAML file.
-
-## Existing features kept
-
-- up to 10 open/recent tabs
-- close button on each tab
-- fixed tab width
-- hierarchical labels when duplicate filenames are open
-- LaTeX syntax highlighting
-- LaTeX completion and `Ctrl+Space`
-- `Ctrl+O` open
-- `Ctrl+S` save
-- live PDF rendering
-- `Ctrl + Mouse Wheel` PDF zoom
-- PDF export
-- persistent tab, active-file, folder-expansion, and splitter state
-- relative and absolute `\input` / `\include`
-- standalone child-document preamble merging
-- child heading hierarchy normalization based on master `documentclass`
-- no `__init__.py` files
-- one class per class-containing Python source file
-
-## Install
-
-```bash
-cd /home/donkarlo/Dropbox/repo/nd_mind_mirror_project
-/home/donkarlo/phd-venv/bin/python -m pip install -e .
-```
-
-## Run
-
-```bash
-/home/donkarlo/phd-venv/bin/python nd_mind_mirror_project
-```
-
-
-## v0.9 search and fragment-preview improvements
-
-### Faster and more relevant search
-
-- The search root is indexed once in a background thread instead of walking the entire repository after every keystroke.
-- Queries are matched against the file or folder name itself. A matching ancestor directory no longer causes every descendant to appear as a false-positive result.
-- Ranking prefers exact names, prefixes, and literal substrings before typo-tolerant fuzzy matches.
-- The default fuzzy threshold is stricter (`0.72`) and the default result limit is `250`.
-- Underscores remain normal search characters. Using Shift to type `_` no longer counts as a standalone Shift tap.
-- Re-activating the Double-Shift shortcut while the search window is already open no longer selects and replaces the current query.
-
-### Template-based preview for LaTeX fragments
-
-A `.tex` file without `\documentclass` is never modified on disk. For preview only, its content is inserted into a temporary document built from the configurable template:
+Preview synchronization/highlight settings include:
 
 ```yaml
 preview:
-  latex_template_path: "resources/latex_preview_template.tex"
-  shell_escape: true
+  auto_fit_on_open: true
+  fit_width_percent: 95
+  cursor_sync_enabled: true
+  cursor_sync_debounce_ms: 120
+  edit_location_highlight_enabled: true
+  edit_location_highlight_debounce_ms: 220
 ```
 
-The bundled template contains the requested packages, external macro inputs, author, and bibliography. Edit the template itself or point `latex_template_path` to another file.
+## Running on Ubuntu
 
-The preferred insertion marker is:
+Create/activate a Python environment containing the project dependencies and run the launcher from the project root:
 
-```latex
-% ND_MIND_MIRROR_CONTENT
+```bash
+./nd_mind_mirror_project
 ```
 
-If a custom template has no marker, the previewer inserts the fragment before the bibliography, or before `\end{document}` as a fallback.
+or install the project in the environment and run its Python entry point according to your environment setup.
 
-For fragment files, the temporary preview title is inferred without changing the source. The highest structural level present is preferred according to:
+The project requires Python 3.10+ and uses:
 
-```text
-part -> chapter -> section -> subsection -> subsubsection -> paragraph -> subparagraph
-```
+- PySide6 / Qt 6.8+
+- PyYAML
+- Pygments
+- a working LaTeX installation for PDF rendering (LuaLaTeX and the packages used by your documents)
 
-Within that level, the first non-empty heading is used. This makes `\input`/`\include`-style fragment files render with a useful document title.
+## Project files
 
-## v0.8 fixes
+- `~/Desktop/repo/data/nd_mind_mirror_project/settings.yaml` — application behavior and UI settings.
+- `~/Desktop/repo/data/nd_mind_mirror_project/latex_shortcuts.yaml` — user LaTeX snippets.
+- `~/Desktop/repo/data/nd_mind_mirror_project/search_ignore.yaml` — workspace/search ignore rules.
+- `~/Desktop/repo/data/nd_mind_mirror_project/templates/latex_preview_template.tex` — editable article/new-file preview template.
+- `~/Desktop/repo/data/nd_mind_mirror_project/templates/latex_preview_beamer_template.tex` — editable Beamer/new-file preview template.
+- `src/nd_mind_mirror/` — application source.
+- `src/nd_mind_mirror/graphic/ipad/nd_graphic.swiftpm/` — native SwiftUI/PencilKit iPad companion app, runnable directly in Swift Playgrounds.
+- `src/nd_mind_mirror/graphic/bridge/` — Ubuntu HTTP/WebSocket server for the native iPad app and live autosave.
+- `src/nd_mind_mirror/graphic/web/` — optional browser fallback client.
+- `tests/` — automated tests.
 
-### Double Shift vs. Ctrl+Shift+F
+Temporary preview documents are generated for rendering and do not require changing the original LaTeX fragment merely to make it compilable as a standalone preview.
 
-The Double-Shift search trigger now accepts only two standalone Shift presses.
-A Shift press while Ctrl, Alt, or Meta is held is ignored, and any non-Shift
-key resets the Double-Shift sequence.
+### v0.30.1 startup stability
 
-Therefore:
+- The Ubuntu taskbar icon is now a packaged static PNG. Runtime QPainter-based icon generation was removed from startup so desktop integration cannot destabilize the Qt event loop.
+- Native crash diagnostics are appended to `~/.local/state/nd_mind_mirror_project/crash.log` while ordinary errors still appear in the terminal.
 
-```text
-Ctrl+Shift+F
-```
+### v0.30.2 Ubuntu 20.04 launcher stability
 
-runs the LaTeX formatter without opening the search window.
+- `./nd_mind_mirror_project` now automatically re-executes with `~/phd-venv/bin/python` when that interpreter exists, so reopening a terminal or rebooting Ubuntu cannot silently launch the Qt application with a different system Python.
+- Override the interpreter with `ND_MIND_MIRROR_PYTHON=/absolute/path/to/python` when needed.
+- Desktop-file installation is no longer performed during GUI startup; taskbar integration is kept out of the critical startup path.
+- Startup/lifetime diagnostics are appended to `~/.local/state/nd_mind_mirror_project/startup.log`. Native fatal-signal diagnostics remain in `crash.log`.
 
-### Safer live-preview preamble handling
+### v0.30.3 preview safety for malformed/sparse LaTeX documents
 
-Preamble `\input` / `\include` commands are no longer expanded into the
-generated `preview.tex`.
+- Fit-to-preview is now hard-clamped to a safe 20%-500% range, including QML auto-fit paths.
+- Sparse/near-empty pages no longer fit to a tiny page-number/glyph bounding box; they fall back to physical page width.
+- A stale or invalid zoom is sanitized before every PDF reload, preventing giant Qt Quick PDF texture allocations.
+- Files containing multiple complete standalone LaTeX documents are previewed using the most substantial complete document, without modifying the source file; leading line offsets are preserved for SyncTeX.
 
-This is important for macro files such as:
+### v0.31.0 persistent settings, stable/faster preview, and LaTeX templates
 
-```latex
-\input{/absolute/path/to/macros.tex}
-```
-
-Previously, the macro file could be expanded and then merged line-by-line when
-a standalone child document was embedded. That could damage multi-line TeX
-definitions and produce errors such as:
-
-```text
-Missing $ inserted
-```
-
-The new behavior keeps preamble macro files as real LaTeX inputs. Relative
-preamble input paths are resolved and rewritten to absolute paths so they remain
-valid when the temporary preview document is compiled.
-
-Child preambles still merge packages and libraries while duplicate package,
-TikZ-library, graph-drawing-library, and identical preamble-input lines are
-removed safely.
-
-The renderer behavior was validated by generating a master document containing
-a complete standalone child document and an external multi-line macro file, then
-compiling the generated preview with LuaLaTeX successfully.
-
-## v0.10 preview, search, navigator, and editor synchronization
-
-### Citations in live preview
-
-The preview renderer now runs the bibliography tool when the first LuaLaTeX pass
-creates bibliography metadata, then runs LuaLaTeX twice more. It supports
-`biber` for `.bcf` workflows and `bibtex`, `bibtexu`, or `bibtex8` for classic
-`natbib`/`\\bibliography{...}` workflows. This prevents resolved citations from
-remaining as `?` merely because the preview was compiled only once.
-
-### Selectable PDF preview
-
-The live preview now uses Qt Quick PDF's multi-page viewer. Rendered PDF text can
-be selected with the mouse and copied with `Ctrl+C`; `Ctrl+A` selects the text on
-the current PDF page. This requires PySide6/Qt 6.8 or newer.
-
-### Editable LaTeX source and line height
-
-The source editor is explicitly writable. Editor line height is configurable in
-`settings.yaml`:
-
-```yaml
-editor:
-  line_height_percent: 200
-```
-
-Reload `settings.yaml` from the Settings menu after changing it.
-
-### Faster, stricter search
-
-Search still indexes the configured root in the background, but per-query
-matching is now stricter and cheaper. A query containing an extension, such as
-`neuron.tex`, uses literal filename matching and does not fall back to fuzzy
-matching, so unrelated names such as `sondern.tex` are not returned. The new
-default fuzzy threshold is `0.86`, debounce is `70 ms`, and result limit is
-`100`.
-
-Only matching files/folders and the ancestor nodes needed to reach those matches
-are added to the result tree; unrelated hierarchy branches are not populated.
-
-### Search root and `search_ignore.yaml`
-
-Both the navigator and search are scoped to `search.default_path`. The navigator
-uses that directory as its visible root and does not expose sibling/parent
-branches.
-
-Ignore rules are stored in the file configured here:
-
-```yaml
-search:
-  default_path: "~/Dropbox/repo"
-  ignore_file: "search_ignore.yaml"
-```
-
-The bundled `search_ignore.yaml` uses gitignore-like patterns. For example:
-
-```yaml
-ignore:
-  - ".git/"
-  - "out/"
-  - "**/build/**"
-  - "*.aux"
-```
-
-A directory rule such as `out/` applies at any depth. Reload `settings.yaml` to
-rebuild search and navigator filters after changing the ignore file.
-
-### External-file synchronization
-
-Every second, open files are checked for changes made by another program. If the
-on-disk file changed, the editor reloads it while preserving cursor and scroll
-position. External changes are checked before autosave so autosave does not
-immediately overwrite a just-detected external write.
-
-```yaml
-external_file_sync:
-  enabled: true
-  interval_ms: 1000
-```
-
-### `Ctrl+Tab` recent-file switcher
-
-Holding Control and pressing Tab opens a centered recent-file switcher. Repeated
-Tab presses move forward through recently used open files; holding Shift moves
-backward. Releasing Control activates the selected file and hides the switcher.
-
-
-## v0.11 empty-bibliography preview fix
-
-- A LaTeX document that declares `\bibliography{...}` but currently contains no `\cite{...}` no longer causes the live preview to show a BibTeX error instead of the generated PDF.
-- BibTeX is now started only when the AUX file contains both bibliography data and an actual citation request.
-- Ordinary LaTeX reruns still happen, so references and the PDF preview continue to update normally.
-
-## v0.12 updates
-
-- Soft-wrapped continuation lines use a hanging indent aligned with the first non-whitespace character of the source line.
-- `editor.line_height_percent` is applied using a fixed line height derived from the active font and updates immediately when settings are applied.
-- `Settings -> Edit settings.yaml` opens the settings file in the built-in editor. Saving valid YAML applies it immediately; invalid YAML is saved but not applied until it becomes valid.
-- LaTeX preview is forced to reload even though the renderer reuses the same temporary `preview.pdf` path.
-- Switching/opening a `.tex` tab requests an immediate render; typing still uses the normal render debounce.
-- The Ctrl+Tab recent-file switcher has a narrow blue border and subtle drop shadow.
-
-
-## v0.14 editor and preview updates
-
-- The editor uses Qt rich document layout while still accepting/saving plain text only, so soft-wrapped continuation lines can use a real hanging indent and `editor.line_height_percent` is applied visually without modifying the `.tex`/YAML source.
-- `settings.yaml` is syntax highlighted and remains hot-reloadable after save.
-- `Ctrl+W` closes the active editor tab.
-- `editor.max_open_tabs` defaults to 20. Opening beyond the limit closes the least-recently-used unmodified tab.
-- Live LaTeX preview publishes the first successful LuaLaTeX pass immediately, then refines bibliography/cross-reference output only when needed. `preview.debounce_ms` controls typing debounce.
-
-
-## v0.14.1 preview zoom fix
-
-- `Ctrl` + mouse wheel now zooms the selectable live PDF preview.
-- Zoom is handled at the `QQuickWidget` boundary and updates the `PdfMultiPageView.renderScale`, so normal wheel scrolling remains unchanged when Ctrl is not held.
-- Zoom range is limited to 20% through 800%.
-
-## v0.14.2 preview scrolling
-
-- Native scrollbars inside the selectable multipage PDF preview are kept visible and interactive after zooming beyond the viewport.
-
-## v0.14.3 preview panning and navigator activation
-
-- Hold `Ctrl` and drag with the left mouse button in the PDF preview to pan without changing the current zoom level.
-- Drag with the middle mouse button to pan without any keyboard modifier.
-- A single click in the file navigator only selects an item; an editable `.tex`, `.yaml`, or `.yml` file opens in a tab only on double-click.
-- Opening a file from the navigator no longer recenters the already-selected tree item, avoiding the previous jump-away/jump-back effect.
-
-
-### Beamer fragment preview
-
-When a fragment has no `\documentclass` but contains a Beamer `frame` environment,
-the previewer automatically uses `preview.latex_beamer_template_path` instead of the
-article fragment template. The source fragment is never modified.
-## LaTeX shorthand shortcuts
-
-`latex_shortcuts.yaml` contains user-editable shorthand expansions. For example,
-typing `lis` shows matching shortcut names below the cursor. Use Up/Down to choose
-and Enter or Tab to replace the typed shorthand. The special `{{cursor}}` marker in
-a replacement controls where the editor caret is placed after expansion.
-
-The file can be opened from **Settings -> Edit latex_shortcuts.yaml** and is reloaded
-automatically after it is saved.
-
-## Preview cursor synchronization
-
-The LaTeX renderer compiles with SyncTeX enabled. When the editor cursor moves, the
-PDF preview follows the corresponding source location without changing the current
-preview zoom. This behavior can be disabled with `preview.cursor_sync_enabled`.
-
-## v0.17.0
-
-- Structure items activate on a single click; the selected source line is placed at the top of the editor viewport and Preview follows through SyncTeX.
-- Editor scrolling now drives Preview source-position synchronization as well as cursor movement.
-- Added a compact LaTeX formatting toolbar above the editor: square **B** button for `\textbf{...}` and a pastel highlight menu using `\colorbox{...}{...}`. `Ctrl+B` applies the same bold wrapper to the selected text.
-- Preview-only package injection recognizes `algorithm`/`algorithmic` and toolbar `\colorbox` usage, adding `algorithm`, `algpseudocode`, or `xcolor` only to the temporary preview source when needed.
-- Per-file cursor, horizontal scroll, and vertical scroll positions are remembered when tabs are switched/closed and persisted across application restarts.
-- Large-file editor performance was improved by applying block direction/line-height/wrap layout only to changed blocks during normal typing instead of walking the entire document after every edit. Full layout is still applied when visual settings change.
-- Default editor font size remains 16 and default line height remains 200%.
-
-## v0.18.0
-
-- Keeps a passive caret visible at the last editor cursor position when focus moves to another panel or application.
-- Saves/restores main-window position and size together with the existing editor/tab/session state.
-- `settings.yaml` changes are no longer applied by autosave or external-file reload; use the **Apply** button shown above the editor while `settings.yaml` is active.
-- Keeps the last successful PDF visible when a transient live-LaTeX compile fails while typing.
-- Coalesces live-render requests instead of repeatedly killing/restarting LuaLaTeX. Large documents use a longer configurable render debounce to reduce CPU spikes and editor slowdowns.
-- Adds `preview.large_document_threshold_chars` and `preview.large_document_debounce_ms` settings.
-
-## v0.18.2 notes
-
-- PDF and image results open with Ubuntu's configured default desktop app.
-- YAML files open in the built-in syntax-highlighted editor from Navigator/Search.
-- Window geometry plus Navigator/Editor/Preview widths and Navigator/Structure heights are persisted under `~/.config/nd_mind_mirror_project/ui_state.json` with QSettings fallback.
-- Live preview repairs incomplete one-line `\colorbox` wrappers only in the temporary preview source, preventing a transient `\color@b@x` runaway from permanently stopping preview.
-
-
-## v0.19.0 additions
-
-- PDF preview toolbar: Fit, editable zoom percentage, and current/total page status.
-- Search: Down moves from the query field to results; Enter activates the highlighted result; double-click still activates files.
-- Structure panel now understands both LaTeX headings and YAML key/list hierarchy.
-- YAML editor applies nesting-aware indentation after Enter.
+- All live user configuration/state is stored under `~/Desktop/repo/data/nd_mind_mirror_project/` instead of the replaceable application directory. This includes `settings.yaml`, `latex_shortcuts.yaml`, `search_ignore.yaml`, editable LaTeX templates, `session.ini`, and `ui_state.json`.
+- On first use, legacy YAML values are migrated when available. On later releases, new schema keys/default ignore rules are merged into the existing files while user values win. Existing template files are never overwritten.
+- Source font size is explicitly `editor.source_font_size`; edit `settings.yaml` and press **Apply** to apply it to all open source editors.
+- **New LaTeX File...** asks which configured template to use. The initial choices are Article and Beamer; more can be added under `new_latex_file.templates`.
+- Live PDF updates no longer recompute content-aware Fit on every successful render. Fit is calculated once for a newly opened source (or when the user presses Fit), then zoom/scroll are preserved across live reloads.
+- Cursor SyncTeX waits until the PDF generation matches the current source, avoiding jumps caused by mapping a new cursor location against an old PDF.
+- Preview status/scrollbar housekeeping is less aggressive, and the default preview debounce is 120 ms (420 ms for large documents).

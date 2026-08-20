@@ -7,13 +7,15 @@ from PySide6.QtGui import (
     QFontDatabase,
     QFontMetricsF,
     QPainter,
+    QPen,
+    QKeyEvent,
     QTextBlockFormat,
     QTextCursor,
     QTextFormat,
     QTextOption,
     QWheelEvent,
 )
-from PySide6.QtWidgets import QTextEdit
+from PySide6.QtWidgets import QApplication, QTextEdit
 
 
 class TextEditor(QTextEdit):
@@ -29,12 +31,18 @@ class TextEditor(QTextEdit):
 
         self._font_min_size = 6
         self._font_max_size = 40
+        self._configured_font_family = ""
+        self._configured_font_size = 16
         self._soft_wrap = True
         self._line_height_percent = 200
         self._wrap_marker = "↳"
         self._wrap_marker_color = QColor("#9aa0a6")
         self._wrap_marker_margin = 18
         self._current_line_color = QColor("#eaf4ff")
+        self._tab_size = 4
+        self._indent_guides_enabled = True
+        self._indent_guide_color = QColor("#d0d0d0")
+        self._indent_guide_width = 1.0
         self._search_highlight_ranges: list[tuple[int, int, bool]] = []
         self._base_document_margin = self.document().documentMargin()
         self._applying_block_layout = False
@@ -44,7 +52,6 @@ class TextEditor(QTextEdit):
         self.setReadOnly(False)
         self.setAcceptRichText(False)
         self.setCursorWidth(2)
-        self.setTabStopDistance(32.0)
         self.setMinimumWidth(0)
 
         font = QFontDatabase.systemFont(
@@ -52,6 +59,7 @@ class TextEditor(QTextEdit):
         )
         font.setPointSize(16)
         self.setFont(font)
+        self._update_tab_stop_distance()
 
         self.cursorPositionChanged.connect(
             self._highlight_current_line
@@ -78,6 +86,139 @@ class TextEditor(QTextEdit):
             cursor_width=2,
         )
 
+
+    def _handle_common_editor_shortcut(self, event: QKeyEvent) -> bool:
+        """Handle editor shortcuts consistently across all source editors.
+
+        Qt's platform defaults are not consistent enough for the workflow used
+        by Mind Mirror (notably Ctrl+Y on Linux).  Keep the explicit mappings
+        here so LaTeX, YAML and generic programming-language editors all share
+        the same behaviour.
+        """
+        modifiers = event.modifiers()
+        control = bool(modifiers & Qt.KeyboardModifier.ControlModifier)
+        alt_or_meta = bool(
+            modifiers
+            & (
+                Qt.KeyboardModifier.AltModifier
+                | Qt.KeyboardModifier.MetaModifier
+            )
+        )
+        if not control or alt_or_meta:
+            return False
+
+        key = event.key()
+        shift = bool(modifiers & Qt.KeyboardModifier.ShiftModifier)
+
+        if key == Qt.Key.Key_Z:
+            if shift:
+                self.redo()
+            else:
+                self.undo()
+            event.accept()
+            return True
+
+        if key == Qt.Key.Key_Y and not shift:
+            self.redo()
+            event.accept()
+            return True
+
+        cursor = self.textCursor()
+        if cursor.hasSelection():
+            return False
+
+        if key == Qt.Key.Key_C and not shift:
+            self._copy_current_line()
+            event.accept()
+            return True
+
+        if key == Qt.Key.Key_X and not shift:
+            self._cut_current_line()
+            event.accept()
+            return True
+
+        if key == Qt.Key.Key_D and not shift:
+            self._duplicate_current_line()
+            event.accept()
+            return True
+
+        return False
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:
+        if self._handle_common_editor_shortcut(event):
+            return
+        super().keyPressEvent(event)
+
+    def _current_line_clipboard_text(self) -> str:
+        """Return the current source line in IDE-style clipboard form."""
+        block = self.textCursor().block()
+        if not block.isValid():
+            return ""
+        return block.text() + "\n"
+
+    def _copy_current_line(self) -> None:
+        QApplication.clipboard().setText(self._current_line_clipboard_text())
+
+    def _cut_current_line(self) -> None:
+        cursor = self.textCursor()
+        block = cursor.block()
+        if not block.isValid():
+            return
+
+        QApplication.clipboard().setText(block.text() + "\n")
+        document = self.document()
+        start = block.position()
+        next_block = block.next()
+
+        edit = QTextCursor(document)
+        edit.beginEditBlock()
+        if next_block.isValid():
+            edit.setPosition(start)
+            edit.setPosition(next_block.position(), QTextCursor.MoveMode.KeepAnchor)
+        else:
+            previous = block.previous()
+            if previous.isValid():
+                # Include the paragraph separator before the last line so an
+                # empty line is not left behind after cutting it.
+                edit.setPosition(max(start - 1, 0))
+                edit.setPosition(
+                    start + len(block.text()),
+                    QTextCursor.MoveMode.KeepAnchor,
+                )
+            else:
+                edit.select(QTextCursor.SelectionType.Document)
+        edit.removeSelectedText()
+        edit.endEditBlock()
+
+        restored = self.textCursor()
+        restored.setPosition(
+            min(max(start, 0), max(document.characterCount() - 1, 0))
+        )
+        self.setTextCursor(restored)
+
+    def _duplicate_current_line(self) -> None:
+        cursor = self.textCursor()
+        block = cursor.block()
+        if not block.isValid():
+            return
+
+        text = block.text()
+        column = cursor.positionInBlock()
+        insertion = QTextCursor(block)
+        insertion.movePosition(QTextCursor.MoveOperation.EndOfBlock)
+        insertion.beginEditBlock()
+        insertion.insertText("\n" + text)
+        insertion.endEditBlock()
+
+        duplicated = block.next()
+        if duplicated.isValid():
+            restored = QTextCursor(duplicated)
+            restored.setPosition(
+                duplicated.position() + min(max(column, 0), len(text))
+            )
+            self.setTextCursor(restored)
+            self.ensureCursorVisible()
+
     def apply_font_preferences(
         self,
         font_family: str,
@@ -90,6 +231,11 @@ class TextEditor(QTextEdit):
             int(font_max_size),
             self._font_min_size,
         )
+        self._configured_font_family = str(font_family).strip()
+        self._configured_font_size = max(
+            self._font_min_size,
+            min(int(font_size), self._font_max_size),
+        )
 
         if font_family.strip():
             font = self.font()
@@ -99,14 +245,76 @@ class TextEditor(QTextEdit):
                 QFontDatabase.SystemFont.FixedFont
             )
 
-        font.setPointSize(
-            max(
-                self._font_min_size,
-                min(int(font_size), self._font_max_size),
-            )
-        )
+        font.setPointSize(self._configured_font_size)
         self.setFont(font)
+        self._update_tab_stop_distance()
         self._apply_block_layout_preferences()
+
+    def apply_indentation_preferences(
+        self,
+        tab_size: int,
+        guides_enabled: bool = True,
+        guide_color: str = "#d0d0d0",
+        guide_width: float = 1.0,
+    ) -> None:
+        """Apply one indentation unit consistently across source editors."""
+        self._tab_size = max(1, min(int(tab_size), 16))
+        self._indent_guides_enabled = bool(guides_enabled)
+        self._indent_guide_color = QColor(str(guide_color).strip() or "#d0d0d0")
+        self._indent_guide_width = max(0.5, min(float(guide_width), 3.0))
+        self._update_tab_stop_distance()
+        self._apply_block_layout_preferences()
+        self.viewport().update()
+
+    @property
+    def tab_size(self) -> int:
+        return int(self._tab_size)
+
+    def apply_content_padding(
+        self,
+        *,
+        top: int = 0,
+        left: int = 0,
+        right: int = 0,
+    ) -> None:
+        """Apply editor presentation padding without changing plain source."""
+        document = self.document()
+        root_frame = document.rootFrame()
+        if root_frame is None:
+            return
+        was_modified = document.isModified()
+        signals_were_blocked = self.signalsBlocked()
+        self.blockSignals(True)
+        try:
+            frame_format = root_frame.frameFormat()
+            frame_format.setTopMargin(float(max(int(top), 0)))
+            frame_format.setLeftMargin(float(max(int(left), 0)))
+            frame_format.setRightMargin(float(max(int(right), 0)))
+            root_frame.setFrameFormat(frame_format)
+            document.setModified(was_modified)
+        finally:
+            self.blockSignals(signals_were_blocked)
+        self.viewport().update()
+
+    def _update_tab_stop_distance(self) -> None:
+        metrics = QFontMetricsF(self.font())
+        space_width = max(metrics.horizontalAdvance(" "), 1.0)
+        self.setTabStopDistance(space_width * float(self._tab_size))
+
+    def reset_font_zoom(self) -> None:
+        """Restore the source editor font size configured in settings.yaml."""
+        font = self.font()
+        if self._configured_font_family:
+            font.setFamily(self._configured_font_family)
+        font.setPointSize(self._configured_font_size)
+        self.setFont(font)
+        self._update_tab_stop_distance()
+        self._apply_block_layout_preferences()
+        self.viewport().update()
+
+    @property
+    def configured_font_size(self) -> int:
+        return int(self._configured_font_size)
 
     def apply_line_height(self, percent: int) -> None:
         self._line_height_percent = max(
@@ -467,6 +675,7 @@ class TextEditor(QTextEdit):
 
             font.setPointSize(next_size)
             self.setFont(font)
+            self._update_tab_stop_distance()
             self._apply_block_layout_preferences()
             self.viewport().update()
             event.accept()
@@ -488,6 +697,7 @@ class TextEditor(QTextEdit):
 
     def paintEvent(self, event) -> None:
         super().paintEvent(event)
+        self._paint_indent_guides()
 
         if not self.hasFocus():
             cursor = self.textCursor()
@@ -548,6 +758,70 @@ class TextEditor(QTextEdit):
                         int(baseline),
                         self._wrap_marker,
                     )
+
+            block = block.next()
+
+        painter.end()
+
+
+    def _paint_indent_guides(self) -> None:
+        if not self._indent_guides_enabled or self._tab_size <= 0:
+            return
+
+        painter = QPainter(self.viewport())
+        pen = QPen(self._indent_guide_color)
+        pen.setWidthF(self._indent_guide_width)
+        painter.setPen(pen)
+
+        document_layout = self.document().documentLayout()
+        scroll_y = self.verticalScrollBar().value()
+        scroll_x = self.horizontalScrollBar().value()
+        viewport_bottom = self.viewport().height()
+        viewport_width = self.viewport().width()
+        margin = float(self.document().documentMargin())
+        metrics = QFontMetricsF(self.font())
+        unit_width = max(
+            metrics.horizontalAdvance(" ") * float(self._tab_size),
+            1.0,
+        )
+
+        block = self.cursorForPosition(QPoint(0, 0)).block()
+        if not block.isValid():
+            block = self.document().begin()
+
+        while block.isValid():
+            block_rect = document_layout.blockBoundingRect(block)
+            block_top = block_rect.top() - scroll_y
+            block_bottom = block_top + block_rect.height()
+            if block_top > viewport_bottom:
+                break
+
+            if block.isVisible():
+                text = block.text()
+                leading = re.match(r"^[ \t]*", text)
+                prefix = leading.group(0) if leading else ""
+                columns = 0
+                for character in prefix:
+                    if character == "\t":
+                        columns += self._tab_size - (columns % self._tab_size)
+                    else:
+                        columns += 1
+                levels = columns // self._tab_size
+
+                if levels > 0:
+                    direction = self._block_direction(text)
+                    for level in range(1, levels + 1):
+                        offset = unit_width * float(level)
+                        if direction == Qt.LayoutDirection.RightToLeft:
+                            x = viewport_width - margin - offset + scroll_x
+                        else:
+                            x = margin + offset - scroll_x
+                        painter.drawLine(
+                            int(round(x)),
+                            int(max(block_top, 0)),
+                            int(round(x)),
+                            int(min(block_bottom, viewport_bottom)),
+                        )
 
             block = block.next()
 

@@ -1,0 +1,120 @@
+editor:
+  font_family: "DejaVu Sans Mono"
+  # Source editor font size. Changes take effect only after pressing Apply.
+  source_font_size: 16
+  # LaTeX Visual mode can use a different base font size from Source mode.
+  visual_font_size: 16
+  font_min_size: 6
+  font_max_size: 40
+  line_height_percent: 200
+  # LaTeX Visual mode line spacing, independent from Source mode.
+  visual_line_height_percent: 200
+  # Source and Visual page-like content padding (pixels).
+  source_padding_top: 10
+  source_padding_left: 10
+  source_padding_right: 10
+  visual_padding_top: 14
+  visual_padding_left: 16
+  visual_padding_right: 16
+  # Visual serialization is coalesced so large documents remain responsive.
+  visual_update_debounce_ms: 180
+  visual_large_document_threshold_chars: 120000
+  visual_large_document_debounce_ms: 650
+  # auto: LaTeX control/setup lines stay LTR; Persian prose becomes RTL.
+  # rtl: force ordinary prose RTL while still keeping LaTeX control lines LTR.
+  # ltr: keep every source line LTR.
+  latex_text_direction: "auto"
+  # In auto mode, an ordinary prose line becomes RTL when this fraction of
+  # strong alphabetic characters belongs to an RTL script (Persian/Arabic).
+  latex_rtl_persian_ratio: 0.35
+  max_open_tabs: 20
+  # Shared source indentation width. LaTeX formatting, YAML smart indentation,
+  # tab rendering, structure fallback parsing, and indent guides use this value.
+  tab_size: 4
+  indent_guides_enabled: true
+  indent_guide_color: "#d0d0d0"
+  indent_guide_width: 1.0
+  cursor_width: 2
+  cursor_flash_time_ms: 650
+  soft_wrap: true
+  wrap_marker: "↳"
+  wrap_marker_color: "#9aa0a6"
+  wrap_marker_margin: 18
+  current_line_highlight: "#eaf4ff"
+
+completion:
+  latex_shortcuts_file: "latex_shortcuts.yaml"
+  shortcut_min_prefix_length: 2
+
+autosave:
+  enabled: true
+  interval_ms: 1000
+
+external_file_sync:
+  enabled: true
+  # Fast enough for live TikZ files edited from the iPad bridge.
+  interval_ms: 350
+
+search:
+  # This path is also the File System workspace root. Drag/drop moves inside
+  # the navigator rewrite relative and absolute textual references from here.
+  default_path: "~/Dropbox/repo"
+  ignore_file: "search_ignore.yaml"
+  max_results: 100
+  debounce_ms: 70
+  fuzzy_threshold: 0.86
+  window_width: 900
+  window_height: 620
+  tree_indent_width: 10
+  # Search query tokens may match different ancestor/descendant path parts.
+  hierarchical_path_matching: true
+
+input:
+  double_shift_interval_ms: 450
+
+ui:
+  splitter_handle_width: 9
+  navigator_indent_width: 10
+  # Slightly taller rows in both File System and Structure trees.
+  navigator_row_height: 24
+
+preview:
+  # Used when auto_fit_on_open is false.
+  default_zoom_percent: 100
+  # Fit a newly opened LaTeX source to the preview width automatically.
+  auto_fit_on_open: true
+  # Fit makes the widest rendered content use this percentage of the preview
+  # width; unused white A4 margins are cropped horizontally and height is ignored.
+  fit_width_percent: 95
+  debounce_ms: 120
+  # Large documents are coalesced more aggressively so LuaLaTeX is not
+  # killed/restarted repeatedly while typing.
+  large_document_threshold_chars: 120000
+  large_document_debounce_ms: 420
+  cursor_sync_enabled: true
+  cursor_sync_debounce_ms: 120
+  # Highlight the current edit phrase in the PDF using Qt's native search layer.
+  edit_location_highlight_enabled: true
+  edit_location_highlight_debounce_ms: 220
+  latex_template_path: "templates/latex_preview_template.tex"
+  latex_beamer_template_path: "templates/latex_preview_beamer_template.tex"
+  shell_escape: true
+
+new_latex_file:
+  # Add future templates here (for example a German-language template).
+  # Relative paths are resolved from ~/Desktop/repo/data/nd_mind_mirror_project.
+  templates:
+    Article (standard): "templates/latex_preview_template.tex"
+    Beamer: "templates/latex_preview_beamer_template.tex"
+
+graphic:
+  # New iPad graphics are ordinary PNG files in the same directory as the .tex
+  # source, next to an editable .ndgraphic sidecar.
+  directory: "."
+  latex_width_ratio: 0.90
+  canvas_width: 1600
+  canvas_height: 1000
+  # The native iPad app talks to the Ubuntu bridge on port 8766. The desktop
+  # writes a durable open request into the workspace and nudges this local URL.
+  bridge_http_url: "http://127.0.0.1:8766"
+  bridge_token: ""

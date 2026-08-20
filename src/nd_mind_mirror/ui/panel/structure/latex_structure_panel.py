@@ -61,8 +61,10 @@ class LatexStructurePanel(Panel):
         self,
         indent_width: int,
         row_height: int = 24,
+        tab_size: int = 4,
     ) -> None:
         self._indent_width = max(int(indent_width), 1)
+        self._yaml_parser.set_tab_size(tab_size)
         self._tree.setIndentation(self._indent_width)
         self._tree.setStyleSheet(
             f"QTreeWidget::item {{ min-height: {max(int(row_height), 18)}px; }}"

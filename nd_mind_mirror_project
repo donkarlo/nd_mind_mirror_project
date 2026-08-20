@@ -1,13 +1,100 @@
 #!/usr/bin/env python3
+from __future__ import annotations
+
+import atexit
+import faulthandler
+import os
 from pathlib import Path
 import sys
+import traceback
+from datetime import datetime
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 SRC_ROOT = PROJECT_ROOT / "src"
+STATE_DIR = Path.home() / ".local" / "state" / "nd_mind_mirror_project"
+STARTUP_LOG_PATH = STATE_DIR / "startup.log"
+CRASH_LOG_PATH = STATE_DIR / "crash.log"
+_REEXEC_GUARD = "ND_MIND_MIRROR_PREFERRED_PYTHON_ACTIVE"
+
+
+def _append_startup_log(message: str) -> None:
+    try:
+        STATE_DIR.mkdir(parents=True, exist_ok=True)
+        with STARTUP_LOG_PATH.open("a", encoding="utf-8") as stream:
+            timestamp = datetime.now().isoformat(timespec="seconds")
+            stream.write(f"[{timestamp}] {message}\n")
+    except OSError:
+        pass
+
+
+def _preferred_python() -> Path | None:
+    configured = os.environ.get("ND_MIND_MIRROR_PYTHON", "").strip()
+    if configured:
+        candidate = Path(configured).expanduser()
+        return candidate if candidate.is_file() else None
+
+    candidate = Path.home() / "phd-venv" / "bin" / "python"
+    return candidate if candidate.is_file() else None
+
+
+def _reexec_with_preferred_python() -> None:
+    preferred = _preferred_python()
+    if preferred is None or os.environ.get(_REEXEC_GUARD) == "1":
+        return
+
+    try:
+        current = Path(sys.executable).resolve()
+        target = preferred.resolve()
+    except OSError:
+        return
+
+    if current == target:
+        return
+
+    _append_startup_log(
+        f"Re-executing with preferred interpreter: {target} (was {current})"
+    )
+    environment = os.environ.copy()
+    environment[_REEXEC_GUARD] = "1"
+    os.execve(
+        str(target),
+        [str(target), str(Path(__file__).resolve()), *sys.argv[1:]],
+        environment,
+    )
+
+
+_reexec_with_preferred_python()
 
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
+_append_startup_log(
+    f"Launcher start; python={sys.executable}; version={sys.version.split()[0]}; cwd={Path.cwd()}"
+)
+
+_CRASH_LOG = None
+try:
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    _CRASH_LOG = CRASH_LOG_PATH.open("a", encoding="utf-8")
+    faulthandler.enable(_CRASH_LOG, all_threads=True)
+except OSError:
+    _CRASH_LOG = None
+
+
+def _handle_unhandled_exception(exc_type, exc_value, exc_traceback) -> None:
+    _append_startup_log(
+        "Unhandled exception:\n"
+        + "".join(traceback.format_exception(exc_type, exc_value, exc_traceback))
+    )
+    sys.__excepthook__(exc_type, exc_value, exc_traceback)
+
+
+sys.excepthook = _handle_unhandled_exception
+atexit.register(lambda: _append_startup_log("Python process exiting normally"))
+
 from nd_mind_mirror.app.mind_mirror_application import MindMirrorApplication
 
-raise SystemExit(MindMirrorApplication.run(sys.argv))
+_append_startup_log("MindMirrorApplication imported")
+exit_code = MindMirrorApplication.run(sys.argv)
+_append_startup_log(f"Qt event loop returned exit_code={exit_code}")
+raise SystemExit(exit_code)
