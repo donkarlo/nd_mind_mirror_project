@@ -1,7 +1,11 @@
-# nd_graphic for iPad
+# Future Xcode build
 
-This is the Apple Pencil companion app used by Mind Mirror's **Insert / update image in iPad…** command. It edits ordinary raster graphics, not TikZ.
+The source in this directory is kept synchronized with the Swift Playgrounds iPad source under `graphic/ipad/nd_graphic.swiftpm`.
 
-The Pencil tool uses PencilKit's pencil ink, with selectable color and base width. Apple Pencil pressure/tilt are handled by PencilKit, so stronger pressure naturally produces a darker/broader pencil mark. The Eraser tool removes strokes. Every drawing change is autosaved after a short debounce through the Ubuntu WebSocket bridge; the bridge updates both the editable `.ndgraphic` sidecar and the PNG that LaTeX includes.
+When a Mac is available, build the native iPad target from this source and connect to the Ubuntu bridge with the direct LAN endpoint:
 
-Open `nd_graphic.xcodeproj` on a Mac, select your development team, build for iPad, then connect to `ws://<ubuntu-lan-ip>:8766/ws`.
+```text
+tcp://<ubuntu-lan-ip>:8767
+```
+
+The Ubuntu bridge still exposes its HTTP/WebSocket compatibility endpoint on port 8766, but the native iPad client uses the direct TCP JSON-lines transport on port 8767.

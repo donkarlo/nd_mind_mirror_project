@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import re
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QKeyEvent
 
 from nd_mind_mirror.core.settings.yaml.yaml_settings import YamlSettings
@@ -27,6 +27,12 @@ class GenericTextEditor(TextEditor):
     ) -> None:
         super().__init__(parent)
         self._source_path = Path(source_path).expanduser().resolve()
+        self._source_update_debounce_ms = 70
+        self._source_large_document_threshold_chars = 120000
+        self._source_large_document_debounce_ms = 180
+        self._content_emit_timer = QTimer(self)
+        self._content_emit_timer.setSingleShot(True)
+        self._content_emit_timer.timeout.connect(self._flush_content)
         self.apply_settings(app_settings)
         self._highlighter = PygmentsSyntaxHighlighter(
             self.document(),
@@ -46,6 +52,11 @@ class GenericTextEditor(TextEditor):
         self._highlighter.set_source_path(self._source_path)
 
     def apply_settings(self, app_settings: YamlSettings) -> None:
+        self._source_update_debounce_ms = app_settings.editor_source_update_debounce_ms
+        self._source_large_document_threshold_chars = app_settings.editor_source_large_document_threshold_chars
+        self._source_large_document_debounce_ms = app_settings.editor_source_large_document_debounce_ms
+        if hasattr(self, "_content_emit_timer"):
+            self._content_emit_timer.setInterval(self._source_update_debounce_ms)
         self.apply_font_preferences(
             font_family=app_settings.editor_font_family,
             font_size=app_settings.editor_source_font_size,
@@ -113,4 +124,13 @@ class GenericTextEditor(TextEditor):
         return
 
     def _emit_content(self) -> None:
+        interval = (
+            self._source_large_document_debounce_ms
+            if self.document().characterCount() >= self._source_large_document_threshold_chars
+            else self._source_update_debounce_ms
+        )
+        self._content_emit_timer.setInterval(interval)
+        self._content_emit_timer.start()
+
+    def _flush_content(self) -> None:
         self.content_changed.emit(self.toPlainText())

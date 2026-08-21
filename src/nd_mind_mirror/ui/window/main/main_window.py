@@ -28,6 +28,11 @@ from nd_mind_mirror.core.completion.latex.latex_completion_provider import (
 )
 from nd_mind_mirror.core.document.latex.latex_document import LatexDocument
 from nd_mind_mirror.core.render.latex.latex_renderer import LatexRenderer
+from nd_mind_mirror.graphic.core.dependency_resolver import GraphicDependencyResolver
+from nd_mind_mirror.graphic.core.bridge_notifier import GraphicBridgeNotifier
+from nd_mind_mirror.graphic.core.bridge_process_manager import (
+    GraphicBridgeProcessManager,
+)
 from nd_mind_mirror.core.settings.yaml.yaml_settings import YamlSettings
 from nd_mind_mirror.core.workspace.path.path_reference_updater import (
     PathReferenceUpdater,
@@ -75,8 +80,13 @@ class MainWindow(Window):
             QSettings.Format.IniFormat,
         )
         self._migrate_legacy_qsettings_if_needed()
+        self._preview_enabled = self._session_settings.value(
+            "preview/enabled", True, type=bool
+        )
         self._file_signatures: dict[Path, tuple[int, int]] = {}
         self._preview_dependency_signatures: dict[Path, tuple[int, int] | None] = {}
+        self._graphic_dependency_resolver = GraphicDependencyResolver()
+        self._graphic_update_event_signature: tuple[int, int] | None = None
         self._recent_file_paths: list[Path] = []
         self._deferred_window_rect: tuple[int, int, int, int] | None = None
         self._deferred_window_maximized = False
@@ -268,6 +278,24 @@ class MainWindow(Window):
             self._sync_external_file_changes
         )
 
+        # Graphic updates from the iPad are signalled through a tiny atomic
+        # event file written by nd_graphic_bridge. Polling this lightweight
+        # file at 80 ms avoids waiting for the general external-file scanner
+        # and makes Visual refresh feel effectively live.
+        self._graphic_update_event_timer = QTimer(self)
+        self._graphic_update_event_timer.setInterval(40)
+        self._graphic_update_event_timer.timeout.connect(
+            self._sync_graphic_update_event
+        )
+        self._graphic_update_event_timer.start()
+
+        self._graphic_preview_refresh_timer = QTimer(self)
+        self._graphic_preview_refresh_timer.setSingleShot(True)
+        self._graphic_preview_refresh_timer.setInterval(500)
+        self._graphic_preview_refresh_timer.timeout.connect(
+            lambda: self._refresh_current_preview(immediate=False)
+        )
+
         self._layout_save_timer = QTimer(self)
         self._layout_save_timer.setSingleShot(True)
         self._layout_save_timer.setInterval(180)
@@ -286,11 +314,16 @@ class MainWindow(Window):
         self._pending_preview_edit_highlight = ""
         self._last_preview_edit_highlight = ""
 
+        self._graphic_bridge_manager = GraphicBridgeProcessManager(self)
+
         self._create_actions()
         self._connect_signals()
         self._configure_autosave()
         self._configure_external_file_sync()
         self._restore_session()
+        self._set_preview_enabled(self._preview_enabled, refresh=False)
+        if self._app_settings.graphic_auto_start_bridge:
+            QTimer.singleShot(0, self._graphic_bridge_manager.start_if_needed)
 
         self._restoring_session = False
         # Geometry and splitter widths are restored only after the window has
@@ -430,6 +463,12 @@ class MainWindow(Window):
             self._editor_panel.toggle_current_bookmark
         )
 
+        self._show_preview_action = QAction("Show Preview", self)
+        self._show_preview_action.setCheckable(True)
+        self._show_preview_action.setChecked(self._preview_enabled)
+        self._show_preview_action.setShortcut(QKeySequence("Ctrl+Alt+P"))
+        self._show_preview_action.toggled.connect(self._set_preview_enabled)
+
         file_menu = self.menuBar().addMenu(
             "File"
         )
@@ -453,6 +492,9 @@ class MainWindow(Window):
         edit_menu.addAction(
             self._format_action
         )
+
+        view_menu = self.menuBar().addMenu("View")
+        view_menu.addAction(self._show_preview_action)
 
         search_menu = self.menuBar().addMenu(
             "Search"
@@ -512,6 +554,9 @@ class MainWindow(Window):
         self._file_system_panel.path_created.connect(
             self._on_navigator_path_created
         )
+        self._file_system_panel.graphic_edit_requested.connect(
+            self._edit_graphic_from_navigator
+        )
         self._structure_panel.line_activated.connect(
             self._editor_panel.go_to_line
         )
@@ -549,6 +594,9 @@ class MainWindow(Window):
 
         self._preview_panel.export_requested.connect(
             self._export_pdf
+        )
+        self._preview_panel.close_requested.connect(
+            lambda: self._set_preview_enabled(False)
         )
 
         self._renderer.rendered.connect(
@@ -983,6 +1031,83 @@ class MainWindow(Window):
             self._editor_panel.refresh_current_visual_graphics()
         self._refresh_current_preview(immediate=False)
 
+    def _graphic_update_event_path(self) -> Path:
+        return (
+            Path(self._app_settings.search_default_path).expanduser().resolve()
+            / ".nd_mind_mirror"
+            / "graphic_update_event.json"
+        )
+
+    def _sync_graphic_update_event(self) -> None:
+        """React to iPad PNG saves without waiting for broad file polling."""
+        event_path = self._graphic_update_event_path()
+        signature = self._file_signature(event_path)
+        if signature is None or signature == self._graphic_update_event_signature:
+            return
+        self._graphic_update_event_signature = signature
+
+        try:
+            payload = json.loads(event_path.read_text(encoding="utf-8"))
+            image_raw = str(payload.get("image", "")).strip()
+            if not image_raw:
+                return
+            root = Path(self._app_settings.search_default_path).expanduser().resolve()
+            image_path = (root / image_raw).resolve()
+        except (OSError, ValueError, json.JSONDecodeError):
+            return
+
+        current = self._editor_panel.current_path()
+        if current is None or current.suffix.lower() not in {".tex", ".tikz"}:
+            return
+        source = self._editor_panel.current_content()
+        dependencies = self._graphic_dependency_resolver.collect(source, current)
+        if image_path not in dependencies:
+            return
+
+        # The PNG is already safely replaced on disk before this event is
+        # published. Rebuild only the Visual projection immediately; this
+        # invalidates its QImage resource cache without touching LaTeX source.
+        self._editor_panel.refresh_current_visual_graphics()
+        self.statusBar().showMessage(
+            f"iPad graphic updated: {image_path.name}",
+            1200,
+        )
+
+        # Coalesce rapid Pencil strokes into the newest LaTeX generation.
+        # The renderer itself keeps only the latest generation while LuaLaTeX
+        # is busy, so continuous drawing no longer starts a compile per stroke.
+        if self._preview_enabled:
+            self._graphic_preview_refresh_timer.start()
+
+    def _edit_graphic_from_navigator(self, path_text: str) -> None:
+        """Open a managed .png/.ndgraphic selected in Navigator on the iPad."""
+        try:
+            path = Path(path_text).expanduser().resolve()
+        except (OSError, ValueError):
+            return
+        sidecar = path if path.suffix.lower() == ".ndgraphic" else path.with_suffix(".ndgraphic")
+        if not sidecar.is_file():
+            QMessageBox.warning(
+                self,
+                "Edit image in iPad",
+                f"No editable Mind Mirror sidecar exists for:\n{path}",
+            )
+            return
+        notifier = GraphicBridgeNotifier(
+            workspace_root=self._app_settings.search_default_path,
+            bridge_http_url=self._app_settings.graphic_bridge_http_url,
+            token=self._app_settings.graphic_bridge_token,
+        )
+        try:
+            notifier.request_open(sidecar, operation="update")
+        except (OSError, ValueError) as exc:
+            QMessageBox.warning(self, "Edit image in iPad", str(exc))
+            return
+        self.statusBar().showMessage(
+            f"Sent to iPad: {path.name}",
+            2200,
+        )
+
     def _file_signature(
         self,
         path: Path,
@@ -1372,6 +1497,8 @@ class MainWindow(Window):
         )
         self._configure_autosave()
         self._configure_external_file_sync()
+        if self._app_settings.graphic_auto_start_bridge:
+            self._graphic_bridge_manager.start_if_needed()
         self._preview_edit_highlight_timer.setInterval(
             self._app_settings.preview_edit_location_highlight_debounce_ms
         )
@@ -1444,6 +1571,24 @@ class MainWindow(Window):
             immediate=False,
         )
 
+    def _set_preview_enabled(self, enabled: bool, refresh: bool = True) -> None:
+        enabled = bool(enabled)
+        self._preview_enabled = enabled
+        self._renderer.set_enabled(enabled)
+        self._preview_panel.setVisible(enabled)
+        if hasattr(self, "_show_preview_action"):
+            self._show_preview_action.blockSignals(True)
+            self._show_preview_action.setChecked(enabled)
+            self._show_preview_action.blockSignals(False)
+        self._session_settings.setValue("preview/enabled", enabled)
+        self._session_settings.sync()
+        if not enabled:
+            self._graphic_preview_refresh_timer.stop()
+            self._preview_edit_highlight_timer.stop()
+            return
+        if refresh:
+            QTimer.singleShot(0, lambda: self._refresh_current_preview(immediate=True))
+
     def _refresh_current_preview(
         self,
         immediate: bool,
@@ -1464,6 +1609,8 @@ class MainWindow(Window):
         content: str,
         immediate: bool,
     ) -> None:
+        if not self._preview_enabled:
+            return
         file_path = Path(path).expanduser().resolve()
 
         suffix = file_path.suffix.lower()
@@ -1510,6 +1657,7 @@ class MainWindow(Window):
         line: int,
         column: int,
     ) -> None:
+        self._structure_panel.set_current_line(int(line))
         if not self._request_preview_source_position(path, line, column):
             return
         if self._app_settings.preview_edit_location_highlight_enabled:
@@ -1535,6 +1683,8 @@ class MainWindow(Window):
     def _request_preview_source_position(
         self, path: str, line: int, column: int
     ) -> bool:
+        if not self._preview_enabled:
+            return False
         current = self._editor_panel.current_path()
         if current is None:
             return False
@@ -2224,6 +2374,9 @@ class MainWindow(Window):
 
         self._autosave_timer.stop()
         self._external_file_sync_timer.stop()
+        self._graphic_update_event_timer.stop()
+        self._renderer.set_enabled(False)
+        self._graphic_bridge_manager.stop()
         self._recent_file_switcher.dismiss()
         self._search_window.close()
         self._save_session()

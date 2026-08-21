@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtGui import QBrush, QColor
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QLabel,
@@ -29,6 +30,10 @@ class LatexStructurePanel(Panel):
         self._path: Path | None = None
         self._source = ""
         self._indent_width = 10
+        self._current_line = 1
+        self._structure_signature: tuple[tuple[int, str], ...] | None = None
+        self._highlight_brush = QBrush(QColor("#fff6bf"))
+        self._clear_brush = QBrush()
 
         self.setMinimumWidth(90)
         self.setSizePolicy(
@@ -51,7 +56,7 @@ class LatexStructurePanel(Panel):
 
         self._refresh_timer = QTimer(self)
         self._refresh_timer.setSingleShot(True)
-        self._refresh_timer.setInterval(120)
+        self._refresh_timer.setInterval(260)
         self._refresh_timer.timeout.connect(self._rebuild)
 
         self.panel_layout.addWidget(self._label)
@@ -86,18 +91,44 @@ class LatexStructurePanel(Panel):
             return
 
         self._label.setText(f"Structure — {file_path.name}")
+        signature = self._signature_for(file_path, source)
+        structure_changed = signature != self._structure_signature
+        self._structure_signature = signature
         if immediate or path_changed:
             self._refresh_timer.stop()
             self._rebuild()
-        else:
+        elif structure_changed:
             self._refresh_timer.start()
 
     def clear(self) -> None:
         self._refresh_timer.stop()
         self._path = None
         self._source = ""
+        self._structure_signature = None
         self._label.setText("Structure")
         self._tree.clear()
+
+    @staticmethod
+    def _signature_for(file_path: Path, source: str) -> tuple[tuple[int, str], ...]:
+        """Return a cheap structural signature without rebuilding the tree."""
+        suffix = file_path.suffix.lower()
+        if suffix == ".tex":
+            tokens = (
+                "\\part", "\\chapter", "\\section", "\\subsection",
+                "\\subsubsection", "\\paragraph", "\\subparagraph",
+            )
+            return tuple(
+                (line_number, line.strip())
+                for line_number, line in enumerate(source.splitlines(), start=1)
+                if any(token in line for token in tokens)
+            )
+        if suffix in {".yaml", ".yml"}:
+            return tuple(
+                (line_number, line.rstrip())
+                for line_number, line in enumerate(source.splitlines(), start=1)
+                if line.strip() and not line.lstrip().startswith("#") and ":" in line
+            )
+        return ()
 
     def _rebuild(self) -> None:
         if (
@@ -143,8 +174,47 @@ class LatexStructurePanel(Panel):
                 stack.append((node.level, item))
 
             self._tree.expandAll()
+            self._apply_current_line_highlight()
         finally:
             self._tree.setUpdatesEnabled(True)
+
+    def set_current_line(self, line_number: int) -> None:
+        """Highlight the deepest structure item containing the cursor line."""
+        self._current_line = max(int(line_number), 1)
+        self._apply_current_line_highlight()
+
+    def _all_items_in_source_order(self) -> list[QTreeWidgetItem]:
+        items: list[QTreeWidgetItem] = []
+
+        def walk(item: QTreeWidgetItem) -> None:
+            items.append(item)
+            for index in range(item.childCount()):
+                walk(item.child(index))
+
+        for index in range(self._tree.topLevelItemCount()):
+            walk(self._tree.topLevelItem(index))
+        items.sort(
+            key=lambda item: int(
+                item.data(0, Qt.ItemDataRole.UserRole) or 0
+            )
+        )
+        return items
+
+    def _apply_current_line_highlight(self) -> None:
+        items = self._all_items_in_source_order()
+        target: QTreeWidgetItem | None = None
+        for item in items:
+            try:
+                item_line = int(item.data(0, Qt.ItemDataRole.UserRole))
+            except (TypeError, ValueError):
+                continue
+            item.setBackground(0, self._clear_brush)
+            if item_line <= self._current_line:
+                target = item
+            else:
+                break
+        if target is not None:
+            target.setBackground(0, self._highlight_brush)
 
     def _on_item_clicked(
         self,

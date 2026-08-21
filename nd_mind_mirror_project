@@ -16,6 +16,11 @@ STARTUP_LOG_PATH = STATE_DIR / "startup.log"
 CRASH_LOG_PATH = STATE_DIR / "crash.log"
 _REEXEC_GUARD = "ND_MIND_MIRROR_PREFERRED_PYTHON_ACTIVE"
 
+# Keep all framework/tool diagnostics in English while retaining UTF-8 input.
+os.environ["LANG"] = "C.UTF-8"
+os.environ["LC_ALL"] = "C.UTF-8"
+os.environ["LANGUAGE"] = "en"
+
 
 def _append_startup_log(message: str) -> None:
     try:

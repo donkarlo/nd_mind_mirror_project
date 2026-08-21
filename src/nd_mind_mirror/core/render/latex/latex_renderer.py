@@ -43,6 +43,7 @@ class LatexRenderer(Renderer):
         )
         self._tex_path = self._temp_dir / "preview.tex"
         self._pdf_path = self._temp_dir / "preview.pdf"
+        self._enabled = True
         self._pending_source = ""
         self._pending_source_path: Path | None = None
         self._latest_requested_generation = 0
@@ -155,13 +156,28 @@ class LatexRenderer(Renderer):
                 max(int(cursor_sync_debounce_ms), 30)
             )
 
+    def set_enabled(self, enabled: bool) -> None:
+        self._enabled = bool(enabled)
+        if self._enabled:
+            return
+        self._timer.stop()
+        self._sync_timer.stop()
+        self._stop_running_process()
+        if self._sync_process.state() != QProcess.ProcessState.NotRunning:
+            self._sync_process.kill()
+            self._sync_process.waitForFinished(250)
+
+    @property
+    def enabled(self) -> bool:
+        return self._enabled
+
     def request_source_position(
         self,
         source_path: str | Path,
         line: int,
         column: int,
     ) -> None:
-        if not self._cursor_sync_enabled:
+        if not self._enabled or not self._cursor_sync_enabled:
             return
 
         self._pending_sync_source_path = Path(
@@ -183,6 +199,8 @@ class LatexRenderer(Renderer):
         source_path: str | Path | None = None,
         immediate: bool = False,
     ) -> None:
+        if not self._enabled:
+            return
         self._latest_requested_generation += 1
         self._pending_generation = self._latest_requested_generation
         self._pending_source = source
@@ -306,6 +324,10 @@ class LatexRenderer(Renderer):
         working_directory: Path,
     ) -> QProcessEnvironment:
         environment = QProcessEnvironment.systemEnvironment()
+        # External-tool diagnostics must stay in English regardless of the
+        # desktop locale. Dynamic source snippets are never printed by us.
+        environment.insert("LANG", "C.UTF-8")
+        environment.insert("LC_ALL", "C.UTF-8")
         tex_paths = [str(working_directory)]
 
         project_root = self._input_resolver.project_root

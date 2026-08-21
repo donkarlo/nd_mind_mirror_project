@@ -1,36 +1,28 @@
-# Mind Mirror Graphic bridge
+# ND Mind Mirror graphic bridge
 
-This bridge connects Mind Mirror on Ubuntu to the native **ND Graphic** iPad app.
-
-The iPad app is a Swift Playgrounds application package:
-
-```text
-src/nd_mind_mirror/graphic/ipad/nd_graphic.swiftpm
-```
-
-No Mac or Xcode is required. Install Swift Playgrounds from the App Store on the iPad, copy the `.swiftpm` package to **On My iPad** or iCloud Drive, open it in Swift Playgrounds, and run the app.
-
-Run the bridge on Ubuntu:
+Run the bridge on the Ubuntu computer from the project root:
 
 ```bash
-TOKEN='choose-a-token' ./nd_graphic_bridge
+./nd_graphic_bridge
 ```
 
-The default workspace is `~/Dropbox/repo`, host is `0.0.0.0`, and port is `8766`.
-Find the Ubuntu LAN address with:
+The process exposes two local transports at the same time:
+
+- `http://0.0.0.0:8766` / `ws://0.0.0.0:8766/ws` for the desktop notifier, diagnostics, and compatibility clients.
+- `tcp://0.0.0.0:8767` for the native iPad Swift Playgrounds app.
+
+The current iPad app uses the WebSocket endpoint on port 8766 through `URLSessionWebSocketTask`. On iPadOS 17 and later, IP-literal connections are covered by explicit private-network CIDR exceptions in the app's `Info.plist`, which avoids the ATS `-1022` failure seen with a bare IP URL. The direct TCP endpoint on port 8767 remains available as a diagnostic/fallback transport.
+
+To get the Ubuntu LAN address:
 
 ```bash
 hostname -I
 ```
 
-In ND Graphic on iPad, configure:
+For example, if the LAN address is `10.0.0.73`, enter this in ND Graphic:
 
 ```text
-ws://UBUNTU_IP:8766/ws
+ws://10.0.0.73:8766/ws
 ```
 
-and enter the same token. Both devices must be on the same local network.
-
-When **Insert / update image in iPad…** is selected in Mind Mirror, the requested `.ndgraphic` document is pushed through WebSocket and opens automatically in the iPad app. PencilKit preserves editable strokes. Each drawing change is autosaved through the bridge; the neighboring PNG is replaced atomically on Ubuntu, Visual reloads the image, and Preview recompiles against the new PNG. New images are created in the same directory as the active `.tex` file.
-
-The browser implementation under `graphic/web/` is kept only as a fallback.
+The iPad and Ubuntu computer must be on the same local network, and Local Network permission must be enabled for ND Graphic on iPadOS.

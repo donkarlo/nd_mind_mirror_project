@@ -168,6 +168,44 @@ class YamlSettings:
         )
 
     @property
+    def editor_source_update_debounce_ms(self) -> int:
+        return max(
+            self._positive_int(
+                self._get("editor", "source_update_debounce_ms", default=70),
+                70,
+            ),
+            20,
+        )
+
+    @property
+    def editor_source_large_document_threshold_chars(self) -> int:
+        return max(
+            self._positive_int(
+                self._get(
+                    "editor",
+                    "source_large_document_threshold_chars",
+                    default=120000,
+                ),
+                120000,
+            ),
+            10000,
+        )
+
+    @property
+    def editor_source_large_document_debounce_ms(self) -> int:
+        return max(
+            self._positive_int(
+                self._get(
+                    "editor",
+                    "source_large_document_debounce_ms",
+                    default=180,
+                ),
+                180,
+            ),
+            self.editor_source_update_debounce_ms,
+        )
+
+    @property
     def editor_visual_update_debounce_ms(self) -> int:
         return max(
             self._positive_int(
@@ -677,6 +715,13 @@ class YamlSettings:
     @property
     def graphic_bridge_token(self) -> str:
         return str(self._get("graphic", "bridge_token", default="")).strip()
+
+    @property
+    def graphic_auto_start_bridge(self) -> bool:
+        return self._bool(
+            self._get("graphic", "auto_start_bridge", default=True),
+            True,
+        )
 
     @property
     def preview_edit_location_highlight_enabled(self) -> bool:

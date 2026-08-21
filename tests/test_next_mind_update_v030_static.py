@@ -40,9 +40,12 @@ def test_taskbar_uses_direct_brain_mirror_icon_instead_of_generic_gear() -> None
     assert "installed_icon" in icon
 
 
-def test_ipad_websocket_uses_network_framework_to_avoid_urlsession_ats_block() -> None:
-    bridge = (ROOT / "graphic/ipad/nd_graphic.swiftpm/Services/GraphicBridgeClient.swift").read_text(encoding="utf-8")
-    assert "import Network" in bridge
-    assert "NWProtocolWebSocket.Options" in bridge
-    assert "NWConnection(to: .url(url), using: parameters)" in bridge
-    assert "URLSessionWebSocketTask" not in bridge
+def test_ipad_uses_inbound_listener_instead_of_outgoing_local_connection() -> None:
+    package = ROOT / "graphic/ipad/nd_graphic.swiftpm"
+    bridge = (package / "Services/GraphicBridgeClient.swift").read_text(encoding="utf-8")
+    manifest = (package / "Package.swift").read_text(encoding="utf-8")
+    assert "NWListener(" in bridge
+    assert "newConnectionHandler" in bridge
+    assert "listenerPort: UInt16 = 8768" in bridge
+    assert "openDirectTCP" not in bridge
+    assert ".localNetwork(" not in manifest

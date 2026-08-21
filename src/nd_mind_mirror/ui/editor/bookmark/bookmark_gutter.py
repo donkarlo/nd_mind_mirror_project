@@ -28,6 +28,8 @@ class BookmarkGutter(QWidget):
         self._bookmarks_provider = bookmarks_provider
         self.setFixedWidth(18)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
+        self.setMouseTracking(True)
         self.setToolTip(
             "Click to add/remove a bookmark. Right-click a bookmark to rename it."
         )

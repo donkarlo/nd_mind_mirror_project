@@ -16,6 +16,11 @@ editor:
   visual_padding_top: 14
   visual_padding_left: 16
   visual_padding_right: 16
+  # Source change notifications are coalesced so typing never waits for
+  # preview/structure work on every single key press.
+  source_update_debounce_ms: 70
+  source_large_document_threshold_chars: 120000
+  source_large_document_debounce_ms: 180
   # Visual serialization is coalesced so large documents remain responsive.
   visual_update_debounce_ms: 180
   visual_large_document_threshold_chars: 120000
@@ -118,3 +123,5 @@ graphic:
   # writes a durable open request into the workspace and nudges this local URL.
   bridge_http_url: "http://127.0.0.1:8766"
   bridge_token: ""
+  # Start/stop nd_graphic_bridge automatically with the Ubuntu application.
+  auto_start_bridge: true

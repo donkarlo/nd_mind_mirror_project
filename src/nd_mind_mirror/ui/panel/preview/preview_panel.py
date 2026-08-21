@@ -17,6 +17,7 @@ from nd_mind_mirror.ui.preview.markdown.markdown_preview import MarkdownPreview
 
 class PreviewPanel(Panel):
     export_requested = Signal()
+    close_requested = Signal()
 
     def __init__(self, parent=None) -> None:
         super().__init__("Rendered LaTeX", parent)
@@ -28,6 +29,12 @@ class PreviewPanel(Panel):
         )
 
         self._label = QLabel("Live LaTeX Preview", self)
+        self._close_button = QPushButton("×", self)
+        self._close_button.setFixedSize(26, 24)
+        self._close_button.setToolTip(
+            "Close Preview and suspend LaTeX rendering to reduce CPU and memory use."
+        )
+        self._close_button.clicked.connect(self.close_requested.emit)
 
         self._export_button = QPushButton("Export PDF", self)
         self._export_button.clicked.connect(self.export_requested.emit)
@@ -80,7 +87,12 @@ class PreviewPanel(Panel):
             self._page_label,
         ]
 
-        self.panel_layout.addWidget(self._label)
+        header = QHBoxLayout()
+        header.setContentsMargins(0, 0, 0, 0)
+        header.addWidget(self._label, 1)
+        header.addWidget(self._close_button)
+
+        self.panel_layout.addLayout(header)
         self.panel_layout.addLayout(controls)
         self.panel_layout.addWidget(self._stack, 1)
 

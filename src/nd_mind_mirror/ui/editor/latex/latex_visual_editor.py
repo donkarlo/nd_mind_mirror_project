@@ -1759,6 +1759,64 @@ class LatexVisualEditor(QTextEdit):
             self._insert_inline_latex(cursor, item)
             cursor.createList(fmt)
 
+    def refresh_graphic_resources(self) -> bool:
+        """Reload only embedded graphic blocks without reparsing the document.
+
+        iPad strokes can rewrite a PNG dozens of times per second. Rebuilding
+        the whole Visual projection for each save is unnecessarily expensive
+        for large LaTeX files, so update the image resources in place.
+        """
+        document = self.document()
+        was_loading = self._loading
+        was_modified = document.isModified()
+        self._loading = True
+        self._emit_timer.stop()
+        refreshed = False
+        try:
+            block = document.firstBlock()
+            while block.isValid():
+                meta = block.userData()
+                if isinstance(meta, _BlockMeta) and meta.kind == "graphic" and meta.display:
+                    image_path = Path(meta.display).expanduser()
+                    if not image_path.is_absolute() and self._source_path is not None:
+                        image_path = self._source_path.parent / image_path
+                    try:
+                        image_path = image_path.resolve()
+                    except OSError:
+                        pass
+                    image = QImage(str(image_path))
+                    if not image.isNull():
+                        stamp = image_path.stat().st_mtime_ns if image_path.exists() else 0
+                        key = QUrl(f"ndgraphic:{image_path.as_posix()}:{stamp}")
+                        document.addResource(QTextDocument.ResourceType.ImageResource, key, image)
+                        available = max(self.viewport().width() - 70, 240)
+                        scale = min(float(available) / max(float(image.width()), 1.0), 1.0)
+                        iterator = block.begin()
+                        while not iterator.atEnd():
+                            fragment = iterator.fragment()
+                            if fragment.isValid():
+                                fmt = fragment.charFormat()
+                                if fmt.isImageFormat():
+                                    image_fmt = fmt.toImageFormat()
+                                    image_fmt.setName(key.toString())
+                                    image_fmt.setWidth(max(float(image.width()) * scale, 1.0))
+                                    image_fmt.setHeight(max(float(image.height()) * scale, 1.0))
+                                    cursor = QTextCursor(document)
+                                    cursor.setPosition(fragment.position())
+                                    cursor.setPosition(
+                                        fragment.position() + fragment.length(),
+                                        QTextCursor.MoveMode.KeepAnchor,
+                                    )
+                                    cursor.setCharFormat(image_fmt)
+                                    refreshed = True
+                            iterator += 1
+                block = block.next()
+        finally:
+            document.setModified(was_modified)
+            self._loading = was_loading
+            self.viewport().update()
+        return refreshed
+
     def _insert_graphic_block(
         self,
         cursor: QTextCursor,

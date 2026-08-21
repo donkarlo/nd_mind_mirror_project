@@ -69,6 +69,7 @@ class LatexPreviewSourceBuilder:
     )
     _COLORBOX_PATTERN = re.compile(r"\\colorbox\s*\{")
     _INCLUDEGRAPHICS_PATTERN = re.compile(r"\\includegraphics(?:\s*\[[^\]]*\])?\s*\{")
+    _H_FLOAT_PATTERN = re.compile(r"\\begin\s*\{(?:figure|table)\}\s*\[H\]")
 
     def __init__(
         self,
@@ -329,6 +330,12 @@ class LatexPreviewSourceBuilder:
             and not self._has_package(cleaned, "graphicx")
         ):
             packages.append("graphicx")
+
+        if (
+            self._H_FLOAT_PATTERN.search(cleaned) is not None
+            and not self._has_package(cleaned, "float")
+        ):
+            packages.append("float")
 
         if not packages:
             return source

@@ -1,0 +1,38 @@
+# Dedicated Mind Mirror keyboard shortcuts; edit in Settings > Keyboard Shortcuts and press Apply.
+shortcuts:
+  file.open:
+    label: Open file
+    keys: Ctrl+O
+  file.save:
+    label: Save current file
+    keys: Ctrl+S
+  tab.close:
+    label: Close current tab
+    keys: Ctrl+W
+  latex.format:
+    label: Format LaTeX
+    keys: Ctrl+Shift+F
+  find.current:
+    label: Find in current tab
+    keys: Ctrl+F
+  replace.current:
+    label: Replace in current tab
+    keys: Ctrl+R
+  bookmark.toggle:
+    label: Toggle bookmark at cursor
+    keys: Ctrl+Shift+B
+  preview.toggle:
+    label: Show or hide preview
+    keys: Ctrl+Alt+P
+  editor.bold:
+    label: Bold selection
+    keys: Ctrl+B
+  editor.reset_zoom:
+    label: Reset editor zoom
+    keys: Ctrl+0
+  find.close:
+    label: Close find/replace bar
+    keys: Escape
+  navigator.delete:
+    label: Delete selected navigator item
+    keys: Delete

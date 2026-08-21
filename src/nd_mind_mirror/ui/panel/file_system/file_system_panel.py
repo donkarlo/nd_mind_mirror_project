@@ -10,6 +10,8 @@ from PySide6.QtCore import (
     QTimer,
     Signal,
 )
+from PySide6.QtGui import QKeySequence, QShortcut
+
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -40,6 +42,7 @@ class FileSystemPanel(Panel):
     path_renamed = Signal(str, str)
     path_deleted = Signal(str)
     path_created = Signal(str)
+    graphic_edit_requested = Signal(str)
 
     def __init__(self, parent=None) -> None:
         super().__init__("File System", parent)
@@ -130,6 +133,9 @@ class FileSystemPanel(Panel):
         self._tree.setExpandsOnDoubleClick(False)
         self._tree.viewport().installEventFilter(self)
         self._tree.installEventFilter(self)
+        self._delete_shortcut = QShortcut(QKeySequence("Delete"), self._tree)
+        self._delete_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        self._delete_shortcut.activated.connect(self._delete_selected_path)
 
         self._tree.clicked.connect(
             self._on_clicked
@@ -443,13 +449,9 @@ class FileSystemPanel(Panel):
     def eventFilter(self, watched, event) -> bool:
         if watched is self._tree and event.type() == QEvent.Type.KeyPress:
             if event.key() == Qt.Key.Key_Delete:
-                selected = self.selected_path()
-                if selected:
-                    target = Path(selected).expanduser().resolve()
-                    if target != self._root_path and target.exists():
-                        self._delete_path(target)
-                        event.accept()
-                        return True
+                if self._delete_selected_path():
+                    event.accept()
+                    return True
 
             if (
                 event.key() == Qt.Key.Key_V
@@ -613,6 +615,18 @@ class FileSystemPanel(Panel):
         copy_file_name_action = menu.addAction(
             "Copy File Name"
         )
+        managed_graphic = (
+            path.suffix.lower() == ".ndgraphic"
+            or (
+                path.suffix.lower() == ".png"
+                and path.with_suffix(".ndgraphic").is_file()
+            )
+        )
+        edit_ipad_action = None
+        if managed_graphic:
+            edit_ipad_action = menu.addAction(
+                "Edit image in iPad…"
+            )
         paste_image_action = menu.addAction(
             "Paste Clipboard Image Here"
         )
@@ -650,6 +664,8 @@ class FileSystemPanel(Panel):
             self._clipboard.setText(str(path.expanduser().resolve()))
         elif chosen == copy_file_name_action:
             self._clipboard.setText(path.name)
+        elif edit_ipad_action is not None and chosen == edit_ipad_action:
+            self.graphic_edit_requested.emit(str(path.expanduser().resolve()))
         elif chosen == paste_image_action:
             self._save_current_clipboard_image(
                 self._target_directory(path),
@@ -944,6 +960,16 @@ class FileSystemPanel(Panel):
         )
         self.select_path(new_path)
         self.state_changed.emit()
+
+    def _delete_selected_path(self) -> bool:
+        selected = self.selected_path()
+        if not selected:
+            return False
+        target = Path(selected).expanduser().resolve()
+        if target == self._root_path or not target.exists():
+            return False
+        self._delete_path(target)
+        return True
 
     def _delete_path(
         self,

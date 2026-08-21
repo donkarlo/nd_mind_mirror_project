@@ -80,6 +80,12 @@ class LatexEditor(TextEditor):
         self._bookmark_relocation_timer.setSingleShot(True)
         self._bookmark_relocation_timer.setInterval(180)
         self._bookmark_relocation_timer.timeout.connect(self._relocate_bookmarks)
+        self._source_update_debounce_ms = 70
+        self._source_large_document_threshold_chars = 120000
+        self._source_large_document_debounce_ms = 180
+        self._content_emit_timer = QTimer(self)
+        self._content_emit_timer.setSingleShot(True)
+        self._content_emit_timer.timeout.connect(self._flush_content)
         self._source_padding = (10, 10, 10)
         self._visual_padding = (14, 16, 16)
         self._graphic_manager = GraphicDocumentManager()
@@ -156,7 +162,7 @@ class LatexEditor(TextEditor):
             parent=self.viewport(),
         )
         self._visual_bookmark_gutter = BookmarkGutter(
-            location_at_y=self._visual_editor.source_location_at_view_y,
+            location_at_y=self._visual_bookmark_location_at_y,
             marker_y_for_location=self._visual_editor.marker_y_for_source_location,
             bookmarks_provider=lambda: list(self._bookmarks),
             parent=self._visual_editor.viewport(),
@@ -214,6 +220,11 @@ class LatexEditor(TextEditor):
         app_settings: YamlSettings,
     ) -> None:
         self._app_settings = app_settings
+        self._source_update_debounce_ms = app_settings.editor_source_update_debounce_ms
+        self._source_large_document_threshold_chars = app_settings.editor_source_large_document_threshold_chars
+        self._source_large_document_debounce_ms = app_settings.editor_source_large_document_debounce_ms
+        if hasattr(self, "_content_emit_timer"):
+            self._content_emit_timer.setInterval(self._source_update_debounce_ms)
         self._graphic_manager = GraphicDocumentManager(
             directory_name=app_settings.graphic_directory_name,
             width_ratio=app_settings.graphic_width_ratio,
@@ -514,9 +525,12 @@ class LatexEditor(TextEditor):
             return
 
     def refresh_visual_graphics(self) -> None:
-        """Reload image resources after the iPad/Dropbox rewrites a PNG."""
+        """Reload iPad PNGs immediately without rebuilding a large Visual doc."""
         self._visual_dirty = True
         if self._edit_mode != "visual":
+            return
+        if self._visual_editor.refresh_graphic_resources():
+            self._visual_dirty = False
             return
         anchor, position = self._visual_editor.source_selection_locations()
         self._refresh_visual_projection()
@@ -720,13 +734,12 @@ class LatexEditor(TextEditor):
             self._visual_bookmark_gutter.raise_()
 
     def _source_location_at_y(self, y: int) -> tuple[int, int]:
-        cursor = self.cursorForPosition(
-            QPoint(max(24, self.viewport().width() // 2), int(y))
-        )
-        return (
-            max(cursor.blockNumber() + 1, 1),
-            max(cursor.positionInBlock() + 1, 1),
-        )
+        cursor = self.cursorForPosition(QPoint(24, int(y)))
+        return (max(cursor.blockNumber() + 1, 1), 1)
+
+    def _visual_bookmark_location_at_y(self, y: int) -> tuple[int, int]:
+        line, _column = self._visual_editor.source_location_at_view_y(int(y))
+        return (max(int(line), 1), 1)
 
     def _source_marker_y_for_location(
         self, line_number: int, column: int = 1
@@ -735,9 +748,7 @@ class LatexEditor(TextEditor):
         if not block.isValid():
             return None
         cursor = QTextCursor(block)
-        cursor.setPosition(
-            block.position() + min(max(int(column) - 1, 0), len(block.text()))
-        )
+        cursor.setPosition(block.position())
         rect = self.cursorRect(cursor)
         return float(rect.center().y())
 
@@ -750,10 +761,10 @@ class LatexEditor(TextEditor):
                 line = max(int(raw.get("line", 1)), 1)
             except (TypeError, ValueError):
                 line = 1
-            try:
-                column = max(int(raw.get("column", 1)), 1)
-            except (TypeError, ValueError):
-                column = 1
+            # Bookmarks are line anchors. Older sessions may contain a
+            # cursor column, but gutter clicks and relocation should not
+            # depend on a horizontal position within the line.
+            column = 1
             normalized.append({
                 "line": line,
                 "column": column,
@@ -775,11 +786,9 @@ class LatexEditor(TextEditor):
     def _bookmark_for_location(
         self, line: int, column: int
     ) -> dict[str, object] | None:
+        del column
         for bookmark in self._bookmarks:
-            if (
-                int(bookmark.get("line", -1)) == int(line)
-                and int(bookmark.get("column", 1)) == int(column)
-            ):
+            if int(bookmark.get("line", -1)) == int(line):
                 return bookmark
         return None
 
@@ -790,7 +799,7 @@ class LatexEditor(TextEditor):
         else:
             source_lines = self.toPlainText().splitlines() or [""]
             line = max(1, min(int(line), len(source_lines)))
-            column = max(1, min(int(column), len(source_lines[line - 1]) + 1))
+            column = 1
             self._bookmarks.append({
                 "line": line,
                 "column": column,
@@ -1410,6 +1419,13 @@ class LatexEditor(TextEditor):
     def _emit_content(self) -> None:
         if not self._syncing_from_visual:
             self._visual_dirty = True
-        self.content_changed.emit(
-            self.toPlainText()
+        interval = (
+            self._source_large_document_debounce_ms
+            if self.document().characterCount() >= self._source_large_document_threshold_chars
+            else self._source_update_debounce_ms
         )
+        self._content_emit_timer.setInterval(interval)
+        self._content_emit_timer.start()
+
+    def _flush_content(self) -> None:
+        self.content_changed.emit(self.toPlainText())

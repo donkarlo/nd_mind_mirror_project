@@ -157,6 +157,7 @@ class GraphicDocumentManager:
             "canvas_width": self.canvas_width,
             "canvas_height": self.canvas_height,
             "drawing_data_base64": "",
+            "background_image_base64": "",
             "web_strokes": [],
             "pencil": {
                 "width": 6.0,
