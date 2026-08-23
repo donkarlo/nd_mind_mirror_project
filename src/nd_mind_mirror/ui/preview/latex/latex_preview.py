@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtCore import QMetaObject, Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QLabel,
     QStackedWidget,
@@ -15,6 +15,7 @@ from nd_mind_mirror.ui.preview.pdf.selectable_pdf_view import (
 
 class LatexPreview(Preview):
     view_status_changed = Signal(float, int, int)
+
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
 
@@ -27,11 +28,11 @@ class LatexPreview(Preview):
         self._default_zoom_percent = 100.0
         self._auto_fit_on_open = True
         self._fit_width_percent = 95
-        # View mode is sticky across live re-renders of the same source.
-        # Once the user chooses Fit, later LuaLaTeX passes and Source/Visual
-        # mode switches reapply Fit until the user explicitly zooms.
+        # Fit is computed once for a source. Live PDF reloads preserve that
+        # exact scale and scroll position rather than recalculating content width.
         self._fit_active = True
         self._fit_pending_for_source = True
+        self._view_restore_generation = 0
 
         self._pdf_view = SelectablePdfView(self)
         self._pdf_view.view_status_changed.connect(
@@ -101,6 +102,7 @@ class LatexPreview(Preview):
         self._has_success_for_current_source = False
         self._current_pdf_path = None
         self._last_error = ""
+        self._view_restore_generation += 1
 
     def show_pdf(self, path: str) -> None:
         pdf_path = Path(path).resolve()
@@ -111,6 +113,15 @@ class LatexPreview(Preview):
                 f"Generated PDF does not exist: {pdf_path}"
             )
             return
+
+        # Once Fit has been established, remember its exact zoom before each
+        # live reload. Qt Quick PDF can temporarily expose its default 100%
+        # scale while the document source is being replaced; reasserting the
+        # same saved scale prevents the visible half-page-width flash.
+        stable_zoom_percent: float | None = None
+        preserve_live_view = self._fit_active and not self._fit_pending_for_source
+        if preserve_live_view:
+            stable_zoom_percent = self._pdf_view.view_status()[0]
 
         reset_position = self._reset_position_on_next_pdf
         if not self._pdf_view.show_pdf(
@@ -125,17 +136,16 @@ class LatexPreview(Preview):
             return
 
         if self._fit_active and self._fit_pending_for_source:
-            # Compute the expensive content-aware Fit only for the first PDF
-            # of a newly opened source. QML preserves the resulting zoom and
-            # scroll position across later live reloads. Re-running Fit after
-            # every keystroke caused visible jumps and a costly PDF raster scan.
+            # Fit exactly once after the first PDF for a newly opened source.
+            # Later keystroke-driven PDF reloads keep this scale unchanged.
             self._fit_pending_for_source = False
-            QTimer.singleShot(120, self._apply_fit_without_mode_change)
-            QTimer.singleShot(300, self._apply_fit_without_mode_change)
+            QTimer.singleShot(260, self._apply_fit_without_mode_change)
         elif reset_position:
             self._pdf_view.set_zoom_percent(
                 self._default_zoom_percent
             )
+        elif stable_zoom_percent is not None:
+            self._schedule_live_view_restore(stable_zoom_percent)
 
         self._reset_position_on_next_pdf = False
         self._current_pdf_path = pdf_path
@@ -151,21 +161,56 @@ class LatexPreview(Preview):
             return
         self._fit_active = True
         self._fit_pending_for_source = False
+        self._view_restore_generation += 1
         self._pdf_view.fit_to_panel(self._fit_width_percent)
 
     def _apply_fit_without_mode_change(self) -> None:
         if self._current_pdf_path is None or not self._fit_active:
             return
+        self._view_restore_generation += 1
         self._pdf_view.fit_to_panel(self._fit_width_percent)
+
+    def _schedule_live_view_restore(self, zoom_percent: float) -> None:
+        """Hold a fitted zoom/scroll steady while Qt reloads the generated PDF."""
+        self._view_restore_generation += 1
+        generation = self._view_restore_generation
+        for delay_ms in (0, 30, 80, 160, 300, 500):
+            QTimer.singleShot(
+                delay_ms,
+                lambda value=zoom_percent, token=generation: self._restore_live_view(
+                    value,
+                    token,
+                ),
+            )
+
+    def _restore_live_view(self, zoom_percent: float, generation: int) -> None:
+        if (
+            generation != self._view_restore_generation
+            or not self._fit_active
+            or self._current_pdf_path is None
+        ):
+            return
+
+        self._pdf_view.set_zoom_percent(zoom_percent)
+        root = self._pdf_view.rootObject()
+        if root is None:
+            return
+        try:
+            QMetaObject.invokeMethod(root, "restoreScrollState")
+        except (RuntimeError, TypeError):
+            pass
 
     def _leave_fit_mode(self) -> None:
         self._fit_active = False
         self._fit_pending_for_source = False
+        self._view_restore_generation += 1
 
     def set_zoom_percent(self, percent: int | float) -> None:
         if self._current_pdf_path is None:
             return
         self._fit_active = False
+        self._fit_pending_for_source = False
+        self._view_restore_generation += 1
         self._pdf_view.set_zoom_percent(percent)
 
     def scroll_to_source_location(

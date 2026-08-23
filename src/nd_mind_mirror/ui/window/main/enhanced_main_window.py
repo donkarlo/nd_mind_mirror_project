@@ -2,7 +2,8 @@
 
 from pathlib import Path
 
-from PySide6.QtGui import QAction
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QAction, QKeySequence, QShortcut
 from PySide6.QtWidgets import QMenu
 
 from nd_mind_mirror.ui.window.main.main_window import MainWindow
@@ -10,6 +11,9 @@ from nd_mind_mirror.ui.window.main.latex_insertion_controller import LatexInsert
 from nd_mind_mirror.ui.window.main.navigator_context_controller import NavigatorContextController
 from nd_mind_mirror.ui.window.main.pinned_tab_controller import PinnedTabController
 from nd_mind_mirror.ui.window.main.preview_auto_fit_controller import PreviewAutoFitController
+from nd_mind_mirror.ui.window.main.preview_reverse_sync_controller import (
+    PreviewReverseSyncController,
+)
 from nd_mind_mirror.ui.window.main.preview_toggle_button_controller import PreviewToggleButtonController
 from nd_mind_mirror.ui.window.main.shortcut_settings_dialog import ShortcutSettingsDialog
 from nd_mind_mirror.ui.window.main.shortcut_store import ShortcutStore
@@ -17,6 +21,10 @@ from nd_mind_mirror.ui.window.main.special_latex_toolbar import SpecialLatexTool
 from nd_mind_mirror.ui.window.main.structure_highlight_controller import StructureHighlightController
 from nd_mind_mirror.ui.window.main.tree_state_toggle_controller import TreeStateToggleController
 from nd_mind_mirror.ui.window.main.undo_redo_controller import UndoRedoController
+from nd_mind_mirror.ui.window.main.visual_persian_font_controller import (
+    VisualPersianFontController,
+)
+from nd_mind_mirror.ui.window.main.visual_window_bounded_controller import VisualWindowController
 
 
 class EnhancedMainWindow(MainWindow):
@@ -25,6 +33,15 @@ class EnhancedMainWindow(MainWindow):
     def __init__(self, parent=None) -> None:
         """Initialize the existing window first, then attach additive controllers to its stable widgets."""
         super().__init__(parent)
+        self._visual_window_controller = VisualWindowController(
+            self._editor_panel,
+            self,
+        )
+        self._visual_persian_font_controller = VisualPersianFontController(
+            self._editor_panel,
+            self._app_settings,
+            self,
+        )
         self._undo_redo_controller = UndoRedoController(self)
         self._preview_toggle_button_controller = PreviewToggleButtonController(
             self,
@@ -62,6 +79,11 @@ class EnhancedMainWindow(MainWindow):
             self._session_settings,
             self,
         )
+        self._preview_reverse_sync_controller = PreviewReverseSyncController(
+            self,
+            self,
+        )
+        self._install_navigator_rename_shortcut()
         self._install_shortcut_settings()
 
     def _install_latex_insert_toolbar(self) -> None:
@@ -89,6 +111,30 @@ class EnhancedMainWindow(MainWindow):
     def _pin_navigator_path(self, path: Path) -> None:
         """Open a Navigator file if necessary and add it to the persistent pinned tab group."""
         self._pinned_tab_controller.pin_path(path)
+
+    def _install_navigator_rename_shortcut(self) -> None:
+        """Bind F2 to the Navigator's existing file/folder rename workflow."""
+        self._navigator_rename_shortcut = QShortcut(
+            QKeySequence("F2"),
+            self._file_system_panel._tree,
+        )
+        self._navigator_rename_shortcut.setContext(
+            Qt.ShortcutContext.WidgetWithChildrenShortcut
+        )
+        self._navigator_rename_shortcut.activated.connect(
+            self._rename_navigator_selection
+        )
+
+    def _rename_navigator_selection(self) -> None:
+        """Rename the selected Navigator file or folder unless it is the workspace root."""
+        selected = self._file_system_panel.selected_path()
+        if not selected:
+            return
+        path = Path(selected).expanduser().resolve()
+        root = self._file_system_panel._root_path
+        if path == root or not path.exists():
+            return
+        self._file_system_panel._rename_path(path)
 
     def _install_shortcut_settings(self) -> None:
         """Create the shortcut store and attach its Apply-based editor to a persistent Settings menu."""
@@ -155,6 +201,14 @@ class EnhancedMainWindow(MainWindow):
         self.statusBar().showMessage(
             f"Keyboard shortcuts applied from {self._shortcut_store.path}", 3500
         )
+
+    def _reload_yaml_settings(self) -> bool:
+        """Reload base settings and immediately refresh the Visual Persian font controller."""
+        reloaded = super()._reload_yaml_settings()
+        controller = getattr(self, "_visual_persian_font_controller", None)
+        if reloaded and controller is not None:
+            controller.reload()
+        return reloaded
 
     def _settings_menu(self):
         """Return the persistent Settings menu created by the enhanced window."""

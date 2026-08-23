@@ -25,11 +25,26 @@ class PreviewToggleButtonController(QObject):
             self._button,
             Qt.Corner.TopRightCorner,
         )
+        self._apply_checked_style(self._button.isChecked())
 
     def _sync_from_action(self, checked: bool) -> None:
         """Update the button without recursively re-triggering the QAction."""
-        if self._button.isChecked() == checked:
-            return
-        self._button.blockSignals(True)
-        self._button.setChecked(checked)
-        self._button.blockSignals(False)
+        if self._button.isChecked() != checked:
+            self._button.blockSignals(True)
+            self._button.setChecked(checked)
+            self._button.blockSignals(False)
+        self._apply_checked_style(checked)
+
+    def _apply_checked_style(self, checked: bool) -> None:
+        """Use a subtle light-gray fill only while Preview is open."""
+        if checked:
+            self._button.setStyleSheet(
+                "QToolButton {"
+                " background-color: rgba(160, 160, 160, 45);"
+                " border: 1px solid rgba(120, 120, 120, 65);"
+                " border-radius: 3px;"
+                " padding: 2px 8px;"
+                " }"
+            )
+        else:
+            self._button.setStyleSheet("")

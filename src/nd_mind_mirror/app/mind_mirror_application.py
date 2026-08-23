@@ -13,7 +13,16 @@ from PySide6.QtWidgets import QApplication
 
 from nd_mind_mirror.graphic.ipad.package_builder import IpadPackageBuilder
 from nd_mind_mirror.ui.icon.mind_mirror_icon import build_mind_mirror_icon
+from nd_mind_mirror.ui.window.main.editor_interaction_enhancements import (
+    EditorInteractionEnhancements,
+)
+from nd_mind_mirror.ui.window.main.persistent_editor_visuals import (
+    PersistentEditorVisuals,
+)
 from nd_mind_mirror.ui.window.main.enhanced_main_window import EnhancedMainWindow
+from nd_mind_mirror.ui.window.main.workspace_interaction_controller import (
+    WorkspaceInteractionController,
+)
 
 
 _LOG_PATH = Path.home() / ".local" / "state" / "nd_mind_mirror_project" / "startup.log"
@@ -48,6 +57,8 @@ class MindMirrorApplication(QApplication):
     def run(cls, argv: list[str]) -> int:
         """Refresh the iPad package, create Qt, show EnhancedMainWindow, and return the event-loop exit code."""
         _refresh_ipad_package()
+        EditorInteractionEnhancements.install()
+        PersistentEditorVisuals.install()
         _log("Creating QApplication")
         application = cls(argv)
         application.setApplicationName("nd_mind_mirror_project")
@@ -68,6 +79,9 @@ class MindMirrorApplication(QApplication):
                 application.setWindowIcon(icon)
             _log("Constructing EnhancedMainWindow")
             window = EnhancedMainWindow()
+            window._workspace_interaction_controller = WorkspaceInteractionController(
+                window
+            )
             if not icon.isNull():
                 window.setWindowIcon(icon)
             window.destroyed.connect(lambda: _log("EnhancedMainWindow QObject destroyed"))

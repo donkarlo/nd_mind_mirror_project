@@ -29,7 +29,7 @@ class GraphicDocumentManager:
     """Create and locate source-backed raster graphics used by LaTeX.
 
     The editable PencilKit state is stored in a small ``.ndgraphic`` JSON
-    sidecar.  LaTeX only sees the neighboring PNG, so the generated document
+    sidecar. LaTeX only sees the neighboring PNG, so the generated document
     remains ordinary portable LaTeX and the iPad editor can preserve strokes
     for later editing.
     """
@@ -44,8 +44,8 @@ class GraphicDocumentManager:
         *,
         directory_name: str = ".",
         width_ratio: float = 0.90,
-        canvas_width: int = 1600,
-        canvas_height: int = 1000,
+        canvas_width: int = 1240,
+        canvas_height: int = 1754,
     ) -> None:
         cleaned = str(directory_name).strip().strip("/\\") or "."
         self.directory_name = cleaned
@@ -55,20 +55,14 @@ class GraphicDocumentManager:
 
     def create_for_source(self, source_path: str | Path) -> GraphicDocument:
         source = Path(source_path).expanduser().resolve()
-        # New iPad-created images live beside the .tex source.  Keeping the
-        # raster next to the document makes the generated LaTeX reference
-        # short, portable, and immediately understandable in Source mode.
         directory = source.parent
         directory.mkdir(parents=True, exist_ok=True)
 
         image_path = self._next_image_path(directory)
         sidecar_path = image_path.with_suffix(".ndgraphic")
         self._write_blank_png(image_path, self.canvas_width, self.canvas_height)
-        self._write_sidecar(sidecar_path, image_path)
+        self._write_sidecar(sidecar_path, image_path, source)
         relative = image_path.relative_to(source.parent).as_posix()
-        # ``tex_reference`` intentionally stores only the path used inside
-        # \includegraphics.  The editor owns the surrounding figure block so
-        # Source and Visual modes can preserve it exactly.
         return GraphicDocument(image_path, sidecar_path, relative)
 
     def find_reference(
@@ -89,8 +83,6 @@ class GraphicDocumentManager:
                 chosen = match
                 break
         if chosen is None:
-            # Clicking anywhere inside a figure environment that contains one
-            # managed PNG is considered Update, not Insert.
             for match in matches:
                 figure_start = source.rfind("\\begin{figure}", 0, match.start())
                 figure_end = source.find("\\end{figure}", match.end())
@@ -104,8 +96,6 @@ class GraphicDocumentManager:
                     chosen = match
                     break
         if chosen is None:
-            # A context click is often a few characters before/after the
-            # command. Treat a graphic on the same source line as Update.
             line_start = source.rfind("\n", 0, position) + 1
             line_end = source.find("\n", position)
             if line_end < 0:
@@ -124,13 +114,13 @@ class GraphicDocumentManager:
         if not image.is_absolute():
             image = source_file.parent / image
         image = image.resolve()
-        # The current graphic editor writes PNG. Existing non-PNG figures stay
-        # ordinary LaTeX images and are not silently converted/replaced.
         if image.suffix.lower() != ".png":
             return None
         sidecar = image.with_suffix(".ndgraphic")
         if not sidecar.exists():
-            self._write_sidecar(sidecar, image)
+            self._write_sidecar(sidecar, image, source_file)
+        else:
+            self._ensure_source_name(sidecar, source_file)
         return GraphicReference(
             image_path=image,
             sidecar_path=sidecar,
@@ -150,10 +140,19 @@ class GraphicDocumentManager:
                 return candidate
             counter += 1
 
-    def _write_sidecar(self, sidecar: Path, image_path: Path) -> None:
+    def _write_sidecar(
+        self,
+        sidecar: Path,
+        image_path: Path,
+        source_path: str | Path | None = None,
+    ) -> None:
+        source_name = ""
+        if source_path is not None:
+            source_name = Path(source_path).expanduser().name
         payload = {
             "version": 1,
             "image_name": image_path.name,
+            "source_name": source_name,
             "canvas_width": self.canvas_width,
             "canvas_height": self.canvas_height,
             "drawing_data_base64": "",
@@ -168,6 +167,24 @@ class GraphicDocumentManager:
         temp = sidecar.with_suffix(sidecar.suffix + ".tmp")
         temp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
         temp.replace(sidecar)
+
+    @staticmethod
+    def _ensure_source_name(sidecar: Path, source_path: Path) -> None:
+        """Backfill the owning LaTeX filename into older editable sidecars."""
+        try:
+            payload = json.loads(sidecar.read_text(encoding="utf-8"))
+        except (OSError, ValueError, TypeError):
+            return
+        source_name = source_path.name
+        if str(payload.get("source_name", "")).strip() == source_name:
+            return
+        payload["source_name"] = source_name
+        try:
+            temp = sidecar.with_suffix(sidecar.suffix + ".tmp")
+            temp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+            temp.replace(sidecar)
+        except OSError:
+            return
 
     @staticmethod
     def _png_chunk(kind: bytes, data: bytes) -> bytes:

@@ -1,3 +1,5 @@
+"""Provide an editable YAML source editor with configurable indentation and syntax highlighting."""
+
 from pathlib import Path
 import re
 
@@ -12,6 +14,8 @@ from nd_mind_mirror.ui.highlighter.yaml.yaml_syntax_highlighter import (
 
 
 class YamlEditor(TextEditor):
+    """Edit YAML while using the shared source-editor indentation settings."""
+
     content_changed = Signal(str)
     modification_changed = Signal(bool)
 
@@ -21,6 +25,7 @@ class YamlEditor(TextEditor):
         app_settings: YamlSettings,
         parent=None,
     ) -> None:
+        """Initialize a YAML editor for one source path."""
         super().__init__(parent)
         self._source_path = Path(source_path).expanduser().resolve()
         self._indent_size = 4
@@ -39,13 +44,15 @@ class YamlEditor(TextEditor):
 
     @property
     def source_path(self) -> Path:
+        """Return the canonical source path."""
         return self._source_path
 
     def set_source_path(self, source_path: str | Path) -> None:
+        """Update the source path without changing configured indentation."""
         self._source_path = Path(source_path).expanduser().resolve()
-        self._indent_size = 4
 
     def apply_settings(self, app_settings: YamlSettings) -> None:
+        """Apply shared editor and YAML indentation preferences."""
         self._indent_size = max(int(app_settings.editor_indent_size), 1)
         self._source_update_debounce_ms = app_settings.editor_source_update_debounce_ms
         self._source_large_document_threshold_chars = app_settings.editor_source_large_document_threshold_chars
@@ -84,6 +91,7 @@ class YamlEditor(TextEditor):
         )
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
+        """Insert smart YAML indentation on Enter and delegate other source keys."""
         if (
             event.key() in {Qt.Key.Key_Return, Qt.Key.Key_Enter}
             and not bool(
@@ -101,6 +109,7 @@ class YamlEditor(TextEditor):
         super().keyPressEvent(event)
 
     def _insert_yaml_newline(self) -> None:
+        """Insert a newline with context-aware YAML indentation."""
         cursor = self.textCursor()
         if cursor.hasSelection():
             cursor.removeSelectedText()
@@ -127,6 +136,7 @@ class YamlEditor(TextEditor):
         self.setTextCursor(cursor)
 
     def _opens_yaml_child(self, stripped: str) -> bool:
+        """Return whether a YAML line opens an indented child block."""
         content = self._strip_inline_comment(stripped).rstrip()
         if not content:
             return False
@@ -137,6 +147,7 @@ class YamlEditor(TextEditor):
         return False
 
     def _is_sequence_mapping(self, stripped: str) -> bool:
+        """Return whether a sequence item contains an inline mapping entry."""
         content = self._strip_inline_comment(stripped).strip()
         if not content.startswith("-"):
             return False
@@ -144,24 +155,23 @@ class YamlEditor(TextEditor):
         return bool(re.match(r"[^:]+:\s*.+$", body))
 
     def _is_sequence_scalar(self, stripped: str) -> bool:
+        """Return whether a sequence item should continue with another dash."""
         content = self._strip_inline_comment(stripped).strip()
         if not content.startswith("-"):
             return False
         body = content[1:].strip()
         if not body:
             return False
-        # A list item that already starts a mapping should continue as a
-        # nested mapping rather than automatically creating another dash.
         if re.match(r"[^:]+:\s*.*$", body):
             return False
         return True
 
     def _strip_inline_comment(self, text: str) -> str:
-        # This deliberately keeps quoted '#' handling simple; indentation is
-        # advisory and never changes existing YAML source.
+        """Strip the simple inline-comment form used by indentation heuristics."""
         return text.split(" #", 1)[0]
 
     def set_content(self, content: str) -> None:
+        """Replace editor text while marking the loaded content as saved."""
         self.blockSignals(True)
         self.setPlainText(content)
         self.apply_line_height(self._line_height_percent)
@@ -171,13 +181,15 @@ class YamlEditor(TextEditor):
         self.modification_changed.emit(False)
 
     def mark_saved(self) -> None:
+        """Mark the current document state as saved."""
         self.document().setModified(False)
 
     def format_document(self) -> None:
-        # Settings YAML is intentionally left untouched by LaTeX formatting.
+        """Leave YAML untouched by the LaTeX formatter."""
         return
 
     def _emit_content(self) -> None:
+        """Debounce content emission according to document size."""
         interval = (
             self._source_large_document_debounce_ms
             if self.document().characterCount() >= self._source_large_document_threshold_chars
@@ -187,4 +199,5 @@ class YamlEditor(TextEditor):
         self._content_emit_timer.start()
 
     def _flush_content(self) -> None:
+        """Emit the current plain YAML source."""
         self.content_changed.emit(self.toPlainText())

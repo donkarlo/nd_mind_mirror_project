@@ -4,6 +4,8 @@ editor:
   source_font_size: 16
   # LaTeX Visual mode can use a different base font size from Source mode.
   visual_font_size: 16
+  # Persian/Arabic script in LaTeX Visual mode uses this family independently.
+  visual_persian_font_family: "Noto Naskh Arabic"
   font_min_size: 6
   font_max_size: 40
   line_height_percent: 200
@@ -33,9 +35,9 @@ editor:
   # strong alphabetic characters belongs to an RTL script (Persian/Arabic).
   latex_rtl_persian_ratio: 0.35
   max_open_tabs: 20
-  # Shared source indentation width. LaTeX formatting, YAML smart indentation,
-  # tab rendering, structure fallback parsing, and indent guides use this value.
-  tab_size: 4
+  # Shared source indentation width. Tab/Shift+Tab, LaTeX formatting, YAML
+  # smart indentation, tab rendering, structure parsing, and guides use it.
+  tab_size: 3
   indent_guides_enabled: true
   indent_guide_color: "#d0d0d0"
   indent_guide_width: 1.0

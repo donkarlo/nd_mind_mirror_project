@@ -34,6 +34,13 @@ Rectangle {
     property real syncY: 0
     property int syncToken: 0
     property bool syncRecenterHorizontal: false
+    property real reverseClickX: 0
+    property real reverseClickY: 0
+    property int reverseClickToken: 0
+    property int reverseClickResultToken: 0
+    property int reverseClickPage: -1
+    property real reverseClickPdfX: 0
+    property real reverseClickPdfY: 0
     property string editHighlightText: ""
     property int highlightSearchAttempts: 0
     property bool resetPositionOnReload: false
@@ -49,8 +56,9 @@ Rectangle {
     property real explicitVerticalPosition: 0
     property real explicitHorizontalSize: 1
     property real explicitVerticalSize: 1
-    // A faint canvas makes the real PDF page edges visible, so a 95%
-    // width fit can be judged visually instead of blending into a white panel.
+
+    // A faint canvas makes the real PDF page edges visible when the complete
+    // paper is shown. Content-aware Fit itself crops unused white margins.
     color: "#f5f7fa"
 
     function safeScale(value) {
@@ -88,9 +96,6 @@ Rectangle {
             return
 
         try {
-            // Reloading a QPdfDocument can reset PdfMultiPageView.renderScale
-            // to 1.0. Restore the user's current zoom immediately; sticky Fit
-            // may refine it again a moment later using the new page geometry.
             if (root.savedRenderScale > 0)
                 pdfView.renderScale = root.savedRenderScale
 
@@ -98,14 +103,12 @@ Rectangle {
             var originY = target.originY !== undefined ? target.originY : 0
             var maxX = Math.max(originX, originX + target.contentWidth - target.width)
             var maxY = Math.max(originY, originY + target.contentHeight - target.height)
-
-            // Preserve the absolute visual offset from the scroll origin.
-            // This keeps the preview at the same place when a later LaTeX
-            // pass republishes the same document.
             var desiredX = originX + (root.savedContentX - root.savedOriginX)
             var desiredY = originY + (root.savedContentY - root.savedOriginY)
             target.contentX = Math.max(originX, Math.min(maxX, desiredX))
             target.contentY = Math.max(originY, Math.min(maxY, desiredY))
+            if (root.syncRecenterHorizontal)
+                root.centerHorizontally()
         } catch (error) {
             return
         }
@@ -115,7 +118,6 @@ Rectangle {
         var target = findBestScrollable(pdfView)
         if (!target)
             return
-
 
         try {
             var originX = target.originX !== undefined ? target.originX : 0
@@ -133,9 +135,6 @@ Rectangle {
             root.captureScrollState()
         }
 
-        // Never carry an invalid/huge render scale into a newly loaded PDF.
-        // A bad Fit calculation in an earlier generation must not be able to
-        // trigger a giant texture allocation before the next Fit pass runs.
         pdfView.renderScale = root.safeScale(pdfView.renderScale)
         var target = root.source
         pdfDocument.source = ""
@@ -144,9 +143,6 @@ Rectangle {
         viewRestore.restart()
     }
 
-    // PdfMultiPageView is a QML composition. Its scrolling surface is an
-    // internal Flickable/TableView, so locate the largest scrollable child
-    // instead of depending on a private Qt object id.
     function scrollCandidateScore(item) {
         if (!item)
             return -1
@@ -200,6 +196,97 @@ Rectangle {
         return best
     }
 
+    function pageIndexForPaper(item) {
+        var holder = item
+        while (holder) {
+            try {
+                if (holder.index !== undefined) {
+                    var value = Number(holder.index)
+                    if (isFinite(value) && value >= 0)
+                        return Math.floor(value)
+                }
+            } catch (error) {
+            }
+            holder = holder.parent
+        }
+        return -1
+    }
+
+    function findPagePaper(item, pageIndex) {
+        if (!item)
+            return null
+
+        try {
+            if (item.pageScale !== undefined &&
+                    item.pagePointSize !== undefined &&
+                    root.pageIndexForPaper(item) === pageIndex)
+                return item
+        } catch (error) {
+        }
+
+        var visualChildren = item.children
+        if (!visualChildren)
+            return null
+        for (var i = 0; i < visualChildren.length; ++i) {
+            var found = root.findPagePaper(visualChildren[i], pageIndex)
+            if (found)
+                return found
+        }
+        return null
+    }
+
+    function findPaperAtPoint(item, viewX, viewY) {
+        if (!item)
+            return null
+
+        try {
+            if (item.pageScale !== undefined && item.pagePointSize !== undefined) {
+                var local = item.mapFromItem(root, viewX, viewY)
+                if (local.x >= 0 && local.y >= 0 &&
+                        local.x <= item.width && local.y <= item.height) {
+                    var page = root.pageIndexForPaper(item)
+                    if (page >= 0)
+                        return { "paper": item, "page": page, "local": local }
+                }
+            }
+        } catch (error) {
+        }
+
+        var visualChildren = item.children
+        if (!visualChildren)
+            return null
+        for (var i = visualChildren.length - 1; i >= 0; --i) {
+            var found = root.findPaperAtPoint(visualChildren[i], viewX, viewY)
+            if (found)
+                return found
+        }
+        return null
+    }
+
+    function mapReverseClick() {
+        root.reverseClickPage = -1
+        root.reverseClickPdfX = 0
+        root.reverseClickPdfY = 0
+        try {
+            var result = root.findPaperAtPoint(
+                pdfView,
+                root.reverseClickX,
+                root.reverseClickY
+            )
+            if (result) {
+                var scale = Number(result.paper.pageScale)
+                if (isFinite(scale) && scale > 0) {
+                    root.reverseClickPage = result.page
+                    root.reverseClickPdfX = result.local.x / scale
+                    root.reverseClickPdfY = result.local.y / scale
+                }
+            }
+        } catch (error) {
+            root.reverseClickPage = -1
+        }
+        root.reverseClickResultToken = root.reverseClickToken
+    }
+
     function panBy(dx, dy) {
         var target = findBestScrollable(pdfView)
         if (!target)
@@ -211,26 +298,11 @@ Rectangle {
 
             var minX = target.originX !== undefined ? target.originX : 0
             var minY = target.originY !== undefined ? target.originY : 0
-            var maxX = Math.max(
-                minX,
-                minX + target.contentWidth - target.width
-            )
-            var maxY = Math.max(
-                minY,
-                minY + target.contentHeight - target.height
-            )
-
-            target.contentX = Math.max(
-                minX,
-                Math.min(maxX, target.contentX + dx)
-            )
-            target.contentY = Math.max(
-                minY,
-                Math.min(maxY, target.contentY + dy)
-            )
+            var maxX = Math.max(minX, minX + target.contentWidth - target.width)
+            var maxY = Math.max(minY, minY + target.contentHeight - target.height)
+            target.contentX = Math.max(minX, Math.min(maxX, target.contentX + dx))
+            target.contentY = Math.max(minY, Math.min(maxY, target.contentY + dy))
         } catch (error) {
-            // Ignore private Qt Quick children that happen to expose
-            // similarly named read-only properties.
         }
     }
 
@@ -249,11 +321,6 @@ Rectangle {
             var originY = target.originY !== undefined ? target.originY : 0
             var width = Math.max(target.contentWidth, 1)
             var height = Math.max(target.contentHeight, 1)
-
-            // Store the exact content point underneath the mouse as a ratio
-            // of the laid-out scrollable document. After Qt relays out the
-            // pages at the new renderScale, restore that same content point
-            // underneath the same mouse coordinates.
             root.zoomAnchorContentRatioX = (
                 target.contentX - originX + localPoint.x
             ) / width
@@ -289,21 +356,14 @@ Rectangle {
             )
             var originX = target.originX !== undefined ? target.originX : 0
             var originY = target.originY !== undefined ? target.originY : 0
-            var maxX = Math.max(
-                originX,
-                originX + target.contentWidth - target.width
-            )
-            var maxY = Math.max(
-                originY,
-                originY + target.contentHeight - target.height
-            )
+            var maxX = Math.max(originX, originX + target.contentWidth - target.width)
+            var maxY = Math.max(originY, originY + target.contentHeight - target.height)
             var desiredX = originX
                 + root.zoomAnchorContentRatioX * target.contentWidth
                 - localPoint.x
             var desiredY = originY
                 + root.zoomAnchorContentRatioY * target.contentHeight
                 - localPoint.y
-
             target.contentX = Math.max(originX, Math.min(maxX, desiredX))
             target.contentY = Math.max(originY, Math.min(maxY, desiredY))
             root.zoomAnchorPending = false
@@ -320,19 +380,37 @@ Rectangle {
         try {
             var originX = target.originX !== undefined ? target.originX : 0
             var overflowX = Math.max(0, target.contentWidth - target.width)
+            var maxX = Math.max(originX, originX + overflowX)
             var desired = originX + overflowX / 2
 
-            // When Fit intentionally crops the white paper margins, center the
-            // actual content span rather than the physical A4 sheet.  For
-            // normal symmetric LaTeX pages this adjustment is near zero, but
-            // it also handles deliberately asymmetric layouts.
-            if (root.fitContentWidthPoints > 1 &&
-                    root.fitPageWidthPoints > 1) {
-                var pagePixels = root.fitPageWidthPoints * pdfView.renderScale
-                desired += (root.fitContentCenterRatioX - 0.5) * pagePixels
+            if (root.fitContentWidthPoints > 1 && root.fitPageWidthPoints > 1) {
+                var paper = root.findPagePaper(pdfView, Math.max(pdfView.currentPage, 0))
+                if (paper) {
+                    var pageScale = Number(paper.pageScale)
+                    if (!isFinite(pageScale) || pageScale <= 0)
+                        pageScale = pdfView.renderScale
+                    var centerPoints = root.fitContentCenterRatioX * root.fitPageWidthPoints
+                    var halfPoints = root.fitContentWidthPoints / 2
+                    var leftPoints = Math.max(0, centerPoints - halfPoints)
+                    var rightPoints = Math.min(root.fitPageWidthPoints, centerPoints + halfPoints)
+                    var coordinateItem = target.contentItem !== undefined
+                        ? target.contentItem
+                        : target
+                    var left = paper.mapToItem(
+                        coordinateItem,
+                        leftPoints * pageScale,
+                        0
+                    ).x
+                    var right = paper.mapToItem(
+                        coordinateItem,
+                        rightPoints * pageScale,
+                        0
+                    ).x
+                    var contentCenter = (left + right) / 2
+                    desired = contentCenter - target.width / 2
+                }
             }
 
-            var maxX = Math.max(originX, originX + overflowX)
             target.contentX = Math.max(originX, Math.min(maxX, desired))
         } catch (error) {
         }
@@ -343,11 +421,6 @@ Rectangle {
             if (pdfDocument.pageCount <= 0)
                 return
 
-            // Reading-oriented Fit deliberately ignores the unused white A4
-            // margins when Python could extract a content/text bounding box.
-            // The widest visible content then occupies fitWidthRatio of the
-            // preview viewport. Pages without extractable text fall back to
-            // the complete physical PDF page width.
             var pageIndex = Math.max(0, Math.min(pdfView.currentPage,
                                                   pdfDocument.pageCount - 1))
             var pageSize = pdfDocument.pagePointSize(pageIndex)
@@ -376,6 +449,7 @@ Rectangle {
                 ? root.fitContentWidthPoints
                 : pageWidthPoints
             pdfView.renderScale = root.safeScale(root.fitTargetWidth / effectiveWidthPoints)
+            root.centerHorizontally()
             fitCenterRestore.restart()
             scrollBarRefresh.restart()
         } catch (error) {
@@ -384,26 +458,35 @@ Rectangle {
 
     function goToSourceLocation() {
         try {
+            var target = findBestScrollable(pdfView)
+            var previousX = 0
+            var hadTarget = false
+            if (target && target.contentX !== undefined) {
+                previousX = target.contentX
+                hadTarget = true
+            }
+
             pdfView.goToLocation(
                 Math.max(root.syncPage, 0),
                 Qt.point(root.syncX, root.syncY),
                 pdfView.renderScale
             )
-            if (root.syncRecenterHorizontal)
+
+            if (root.syncRecenterHorizontal) {
+                if (hadTarget)
+                    target.contentX = previousX
+                root.centerHorizontally()
                 syncHorizontalCenter.restart()
+            }
             scrollBarRefresh.restart()
         } catch (error) {
             sourceLocationRetry.restart()
         }
     }
 
-    // Depending on the active Qt Quick Controls style, the scrollbars inside
-    // PdfMultiPageView may fade away. Keep the native bars visible and
-    // interactive without replacing Qt's own multipage/text-selection view.
     function keepNativeScrollBarsVisible(item) {
         if (!item)
             return
-
         try {
             if (item.policy !== undefined &&
                     item.orientation !== undefined &&
@@ -418,7 +501,6 @@ Rectangle {
                     item.active = true
             }
         } catch (error) {
-            // Some internal Qt Quick objects expose read-only properties.
         }
 
         var visualChildren = item.children
@@ -498,10 +580,6 @@ Rectangle {
     }
 
     function configureEditHighlightStyle() {
-        // PdfMultiPageView keeps PdfStyle internal. Find that resource and
-        // make ordinary search matches transparent; only currentResult gets
-        // a visible outline. This prevents repeated words (for example
-        // Saussure) from appearing highlighted three times at once.
         try {
             var candidates = pdfView.resources
             for (var i = 0; i < candidates.length; ++i) {
@@ -566,6 +644,7 @@ Rectangle {
         sourceLocationRetry.restart()
         scheduleHighlightResultChoice()
     }
+    onReverseClickTokenChanged: mapReverseClick()
     onEditHighlightTextChanged: scheduleHighlightResultChoice()
     onFitTokenChanged: fitToPanel()
     onZoomScaleChanged: scrollBarRefresh.restart()
@@ -612,10 +691,6 @@ Rectangle {
         }
     }
 
-    // Explicit non-fading scrollbars. Some Qt styles hide the internal
-    // PdfMultiPageView bars even with AlwaysOn, so these bars mirror the
-    // actual internal Flickable and remain visible whenever content exceeds
-    // the preview viewport.
     ScrollBar {
         id: explicitHorizontalBar
         orientation: Qt.Horizontal
@@ -656,10 +731,6 @@ Rectangle {
 
     Timer {
         id: explicitScrollBarState
-        // A 20 Hz recursive scan of the internal PdfMultiPageView tree was
-        // needlessly expensive while a fresh PDF was being laid out. Event
-        // driven refreshes handle immediate interaction; this is only a slow
-        // safety refresh for Qt styles that mutate private scrollbars.
         interval: 200
         repeat: true
         running: true
@@ -668,7 +739,7 @@ Rectangle {
 
     Timer {
         id: syncHorizontalCenter
-        interval: 35
+        interval: 0
         repeat: false
         onTriggered: {
             root.centerHorizontally()
@@ -678,7 +749,17 @@ Rectangle {
 
     Timer {
         id: syncHorizontalCenterDelayed
-        interval: 140
+        interval: 55
+        repeat: false
+        onTriggered: {
+            root.centerHorizontally()
+            syncHorizontalCenterFinal.restart()
+        }
+    }
+
+    Timer {
+        id: syncHorizontalCenterFinal
+        interval: 150
         repeat: false
         onTriggered: root.centerHorizontally()
     }
@@ -700,11 +781,6 @@ Rectangle {
         onTriggered: root.refreshScrollBars()
     }
 
-    // A successful first LaTeX pass is intentionally shown immediately, and
-    // later passes can republish the same PDF a few seconds later. Qt Quick
-    // rebuilds the PdfMultiPageView on every source change and otherwise
-    // returns to the top. Restore the old scroll offset after the internal
-    // Flickable/TableView has had a chance to lay itself out.
     Timer {
         id: viewRestore
         interval: 90
@@ -717,6 +793,8 @@ Rectangle {
             } else {
                 root.restoreScrollState()
             }
+            if (root.syncRecenterHorizontal)
+                root.centerHorizontally()
         }
     }
 
@@ -730,6 +808,16 @@ Rectangle {
     Timer {
         id: fitCenterRestore
         interval: 35
+        repeat: false
+        onTriggered: {
+            root.centerHorizontally()
+            fitCenterRestoreDelayed.restart()
+        }
+    }
+
+    Timer {
+        id: fitCenterRestoreDelayed
+        interval: 120
         repeat: false
         onTriggered: root.centerHorizontally()
     }

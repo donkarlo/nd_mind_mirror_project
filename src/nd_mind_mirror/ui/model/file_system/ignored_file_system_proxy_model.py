@@ -1,5 +1,6 @@
-"""Filter ignored workspace paths and sort directories before files alphabetically."""
+"""Filter ignored workspace paths and sort directories before files using natural name order."""
 
+import re
 from pathlib import Path
 
 from PySide6.QtCore import QSortFilterProxyModel
@@ -8,7 +9,7 @@ from nd_mind_mirror.core.search.ignore.search_ignore_matcher import SearchIgnore
 
 
 class IgnoredFileSystemProxyModel(QSortFilterProxyModel):
-    """Keep ignored paths out of Navigator while enforcing folder-first case-insensitive sorting."""
+    """Keep ignored paths out of Navigator while enforcing folder-first natural sorting."""
 
     def __init__(self, parent=None) -> None:
         """Initialize a dynamic proxy rooted at the user's home directory until configured."""
@@ -66,8 +67,22 @@ class IgnoredFileSystemProxyModel(QSortFilterProxyModel):
             is_directory=model.isDir(index),
         )
 
+    @staticmethod
+    def _natural_name_key(name: str) -> tuple[tuple[int, object], ...]:
+        """Return a case-insensitive key where digit runs compare numerically."""
+        parts = re.split(r"([0-9]+)", str(name).casefold())
+        key: list[tuple[int, object]] = []
+        for part in parts:
+            if not part:
+                continue
+            if part.isdigit():
+                key.append((1, int(part)))
+            else:
+                key.append((0, part))
+        return tuple(key)
+
     def lessThan(self, left, right) -> bool:
-        """Order directories first and then compare names alphabetically without case sensitivity."""
+        """Order folders first, then sort folders/files independently by natural name."""
         model = self.sourceModel()
         if model is None:
             return super().lessThan(left, right)
@@ -79,6 +94,11 @@ class IgnoredFileSystemProxyModel(QSortFilterProxyModel):
 
         left_name = str(model.fileName(left))
         right_name = str(model.fileName(right))
+        left_key = self._natural_name_key(left_name)
+        right_key = self._natural_name_key(right_name)
+        if left_key != right_key:
+            return left_key < right_key
+
         left_folded = left_name.casefold()
         right_folded = right_name.casefold()
         if left_folded != right_folded:

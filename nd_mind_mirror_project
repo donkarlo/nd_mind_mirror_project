@@ -16,7 +16,6 @@ STARTUP_LOG_PATH = STATE_DIR / "startup.log"
 CRASH_LOG_PATH = STATE_DIR / "crash.log"
 _REEXEC_GUARD = "ND_MIND_MIRROR_PREFERRED_PYTHON_ACTIVE"
 
-# Keep all framework/tool diagnostics in English while retaining UTF-8 input.
 os.environ["LANG"] = "C.UTF-8"
 os.environ["LC_ALL"] = "C.UTF-8"
 os.environ["LANGUAGE"] = "en"
@@ -96,6 +95,19 @@ def _handle_unhandled_exception(exc_type, exc_value, exc_traceback) -> None:
 
 sys.excepthook = _handle_unhandled_exception
 atexit.register(lambda: _append_startup_log("Python process exiting normally"))
+
+# Keep the editable iPad source and transfer ZIP current before Qt starts. This
+# migration is idempotent and never creates a second project.
+try:
+    from nd_mind_mirror.graphic.ipad.package_builder import IpadPackageBuilder
+
+    ipad_package = IpadPackageBuilder(PROJECT_ROOT).refresh()
+    if ipad_package is not None:
+        _append_startup_log(f"iPad package ready: {ipad_package}")
+except Exception as exc:
+    _append_startup_log(
+        f"iPad package refresh failed: {type(exc).__name__}: {exc}"
+    )
 
 from nd_mind_mirror.app.mind_mirror_application import MindMirrorApplication
 

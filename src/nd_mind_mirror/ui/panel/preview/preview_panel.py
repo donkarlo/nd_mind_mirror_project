@@ -29,12 +29,10 @@ class PreviewPanel(Panel):
         )
 
         self._label = QLabel("Live LaTeX Preview", self)
-        self._close_button = QPushButton("×", self)
-        self._close_button.setFixedSize(26, 24)
-        self._close_button.setToolTip(
-            "Close Preview and suspend LaTeX rendering to reduce CPU and memory use."
-        )
-        self._close_button.clicked.connect(self.close_requested.emit)
+        # Kept only as a compatibility attribute for older controllers. The
+        # top-right Preview button is now the single visible open/close toggle.
+        self._close_button = QPushButton("", self)
+        self._close_button.hide()
 
         self._export_button = QPushButton("Export PDF", self)
         self._export_button.clicked.connect(self.export_requested.emit)
@@ -90,12 +88,10 @@ class PreviewPanel(Panel):
         header = QHBoxLayout()
         header.setContentsMargins(0, 0, 0, 0)
         header.addWidget(self._label, 1)
-        header.addWidget(self._close_button)
 
         self.panel_layout.addLayout(header)
         self.panel_layout.addLayout(controls)
         self.panel_layout.addWidget(self._stack, 1)
-
 
     def show_latex_mode(self) -> None:
         self._stack.setCurrentWidget(self._preview)
@@ -128,9 +124,7 @@ class PreviewPanel(Panel):
         auto_fit_on_open: bool = True,
         fit_width_percent: int | float = 95,
     ) -> None:
-        self._preview.set_default_zoom_percent(
-            default_zoom_percent
-        )
+        self._preview.set_default_zoom_percent(default_zoom_percent)
         self._preview.configure_initial_view(
             auto_fit_on_open=auto_fit_on_open,
             fit_width_percent=fit_width_percent,

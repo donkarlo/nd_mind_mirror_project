@@ -1,17 +1,12 @@
+// Runs the native iPad bridge listener, message transport, graphic saves, and diagnostics.
+
 import Foundation
 import Network
 import PencilKit
 import SwiftUI
 import UIKit
 
-/// Native iPad side of the Mind Mirror graphic bridge.
-///
-/// iPadOS local-network privacy blocks *outgoing* connections when the Swift
-/// Playgrounds dev runner gets into an inconsistent permission state. Apple
-/// documents that listening for and accepting an incoming TCP connection does
-/// not require Local Network privilege. Therefore this build reverses the
-/// direction: ND Graphic listens on the iPad and the Ubuntu bridge finds and
-/// connects to it.
+/// Native iPad side of the Mind Mirror graphic bridge using an inbound TCP listener.
 @MainActor
 final class GraphicBridgeClient: ObservableObject {
     @Published var isConnected = false
@@ -37,21 +32,24 @@ final class GraphicBridgeClient: ObservableObject {
     private let pathMonitorQueue = DispatchQueue(label: "nd.graphic.network.path")
     private let diagnosticStartedAt = Date()
 
+    /// Restores the optional bridge token and prepares local diagnostics.
     init() {
         token = UserDefaults.standard.string(forKey: "graphic.bridge.token") ?? ""
         prepareDiagnosticFile()
-        appendDiagnostic("ND Graphic 0.30.10 initialized")
-        appendDiagnostic("Transport mode=inbound TCP listener; no outgoing LAN connection is made by the iPad")
+        appendDiagnostic("ND Graphic initialized")
+        appendDiagnostic("Transport mode=inbound TCP listener; Ubuntu connects to the iPad")
         appendEnvironmentDiagnostics()
         startPathMonitor()
     }
 
+    /// Stops Network framework resources when the observable object is released.
     deinit {
         listener?.cancel()
         connection?.cancel()
         pathMonitor?.cancel()
     }
 
+    /// Starts a fresh listener and persists the current optional token.
     func connect() {
         disconnect(keepStatus: true)
         UserDefaults.standard.set(token, forKey: "graphic.bridge.token")
@@ -60,22 +58,26 @@ final class GraphicBridgeClient: ObservableObject {
         startListener()
     }
 
+    /// Appends current transport and environment state to the diagnostic log.
     func runDiagnostics() {
         appendDiagnostic("Manual diagnostics requested")
         appendEnvironmentDiagnostics()
         appendDiagnostic("listener=\(listener == nil ? "nil" : "active") connection=\(connection == nil ? "nil" : "present")")
     }
 
+    /// Clears the visible and persisted diagnostic log.
     func clearDiagnostics() {
         diagnostics = ""
         writeDiagnosticFile()
         appendDiagnostic("Diagnostic log cleared")
     }
 
+    /// Returns diagnostics for the Copy Log action.
     func copyableDiagnostics() -> String {
         diagnostics
     }
 
+    /// Creates the inbound TCP listener and handles every current or future listener state through a normal default branch.
     private func startListener() {
         guard let port = NWEndpoint.Port(rawValue: listenerPort) else {
             status = "Invalid listener port"
@@ -108,8 +110,8 @@ final class GraphicBridgeClient: ObservableObject {
                         if !self.isConnected {
                             self.status = "Listener stopped"
                         }
-                    @unknown default:
-                        self.status = "Unknown listener state"
+                    default:
+                        self.status = "Listener state changed"
                     }
                 }
             }
@@ -126,9 +128,9 @@ final class GraphicBridgeClient: ObservableObject {
         }
     }
 
+    /// Accepts one Ubuntu connection and begins the line-delimited JSON bridge protocol.
     private func accept(_ incoming: NWConnection) {
         appendDiagnostic("Ubuntu connection arrived endpoint=\(String(describing: incoming.endpoint))")
-
         if let old = connection {
             old.stateUpdateHandler = nil
             old.cancel()
@@ -159,25 +161,23 @@ final class GraphicBridgeClient: ObservableObject {
                 case .failed(let error):
                     self.isConnected = false
                     self.status = "Ubuntu connection failed: \(Self.describe(error))"
-                    if self.connection === current {
-                        self.connection = nil
-                    }
+                    if self.connection === current { self.connection = nil }
                 case .cancelled:
                     self.isConnected = false
-                    if self.connection === current {
-                        self.connection = nil
-                    }
+                    if self.connection === current { self.connection = nil }
                     if self.listener != nil {
                         self.status = "Listening on iPad port \(self.listenerPort) — waiting for Ubuntu"
                     }
-                @unknown default:
+                default:
                     self.isConnected = false
+                    self.status = "Ubuntu connection state changed"
                 }
             }
         }
         incoming.start(queue: networkQueue)
     }
 
+    /// Clears the current graphic and stops both accepted connection and listener.
     func disconnect() {
         selectedPath = nil
         document = nil
@@ -186,6 +186,7 @@ final class GraphicBridgeClient: ObservableObject {
         disconnect(keepStatus: false)
     }
 
+    /// Stops transport resources while optionally retaining an explanatory status during restart.
     private func disconnect(keepStatus: Bool) {
         connection?.stateUpdateHandler = nil
         connection?.cancel()
@@ -195,11 +196,10 @@ final class GraphicBridgeClient: ObservableObject {
         listener = nil
         receiveBuffer.removeAll(keepingCapacity: false)
         isConnected = false
-        if !keepStatus {
-            status = "Listener stopped"
-        }
+        if !keepStatus { status = "Listener stopped" }
     }
 
+    /// Sends editable PencilKit data plus the rendered PNG and canvas metadata back to Ubuntu.
     func save(
         drawing: PKDrawing,
         backgroundImage: UIImage?,
@@ -226,10 +226,7 @@ final class GraphicBridgeClient: ObservableObject {
             "png_base64": png.base64EncodedString(),
             "canvas_width": Int(logicalCanvasSize.width.rounded()),
             "canvas_height": Int(logicalCanvasSize.height.rounded()),
-            "pencil": [
-                "width": pencil.width,
-                "color": pencil.color.hexRGB()
-            ],
+            "pencil": ["width": pencil.width, "color": pencil.color.hexRGB()],
             "client_revision": revision
         ]
         if persistBackground {
@@ -239,14 +236,12 @@ final class GraphicBridgeClient: ObservableObject {
         status = "Saving…"
     }
 
+    /// Reads another chunk from the accepted Ubuntu connection.
     private func receiveNext(on connection: NWConnection) {
-        connection.receive(
-            minimumIncompleteLength: 1,
-            maximumLength: 1024 * 1024
-        ) { [weak self, weak connection] data, _, isComplete, error in
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 1024 * 1024) {
+            [weak self, weak connection] data, _, isComplete, error in
             Task { @MainActor in
                 guard let self, let current = connection, self.connection === current else { return }
-
                 if let data, !data.isEmpty {
                     self.appendDiagnostic("Inbound TCP RX bytes=\(data.count)")
                     self.receiveBuffer.append(data)
@@ -258,7 +253,6 @@ final class GraphicBridgeClient: ObservableObject {
                     }
                     self.consumeCompleteLines()
                 }
-
                 if let error {
                     self.isConnected = false
                     self.status = "Connection lost: \(Self.describe(error))"
@@ -278,6 +272,7 @@ final class GraphicBridgeClient: ObservableObject {
         }
     }
 
+    /// Splits the receive buffer on newlines and dispatches each JSON message.
     private func consumeCompleteLines() {
         while let newline = receiveBuffer.firstIndex(of: 0x0A) {
             let line = receiveBuffer.prefix(upTo: newline)
@@ -293,6 +288,7 @@ final class GraphicBridgeClient: ObservableObject {
         }
     }
 
+    /// Applies one decoded bridge command or acknowledgement.
     private func handle(_ text: String) {
         guard let data = text.data(using: .utf8) else { return }
         do {
@@ -309,9 +305,7 @@ final class GraphicBridgeClient: ObservableObject {
             case "graphic_saved":
                 status = "Saved — \(message.path ?? "graphic")"
             case "graphic_updated":
-                if let revision = message.clientRevision,
-                   revision > 0,
-                   revision <= latestSentRevision {
+                if let revision = message.clientRevision, revision > 0, revision <= latestSentRevision {
                     status = "Saved — \(message.path ?? "graphic")"
                     break
                 }
@@ -328,6 +322,7 @@ final class GraphicBridgeClient: ObservableObject {
         }
     }
 
+    /// Replaces the local drawing and document metadata with Ubuntu's active graphic payload.
     private func applyRemote(_ message: GraphicEnvelope, statusPrefix: String) {
         selectedPath = message.path
         currentOperation = message.operation == "insert" ? "insert" : "update"
@@ -337,6 +332,7 @@ final class GraphicBridgeClient: ObservableObject {
         status = "\(statusPrefix) — \(message.path ?? "graphic")"
     }
 
+    /// Encodes one line-delimited JSON object and writes it to the accepted connection.
     private func send(_ object: [String: Any]) {
         guard let connection else {
             appendDiagnostic("TX skipped because accepted connection=nil")
@@ -365,6 +361,7 @@ final class GraphicBridgeClient: ObservableObject {
         }
     }
 
+    /// Produces a compact listener-state diagnostic without an availability-sensitive exhaustive switch.
     private static func describeListenerState(_ state: NWListener.State) -> String {
         switch state {
         case .setup: return "setup"
@@ -372,10 +369,11 @@ final class GraphicBridgeClient: ObservableObject {
         case .ready: return "ready"
         case .failed(let error): return "failed(\(describe(error)))"
         case .cancelled: return "cancelled"
-        @unknown default: return "unknown"
+        default: return "other"
         }
     }
 
+    /// Produces a compact connection-state diagnostic without an availability-sensitive exhaustive switch.
     private static func describeConnectionState(_ state: NWConnection.State) -> String {
         switch state {
         case .setup: return "setup"
@@ -384,21 +382,21 @@ final class GraphicBridgeClient: ObservableObject {
         case .waiting(let error): return "waiting(\(describe(error)))"
         case .failed(let error): return "failed(\(describe(error)))"
         case .cancelled: return "cancelled"
-        @unknown default: return "unknown"
+        default: return "other"
         }
     }
 
+    /// Formats a Network framework error while leaving future enum cases covered by default.
     private static func describe(_ error: NWError) -> String {
         switch error {
         case .posix(let code): return "POSIX \(code.rawValue): \(code)"
         case .dns(let code): return "DNS \(code)"
         case .tls(let status): return "TLS \(status)"
-        @unknown default: return String(describing: error)
+        default: return String(describing: error)
         }
     }
 
-    // MARK: - Diagnostics
-
+    /// Starts a lightweight path monitor used only for diagnostics.
     private func startPathMonitor() {
         pathMonitor?.cancel()
         let monitor = NWPathMonitor()
@@ -412,7 +410,7 @@ final class GraphicBridgeClient: ObservableObject {
                 case .wifiDenied: reason = "wifiDenied"
                 case .localNetworkDenied: reason = "localNetworkDenied"
                 case .notAvailable: reason = "notAvailable"
-                @unknown default: reason = "unknown"
+                default: reason = String(describing: path.unsatisfiedReason)
                 }
             } else {
                 reason = "none"
@@ -423,6 +421,7 @@ final class GraphicBridgeClient: ObservableObject {
         monitor.start(queue: pathMonitorQueue)
     }
 
+    /// Records bundle, operating-system, listener, and local-network configuration details.
     private func appendEnvironmentDiagnostics() {
         let bundle = Bundle.main
         appendDiagnostic("bundle id=\(bundle.bundleIdentifier ?? "nil") version=\(bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") ?? "nil") build=\(bundle.object(forInfoDictionaryKey: "CFBundleVersion") ?? "nil")")
@@ -433,26 +432,25 @@ final class GraphicBridgeClient: ObservableObject {
         appendDiagnostic("NSAppTransportSecurity=\(String(describing: bundle.object(forInfoDictionaryKey: "NSAppTransportSecurity")))")
     }
 
+    /// Adds one timestamped line and mirrors the log to a shareable text file.
     func appendDiagnostic(_ message: String) {
         let elapsed = Date().timeIntervalSince(diagnosticStartedAt)
         let line = String(format: "[%8.3fs] %@", elapsed, message)
-        if diagnostics.isEmpty {
-            diagnostics = line
-        } else {
-            diagnostics += "\n" + line
-        }
+        diagnostics = diagnostics.isEmpty ? line : diagnostics + "\n" + line
         writeDiagnosticFile()
     }
 
+    /// Creates the diagnostic file in the app's documents directory when possible.
     private func prepareDiagnosticFile() {
-        let fm = FileManager.default
-        let base = fm.urls(for: .documentDirectory, in: .userDomainMask).first
-            ?? fm.temporaryDirectory
+        let fileManager = FileManager.default
+        let base = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first
+            ?? fileManager.temporaryDirectory
         let url = base.appendingPathComponent("nd_graphic_diagnostics.log")
         diagnosticFileURL = url
         try? "".write(to: url, atomically: true, encoding: .utf8)
     }
 
+    /// Rewrites the diagnostic file atomically after each visible log update.
     private func writeDiagnosticFile() {
         guard let url = diagnosticFileURL else { return }
         try? diagnostics.write(to: url, atomically: true, encoding: .utf8)

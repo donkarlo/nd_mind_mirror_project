@@ -1,4 +1,5 @@
 // Builds the native iPad drawing workflow, including persistent stroke settings, zoom status, recent colors, and lasso selection.
+// ND_MIND_MIRROR_IPAD_LAYOUT_20260823
 
 import Foundation
 import PencilKit
@@ -17,16 +18,17 @@ struct ContentView: View {
     @State private var selectedPhotoItem: PhotosPickerItem?
     @State private var localToken = -1
     @State private var canvasToken = 0
-    @State private var canvasWidth: Double = 1600
-    @State private var canvasHeight: Double = 1000
-    @State private var canvasWidthText = "1600"
-    @State private var canvasHeightText = "1000"
+    @State private var canvasWidth: Double = 1240
+    @State private var canvasHeight: Double = 1754
+    @State private var canvasWidthText = "1240"
+    @State private var canvasHeightText = "1754"
     @State private var zoomScale: CGFloat = 1.0
     @State private var showCanvasSizeEditor = false
     @State private var showRecentColors = false
     @State private var saveTask: Task<Void, Never>?
     @State private var canvasUndoManager: UndoManager?
     @State private var showDiagnostics = true
+    @State private var showMeasurementGrid = true
 
     /// Selects the connection, waiting, or drawing screen for the current bridge state.
     var body: some View {
@@ -189,6 +191,7 @@ struct ContentView: View {
                 color: pencil.color,
                 width: pencil.width,
                 logicalCanvasSize: logicalCanvasSize,
+                showMeasurementGrid: showMeasurementGrid,
                 onDrawingChanged: { drawing in
                     localDrawing = drawing
                     scheduleAutosave(drawing: drawing)
@@ -255,7 +258,7 @@ struct ContentView: View {
                     .disabled(!(canvasUndoManager?.canRedo ?? false))
 
                 Menu {
-                    Button("A4 portrait — 1240 × 1754") { setCanvasSize(width: 1240, height: 1754) }
+                    Button("A4 portrait — 21 × 29.7 cm — 1240 × 1754") { setCanvasSize(width: 1240, height: 1754) }
                     Button("A4 landscape — 1754 × 1240") { setCanvasSize(width: 1754, height: 1240) }
                     Button("Square — 1600 × 1600") { setCanvasSize(width: 1600, height: 1600) }
                     Button("Widescreen — 1920 × 1080") { setCanvasSize(width: 1920, height: 1080) }
@@ -297,9 +300,31 @@ struct ContentView: View {
 
     /// Shows the current absolute zoom percentage and logical canvas size at all times while drawing.
     private var canvasStatusBar: some View {
-        HStack(spacing: 14) {
+        HStack(spacing: 12) {
+            if let sourceName = bridge.document?.sourceName,
+               let imageName = bridge.document?.imageName {
+                Text("\(sourceName) > \(imageName)")
+                    .font(.caption2.weight(.semibold))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            } else if let imageName = bridge.document?.imageName {
+                Text(imageName)
+                    .font(.caption2.weight(.semibold))
+                    .lineLimit(1)
+            }
             Label("\(Int((zoomScale * 100).rounded()))%", systemImage: "magnifyingglass")
             Text("Canvas \(Int(canvasWidth)) × \(Int(canvasHeight)) px")
+            Button {
+                showMeasurementGrid.toggle()
+            } label: {
+                Label(
+                    showMeasurementGrid ? "Grid" : "Grid off",
+                    systemImage: showMeasurementGrid ? "grid" : "grid.circle"
+                )
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.mini)
+            .help("Show or hide the 1 cm / 0.5 cm A4 measurement grid")
             if tool == .lasso {
                 Text("Lasso: draw around strokes, then drag the selection")
                     .foregroundStyle(.secondary)
