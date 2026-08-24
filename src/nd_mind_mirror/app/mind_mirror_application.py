@@ -23,6 +23,10 @@ from nd_mind_mirror.ui.window.main.enhanced_main_window import EnhancedMainWindo
 from nd_mind_mirror.ui.window.main.workspace_interaction_controller import (
     WorkspaceInteractionController,
 )
+from nd_mind_mirror.ui.window.main.navigator_stability_controller import (
+    NavigatorStabilityController,
+)
+from nd_mind_mirror.ui.window.main.late_runtime_fixes import LateRuntimeFixes
 
 
 _LOG_PATH = Path.home() / ".local" / "state" / "nd_mind_mirror_project" / "startup.log"
@@ -40,7 +44,7 @@ def _log(message: str) -> None:
 
 
 def _refresh_ipad_package() -> None:
-    """Rebuild nd_graphic.zip from the hidden Swift source before Qt starts whenever source files changed."""
+    """Migrate the visible Swift package and rebuild nd_graphic.zip before Qt starts."""
     project_root = Path(__file__).resolve().parents[3]
     try:
         package = IpadPackageBuilder(project_root).refresh()
@@ -59,11 +63,13 @@ class MindMirrorApplication(QApplication):
         _refresh_ipad_package()
         EditorInteractionEnhancements.install()
         PersistentEditorVisuals.install()
+        LateRuntimeFixes.install_class_patches()
         _log("Creating QApplication")
         application = cls(argv)
         application.setApplicationName("nd_mind_mirror_project")
         application.setApplicationDisplayName("Mind Mirror")
         application.setOrganizationName("nd_mind_mirror")
+        application._late_runtime_objects = LateRuntimeFixes.install_application(application)
 
         try:
             application.setDesktopFileName("nd-mind-mirror")
@@ -82,6 +88,10 @@ class MindMirrorApplication(QApplication):
             window._workspace_interaction_controller = WorkspaceInteractionController(
                 window
             )
+            window._navigator_stability_controller = NavigatorStabilityController(
+                window
+            )
+            window._late_runtime_window_object = LateRuntimeFixes.install_window(window)
             if not icon.isNull():
                 window.setWindowIcon(icon)
             window.destroyed.connect(lambda: _log("EnhancedMainWindow QObject destroyed"))

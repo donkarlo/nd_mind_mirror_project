@@ -11,6 +11,7 @@ The file on disk is always the canonical source. Visual editing, preview wrapper
 - Configurable workspace/search root.
 - Navigator follows the active tab and reveals/highlights the corresponding file.
 - Navigator selection/reveal is single-pass and non-recentering: create, rename, drag/move, and active-tab reveals do not schedule repeated center-scroll passes that make the tree jump away and back.
+- Routine create, rename, drag/move, delete, and clipboard-image filesystem updates rely on `QFileSystemModel` live row notifications instead of fully invalidating the proxy tree; full filter resets are reserved for real workspace-root or ignore-rule reconfiguration so scroll and expansion state stay stable.
 - Double-click opens editable files in Mind Mirror; PDFs/images can open in the system application.
 - Navigator sort order is always **folders A–Z first, then files A–Z**.
 - Navigator right-click commands are grouped into **Open**, **Copy / Share**, **Create**, and **Manage** submenus.
@@ -183,7 +184,7 @@ when present, copies/migrates them into the Dropbox data directory, and merges o
 The iPad companion remains part of this repository. Editable Swift source is stored at:
 
 ```text
-src/nd_mind_mirror/graphic/ipad/.source/nd_graphic.swiftpm/
+src/nd_mind_mirror/graphic/ipad/nd_graphic.swiftpm/
 ```
 
 The user-facing transfer artifact is:
@@ -192,7 +193,7 @@ The user-facing transfer artifact is:
 src/nd_mind_mirror/graphic/ipad/nd_graphic.zip
 ```
 
-`nd_graphic.zip` is generated automatically from the hidden source package when the Ubuntu application starts and Swift source is newer than the existing archive. The ZIP contains one top-level package directory named `nd_graphic.swiftpm`.
+`nd_graphic.zip` is generated automatically from the visible editable source package when the Ubuntu application starts and Swift source is newer than the existing archive. The ZIP contains one top-level package directory named `nd_graphic.swiftpm`.
 
 ### Opening the iPad app
 
@@ -230,19 +231,19 @@ Pencil and Highlighter maintain independent per-tool recent-color histories.
 
 #### Recent-color matrix
 
-- A grid button beside the Color Picker toggles the palette below the toolbar.
+- The grid button beside the Color Picker opens the recent-color matrix as a floating popover anchored to the button, so opening the palette never pushes the canvas or status bar downward.
 - The matrix displays only colors the user actually selected, newest first, up to the last 10 choices for the active color-capable tool.
 - Colors are arranged in a compact five-column matrix.
-- Selecting a matrix color moves it to the front of that tool's persisted history.
+- Selecting a matrix color moves it to the front of that tool's persisted history and automatically closes the popover.
 
 #### Zoom and canvas information
 
 A status strip remains visible immediately above the canvas and shows:
 
-- current zoom percentage;
+- current zoom percentage as a compact zoom menu;
 - logical canvas width × height in pixels.
 
-Zoom updates live while pinching and after automatic fit/reset.
+The zoom menu includes an explicit **100%** command that sets the underlying `UIScrollView` to logical scale `1.0` and recenters the canvas. Zoom updates live while pinching and after automatic fit/reset.
 
 #### Two-finger Undo
 
@@ -292,7 +293,7 @@ The startup path also refreshes the iPad transfer ZIP before constructing the Qt
 - `src/nd_mind_mirror/app/` — application startup/lifetime.
 - `src/nd_mind_mirror/core/` — settings, documents, rendering, search, completion, formatting, and workspace logic.
 - `src/nd_mind_mirror/ui/` — Qt editors, panels, preview, window, toolbar, and UX controllers.
-- `src/nd_mind_mirror/graphic/ipad/.source/nd_graphic.swiftpm/` — editable native iPad Swift Playgrounds source.
+- `src/nd_mind_mirror/graphic/ipad/nd_graphic.swiftpm/` — editable native iPad Swift Playgrounds source.
 - `src/nd_mind_mirror/graphic/ipad/nd_graphic.zip` — regenerated iPad transfer artifact.
 - `src/nd_mind_mirror/graphic/ipad/package_builder.py` — builds the transfer ZIP from source.
 - `src/nd_mind_mirror/graphic/bridge/` — Ubuntu/iPad bridge and live graphic update signaling.
@@ -310,10 +311,20 @@ New and modified implementation files must begin with a concise one-line file/mo
 <!-- ND_IPAD_CURRENT_FEATURES_START -->
 ### Current iPad graphic and preview features
 
+- The canonical editable Swift Playgrounds package is visible at `src/nd_mind_mirror/graphic/ipad/nd_graphic.swiftpm/`; there is no separate hidden Swift source project.
 - The native iPad graphic editor shows `source.tex > image.png` for the active managed figure.
 - New managed iPad graphics use an A4 portrait canvas (1240 × 1754 px); the A4 portrait preset remains available for existing graphics.
-- The iPad canvas has a view-only, label-free measurement grid with very thin 0.5 cm and 1 cm horizontal/vertical lines and a Grid toggle.
-- The measurement grid is never rendered into the saved PNG.
+- The iPad canvas has a visible 0.5 cm measurement grid plus numbered top and left centimeter rulers; the overlay is view-only and is never rendered into the saved PNG.
+- Resizing the logical canvas preserves the current PencilKit drawing and background image instead of forcing a document reload.
+- Editing an ordinary existing PNG on iPad preserves that PNG as the initial background when its sidecar has no PencilKit/background payload, so opening it no longer produces a blank white canvas.
+- The recent-color grid opens as a floating popover anchored to its toolbar button, does not push the canvas, and closes automatically after a color is selected.
+- The iPad zoom menu includes an explicit 100% command that sets the PencilKit viewport to logical zoom scale 1.0 and recenters the canvas.
+- Navigator reveal operations avoid scrolling when the requested item is already visible, preserve pixel scroll offsets across proxy relayouts, and keep rename/drag viewport position stable.
+- Visual mode accepts pasted clipboard images by routing them through the same managed-image insertion path as Source mode.
+- Bookmark Go To waits for the target tab to become active before positioning the cursor.
+- Preview edit highlighting keeps the last non-empty selection visible across Source/Visual/Preview switches.
+- Delete confirmation focuses Yes for immediate keyboard confirmation while keeping the existing confirmation dialog.
+- Idle memory compaction periodically releases unused Python/glibc heap pages without disabling editor features.
 - Ubuntu uses one `Preview` button as the preview open/close toggle; the old × control is hidden and the active button has a light-gray background.
 - Visual mode sizes `\includegraphics[width=N\textwidth|\linewidth|\columnwidth]` images from the visible text width and reapplies the size after layout/resize changes.
 <!-- ND_IPAD_CURRENT_FEATURES_END -->

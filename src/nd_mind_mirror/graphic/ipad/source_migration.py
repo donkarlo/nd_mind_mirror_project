@@ -38,14 +38,17 @@ class IpadSourceMigration:
         return text.replace(old, new, 1)
 
     def _ensure_measurement_grid_file(self) -> bool:
+        """Keep the view-only ruler as faint half-centimeter and centimeter edge ticks."""
         path = self.source_root / "Views" / "MeasurementGridView.swift"
         desired = '''import UIKit
 
-/// View-only A4 measurement grid: 0.5 cm minor lines and 1 cm major lines, without labels.
+/// View-only ruler ticks along the top and left canvas edges.
 final class MeasurementGridView: UIView {
     /// A4 portrait is 21 cm wide; the app's A4 preset is 1240 px wide.
     private static let pixelsPerCentimeter: CGFloat = 1240.0 / 21.0
-    private static let minorSpacing: CGFloat = pixelsPerCentimeter / 2.0
+    private static let halfCentimeterSpacing: CGFloat = pixelsPerCentimeter / 2.0
+    private static let minorTickLength: CGFloat = 5.0
+    private static let majorTickLength: CGFloat = 8.0
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -64,19 +67,30 @@ final class MeasurementGridView: UIView {
         context.saveGState()
         defer { context.restoreGState() }
 
-        let spacing = Self.minorSpacing
+        let spacing = Self.halfCentimeterSpacing
         guard spacing > 0 else { return }
+
+        let edgeColor = UIColor.systemGray.withAlphaComponent(0.16).cgColor
+        let minorColor = UIColor.systemGray.withAlphaComponent(0.18).cgColor
+        let majorColor = UIColor.systemGray.withAlphaComponent(0.26).cgColor
+
+        context.setStrokeColor(edgeColor)
+        context.setLineWidth(0.35)
+        context.move(to: CGPoint(x: 0, y: 0.25))
+        context.addLine(to: CGPoint(x: bounds.width, y: 0.25))
+        context.move(to: CGPoint(x: 0.25, y: 0))
+        context.addLine(to: CGPoint(x: 0.25, y: bounds.height))
+        context.strokePath()
 
         var index = 0
         var x: CGFloat = 0
         while x <= bounds.width + 0.5 {
             let major = index.isMultiple(of: 2)
-            context.setStrokeColor(
-                UIColor.label.withAlphaComponent(major ? 0.20 : 0.10).cgColor
-            )
-            context.setLineWidth(major ? 0.55 : 0.32)
+            let length = major ? Self.majorTickLength : Self.minorTickLength
+            context.setStrokeColor(major ? majorColor : minorColor)
+            context.setLineWidth(major ? 0.55 : 0.38)
             context.move(to: CGPoint(x: x, y: 0))
-            context.addLine(to: CGPoint(x: x, y: bounds.height))
+            context.addLine(to: CGPoint(x: x, y: length))
             context.strokePath()
             index += 1
             x = CGFloat(index) * spacing
@@ -86,12 +100,11 @@ final class MeasurementGridView: UIView {
         var y: CGFloat = 0
         while y <= bounds.height + 0.5 {
             let major = index.isMultiple(of: 2)
-            context.setStrokeColor(
-                UIColor.label.withAlphaComponent(major ? 0.20 : 0.10).cgColor
-            )
-            context.setLineWidth(major ? 0.55 : 0.32)
+            let length = major ? Self.majorTickLength : Self.minorTickLength
+            context.setStrokeColor(major ? majorColor : minorColor)
+            context.setLineWidth(major ? 0.55 : 0.38)
             context.move(to: CGPoint(x: 0, y: y))
-            context.addLine(to: CGPoint(x: bounds.width, y: y))
+            context.addLine(to: CGPoint(x: length, y: y))
             context.strokePath()
             index += 1
             y = CGFloat(index) * spacing
@@ -158,26 +171,35 @@ final class MeasurementGridView: UIView {
             '                    Button("A4 portrait — 21 × 29.7 cm — 1240 × 1754") { setCanvasSize(width: 1240, height: 1754) }',
             1,
         )
-        status_old = '''        HStack(spacing: 14) {
-            Label("\\(Int((zoomScale * 100).rounded()))%", systemImage: "magnifyingglass")
-            Text("Canvas \\(Int(canvasWidth)) × \\(Int(canvasHeight)) px")
-            if tool == .lasso {
+
+        toolbar_old = '''                Text(bridge.currentOperation == "insert" ? "IN" : "UP")
+                    .font(.caption2.bold())
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 4)
+                    .background(Color.accentColor.opacity(0.12), in: Capsule())
+
+                Picker("Tool", selection: $tool) {
 '''
-        status_new = '''        HStack(spacing: 12) {
-            if let sourceName = bridge.document?.sourceName,
-               let imageName = bridge.document?.imageName {
-                Text("\\(sourceName) > \\(imageName)")
-                    .font(.caption2.weight(.semibold))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            } else if let imageName = bridge.document?.imageName {
-                Text(imageName)
-                    .font(.caption2.weight(.semibold))
-                    .lineLimit(1)
-            }
-            Label("\\(Int((zoomScale * 100).rounded()))%", systemImage: "magnifyingglass")
-            Text("Canvas \\(Int(canvasWidth)) × \\(Int(canvasHeight)) px")
-            Button {
+        toolbar_new = '''                Text(bridge.currentOperation == "insert" ? "IN" : "UP")
+                    .font(.caption2.bold())
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 4)
+                    .background(Color.accentColor.opacity(0.12), in: Capsule())
+
+                Button {
+                    showMeasurementGrid.toggle()
+                } label: {
+                    Label(showMeasurementGrid ? "Ruler" : "Ruler off", systemImage: "ruler")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .help("Show or hide the faint 0.5 cm / 1 cm top-and-left ruler ticks")
+
+                Picker("Tool", selection: $tool) {
+'''
+        text = self._replace_once(text, toolbar_old, toolbar_new)
+
+        old_status_toggle = '''            Button {
                 showMeasurementGrid.toggle()
             } label: {
                 Label(
@@ -188,9 +210,14 @@ final class MeasurementGridView: UIView {
             .buttonStyle(.bordered)
             .controlSize(.mini)
             .help("Show or hide the 1 cm / 0.5 cm A4 measurement grid")
-            if tool == .lasso {
 '''
-        text = self._replace_once(text, status_old, status_new)
+        text = text.replace(old_status_toggle, "", 1)
+        text = text.replace(
+            "/// Shows source/image identity, zoom controls, logical canvas size, and grid state above the canvas.",
+            "/// Shows source/image identity, zoom controls, and logical canvas size above the canvas.",
+            1,
+        )
+
         if self._MARKER not in text:
             text = text.replace(
                 "// Builds the native iPad drawing workflow, including persistent stroke settings, zoom status, recent colors, and lasso selection.\n",

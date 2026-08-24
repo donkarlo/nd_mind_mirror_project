@@ -4,7 +4,7 @@ import argparse
 
 import uvicorn
 
-from .server import GraphicBridgeServer
+from .server_compat import PreservingGraphicBridgeServer
 
 
 def main() -> int:
@@ -16,7 +16,7 @@ def main() -> int:
     parser.add_argument("--ipad-listen-port", type=int, default=8768, help="Port listened to by ND Graphic on iPad")
     parser.add_argument("--token", default="")
     args = parser.parse_args()
-    server = GraphicBridgeServer(
+    server = PreservingGraphicBridgeServer(
         args.workspace,
         token=args.token,
         tcp_host=args.host,
