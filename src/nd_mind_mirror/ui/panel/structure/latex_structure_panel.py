@@ -109,24 +109,46 @@ class LatexStructurePanel(Panel):
         self._tree.clear()
 
     @staticmethod
-    def _signature_for(file_path: Path, source: str) -> tuple[tuple[int, str], ...]:
+    def _signature_for(
+        file_path: Path,
+        source: str,
+    ) -> tuple[tuple[int, str], ...]:
         """Return a cheap structural signature without rebuilding the tree."""
         suffix = file_path.suffix.lower()
         if suffix == ".tex":
             tokens = (
-                "\\part", "\\chapter", "\\section", "\\subsection",
-                "\\subsubsection", "\\paragraph", "\\subparagraph",
+                "\\part",
+                "\\chapter",
+                "\\section",
+                "\\subsection",
+                "\\subsubsection",
+                "\\paragraph",
+                "\\subparagraph",
+                "\\includegraphics",
+                "\\caption",
+                "\\begin{figure",
+                "\\end{figure",
             )
             return tuple(
                 (line_number, line.strip())
-                for line_number, line in enumerate(source.splitlines(), start=1)
+                for line_number, line in enumerate(
+                    source.splitlines(),
+                    start=1,
+                )
                 if any(token in line for token in tokens)
             )
         if suffix in {".yaml", ".yml"}:
             return tuple(
                 (line_number, line.rstrip())
-                for line_number, line in enumerate(source.splitlines(), start=1)
-                if line.strip() and not line.lstrip().startswith("#") and ":" in line
+                for line_number, line in enumerate(
+                    source.splitlines(),
+                    start=1,
+                )
+                if (
+                    line.strip()
+                    and not line.lstrip().startswith("#")
+                    and ":" in line
+                )
             )
         return ()
 
@@ -205,7 +227,12 @@ class LatexStructurePanel(Panel):
         target: QTreeWidgetItem | None = None
         for item in items:
             try:
-                item_line = int(item.data(0, Qt.ItemDataRole.UserRole))
+                item_line = int(
+                    item.data(
+                        0,
+                        Qt.ItemDataRole.UserRole,
+                    )
+                )
             except (TypeError, ValueError):
                 continue
             item.setBackground(0, self._clear_brush)

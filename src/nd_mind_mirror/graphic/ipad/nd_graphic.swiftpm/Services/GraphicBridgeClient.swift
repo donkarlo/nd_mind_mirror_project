@@ -152,7 +152,7 @@ final class GraphicBridgeClient: ObservableObject {
                     self.receiveNext(on: current)
                     self.send([
                         "type": "ipad_listener",
-                        "version": "0.30.10",
+                        "version": "0.31.19",
                         "token": self.token
                     ])
                 case .waiting(let error):
@@ -208,9 +208,27 @@ final class GraphicBridgeClient: ObservableObject {
         persistBackground: Bool = false
     ) {
         guard let path = selectedPath else { return }
+        let imageObjects = CanvasImageObjectStore.load(documentIdentifier: path)
+
+        // ND_SAFE_BACKGROUND_AUTOSAVE_V1
+        // A SwiftUI state refresh can briefly pass nil while an existing update
+        // document is being installed. For ordinary autosaves, fall back to the
+        // background that arrived from Ubuntu so a transient nil can never
+        // overwrite the real PNG with a white canvas. Explicit background
+        // replacement/removal uses persistBackground=true and therefore keeps
+        // the caller's value exactly.
+        let effectiveBackgroundImage: UIImage?
+        if persistBackground {
+            effectiveBackgroundImage = backgroundImage
+        } else {
+            effectiveBackgroundImage =
+                backgroundImage ?? GraphicDocumentStore.backgroundImage(from: document)
+        }
+
         guard let png = GraphicImageRenderer.pngData(
             drawing: drawing,
-            backgroundImage: backgroundImage,
+            backgroundImage: effectiveBackgroundImage,
+            imageObjects: imageObjects,
             logicalCanvasSize: logicalCanvasSize
         ) else {
             status = "Could not render PNG"
@@ -229,8 +247,14 @@ final class GraphicBridgeClient: ObservableObject {
             "pencil": ["width": pencil.width, "color": pencil.color.hexRGB()],
             "client_revision": revision
         ]
+        if let objectData = try? JSONEncoder().encode(imageObjects),
+           let objectJSON = try? JSONSerialization.jsonObject(with: objectData) {
+            payload["image_objects"] = objectJSON
+        }
+
         if persistBackground {
-            payload["background_image_base64"] = backgroundImage?.pngData()?.base64EncodedString() ?? ""
+            payload["background_image_base64"] =
+                effectiveBackgroundImage?.pngData()?.base64EncodedString() ?? ""
         }
         send(payload)
         status = "Saving…"
@@ -330,6 +354,12 @@ final class GraphicBridgeClient: ObservableObject {
         drawing = GraphicDocumentStore.drawing(from: message.document)
         documentToken += 1
         status = "\(statusPrefix) — \(message.path ?? "graphic")"
+    }
+
+    /// Requests one of the locally remembered bridge graphics from Ubuntu.
+    func requestOpen(path: String) {
+        guard !path.isEmpty else { return }
+        send(["type": "open_recent_graphic", "path": path])
     }
 
     /// Encodes one line-delimited JSON object and writes it to the accepted connection.

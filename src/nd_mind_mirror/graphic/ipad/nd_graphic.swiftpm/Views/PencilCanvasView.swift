@@ -17,11 +17,13 @@ final class SelectionResizeOverlay: UIView {
 
     private let borderLayer = CAShapeLayer()
     let handles: [UIView]
+    let moveHandle: UIView
     private var selectionBounds: CGRect?
     private var zoomScale: CGFloat = 1.0
 
     /// Creates the thin border and its four circular handles.
     override init(frame: CGRect) {
+        // ND_SELECTION_MOVE_HANDLE_V1
         handles = Corner.allCases.map { corner in
             let handle = UIView()
             handle.tag = corner.rawValue
@@ -30,6 +32,7 @@ final class SelectionResizeOverlay: UIView {
             handle.isUserInteractionEnabled = true
             return handle
         }
+        moveHandle = UIView()
         super.init(frame: frame)
         backgroundColor = .clear
         isOpaque = false
@@ -40,6 +43,11 @@ final class SelectionResizeOverlay: UIView {
         for handle in handles {
             addSubview(handle)
         }
+        moveHandle.backgroundColor = .systemBlue
+        moveHandle.layer.borderColor = UIColor.white.cgColor
+        moveHandle.layer.borderWidth = 1.5
+        moveHandle.isUserInteractionEnabled = true
+        addSubview(moveHandle)
     }
 
     /// Supports UIKit construction only; Interface Builder is not used by the Swift package.
@@ -106,6 +114,16 @@ final class SelectionResizeOverlay: UIView {
         borderLayer.lineWidth = lineWidth
         borderLayer.path = UIBezierPath(rect: bounds).cgPath
 
+        let moveWidth = 46.0 / scale
+        let moveHeight = 24.0 / scale
+        moveHandle.bounds = CGRect(x: 0, y: 0, width: moveWidth, height: moveHeight)
+        moveHandle.center = CGPoint(
+            x: bounds.midX,
+            y: max(moveHeight / 2, bounds.minY - 16.0 / scale)
+        )
+        moveHandle.layer.cornerRadius = moveHeight / 2
+        moveHandle.layer.borderWidth = max(1.5 / scale, 0.6)
+
         for corner in Corner.allCases {
             let handle = handles[corner.rawValue]
             guard let center = cornerPoint(corner) else { continue }
@@ -119,6 +137,10 @@ final class SelectionResizeOverlay: UIView {
     /// Lets PencilKit receive all touches except direct touches on resize handles.
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         guard !isHidden else { return nil }
+        let movePoint = moveHandle.convert(point, from: self)
+        if moveHandle.point(inside: movePoint, with: event) {
+            return moveHandle
+        }
         for handle in handles.reversed() {
             let localPoint = handle.convert(point, from: self)
             if handle.point(inside: localPoint, with: event) {
@@ -138,12 +160,18 @@ struct PencilCanvasView: UIViewRepresentable {
     let tool: GraphicTool
     let color: Color
     let width: Double
+    let opacity: Double
+    let imageObjects: [CanvasImageObject]
+    let selectedImageObjectID: UUID?
     let logicalCanvasSize: CGSize
     let showMeasurementGrid: Bool
+    let showMeasurementRulers: Bool
     let zoom100RequestToken: Int
     let onDrawingChanged: (PKDrawing) -> Void
     let onUndoManagerChanged: (UndoManager?) -> Void
     let onZoomChanged: (CGFloat) -> Void
+    let onImageObjectSelectionChanged: (UUID?) -> Void
+    let onImageObjectsCommitted: ([CanvasImageObject], UUID?, String) -> Void
 
     /// Creates the coordinator that owns PencilKit, lasso observation, resize, and UIScrollView callbacks.
     func makeCoordinator() -> Coordinator {
@@ -168,6 +196,8 @@ struct PencilCanvasView: UIViewRepresentable {
         scroll.contentInsetAdjustmentBehavior = .never
         scroll.panGestureRecognizer.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
         scroll.pinchGestureRecognizer?.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
+        scroll.minimumZoomScale = 0.05
+        scroll.maximumZoomScale = 10.0
 
         let content = UIView(frame: CGRect(origin: .zero, size: logicalCanvasSize))
         content.backgroundColor = .white
@@ -179,9 +209,17 @@ struct PencilCanvasView: UIViewRepresentable {
         background.image = backgroundImage
         content.addSubview(background)
 
+        // ND_CANVAS_IMAGE_LAYER_V1
+        let imageObjectLayer = CanvasImageObjectLayerView(frame: content.bounds)
+        imageObjectLayer.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        imageObjectLayer.setObjects(imageObjects)
+        content.addSubview(imageObjectLayer)
+
         let measurementGrid = MeasurementGridView(frame: content.bounds)
         measurementGrid.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        measurementGrid.isHidden = !showMeasurementGrid
+        measurementGrid.showGrid = showMeasurementGrid
+        measurementGrid.showRulers = showMeasurementRulers
+        measurementGrid.isHidden = !showMeasurementGrid && !showMeasurementRulers
         content.addSubview(measurementGrid)
 
         let canvas = PKCanvasView(frame: content.bounds)
@@ -191,9 +229,36 @@ struct PencilCanvasView: UIViewRepresentable {
         canvas.drawingPolicy = .pencilOnly
         canvas.isScrollEnabled = false
         canvas.bounces = false
+        canvas.contentInset = .zero
+        canvas.contentOffset = .zero
+        canvas.contentSize = logicalCanvasSize
+        canvas.minimumZoomScale = 1.0
+        canvas.maximumZoomScale = 1.0
+        canvas.zoomScale = 1.0
         canvas.delegate = context.coordinator
         canvas.drawing = drawing
         content.addSubview(canvas)
+
+        // ND_CANVAS_IMAGE_INTERACTION_V1
+        let imageObjectInteraction = CanvasImageObjectInteractionView(frame: content.bounds)
+        imageObjectInteraction.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        imageObjectInteraction.onSelectionChanged = { id in
+            context.coordinator.clearSelection()
+            context.coordinator.onImageObjectSelectionChanged(id)
+        }
+        imageObjectInteraction.onPreviewObjectsChanged = { objects in
+            imageObjectLayer.setObjects(objects)
+        }
+        imageObjectInteraction.onCommit = { objects, selectedID, actionName in
+            context.coordinator.onImageObjectsCommitted(objects, selectedID, actionName)
+        }
+        imageObjectInteraction.setState(
+            objects: imageObjects,
+            selectedID: selectedImageObjectID,
+            selectionEnabled: tool == .lasso,
+            zoomScale: 1.0
+        )
+        content.addSubview(imageObjectInteraction)
 
         let selectionOverlay = SelectionResizeOverlay(frame: content.bounds)
         selectionOverlay.autoresizingMask = [.flexibleWidth, .flexibleHeight]
@@ -224,6 +289,16 @@ struct PencilCanvasView: UIViewRepresentable {
             scroll.panGestureRecognizer.require(toFail: resize)
         }
 
+        let moveSelection = UIPanGestureRecognizer(
+            target: context.coordinator,
+            action: #selector(Coordinator.handleMoveSelection(_:))
+        )
+        moveSelection.maximumNumberOfTouches = 1
+        moveSelection.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
+        moveSelection.delegate = context.coordinator
+        selectionOverlay.moveHandle.addGestureRecognizer(moveSelection)
+        scroll.panGestureRecognizer.require(toFail: moveSelection)
+
         let twoFingerUndo = UITapGestureRecognizer(
             target: context.coordinator,
             action: #selector(Coordinator.handleTwoFingerUndo(_:))
@@ -236,6 +311,10 @@ struct PencilCanvasView: UIViewRepresentable {
         context.coordinator.scrollView = scroll
         context.coordinator.contentView = content
         context.coordinator.backgroundView = background
+        context.coordinator.imageObjectLayer = imageObjectLayer
+        context.coordinator.imageObjectInteractionView = imageObjectInteraction
+        context.coordinator.onImageObjectSelectionChanged = onImageObjectSelectionChanged
+        context.coordinator.onImageObjectsCommitted = onImageObjectsCommitted
         context.coordinator.measurementGridView = measurementGrid
         context.coordinator.canvas = canvas
         context.coordinator.selectionOverlay = selectionOverlay
@@ -248,7 +327,7 @@ struct PencilCanvasView: UIViewRepresentable {
         applyTool(canvas, coordinator: context.coordinator)
 
         DispatchQueue.main.async {
-            context.coordinator.fitCanvas(reset: true)
+            context.coordinator.setZoomTo100Percent()
             context.coordinator.onUndoManagerChanged(canvas.undoManager)
             context.coordinator.reportZoom()
         }
@@ -261,8 +340,19 @@ struct PencilCanvasView: UIViewRepresentable {
         coordinator.onDrawingChanged = onDrawingChanged
         coordinator.onUndoManagerChanged = onUndoManagerChanged
         coordinator.onZoomChanged = onZoomChanged
+        coordinator.onImageObjectSelectionChanged = onImageObjectSelectionChanged
+        coordinator.onImageObjectsCommitted = onImageObjectsCommitted
+        coordinator.imageObjectLayer?.setObjects(imageObjects)
+        coordinator.imageObjectInteractionView?.setState(
+            objects: imageObjects,
+            selectedID: selectedImageObjectID,
+            selectionEnabled: tool == .lasso,
+            zoomScale: scroll.zoomScale
+        )
         coordinator.backgroundView?.image = backgroundImage
-        coordinator.measurementGridView?.isHidden = !showMeasurementGrid
+        coordinator.measurementGridView?.showGrid = showMeasurementGrid
+        coordinator.measurementGridView?.showRulers = showMeasurementRulers
+        coordinator.measurementGridView?.isHidden = !showMeasurementGrid && !showMeasurementRulers
 
         let sizeChanged = coordinator.logicalCanvasSize != logicalCanvasSize
         let documentChanged = coordinator.documentIdentifier != documentIdentifier
@@ -273,8 +363,13 @@ struct PencilCanvasView: UIViewRepresentable {
             coordinator.logicalCanvasSize = logicalCanvasSize
             coordinator.contentView?.frame = CGRect(origin: .zero, size: logicalCanvasSize)
             coordinator.backgroundView?.frame = CGRect(origin: .zero, size: logicalCanvasSize)
+            coordinator.imageObjectLayer?.frame = CGRect(origin: .zero, size: logicalCanvasSize)
+            coordinator.imageObjectInteractionView?.frame = CGRect(origin: .zero, size: logicalCanvasSize)
             coordinator.measurementGridView?.frame = CGRect(origin: .zero, size: logicalCanvasSize)
             coordinator.canvas?.frame = CGRect(origin: .zero, size: logicalCanvasSize)
+            coordinator.canvas?.contentSize = logicalCanvasSize
+            coordinator.canvas?.contentInset = .zero
+            coordinator.canvas?.contentOffset = .zero
             coordinator.selectionOverlay?.frame = CGRect(origin: .zero, size: logicalCanvasSize)
             scroll.contentSize = logicalCanvasSize
         }
@@ -287,7 +382,7 @@ struct PencilCanvasView: UIViewRepresentable {
             coordinator.canvas?.drawing = drawing
             coordinator.loading = false
             if documentChanged || sizeChanged {
-                DispatchQueue.main.async { coordinator.fitCanvas(reset: true) }
+                DispatchQueue.main.async { coordinator.setZoomTo100Percent() }
             } else {
                 DispatchQueue.main.async {
                     coordinator.centerCanvas()
@@ -296,13 +391,14 @@ struct PencilCanvasView: UIViewRepresentable {
             }
         } else if sizeChanged {
             coordinator.clearSelection()
-            DispatchQueue.main.async { coordinator.fitCanvas(reset: true) }
+            DispatchQueue.main.async { coordinator.setZoomTo100Percent() }
         }
 
         if toolChanged {
             coordinator.activeTool = tool
             if tool != .lasso {
                 coordinator.clearSelection()
+                coordinator.imageObjectInteractionView?.clearSelection(notify: true)
             }
         }
 
@@ -322,12 +418,16 @@ struct PencilCanvasView: UIViewRepresentable {
     private func applyTool(_ canvas: PKCanvasView, coordinator: Coordinator) {
         switch tool {
         case .pencil:
-            canvas.tool = PKInkingTool(.pencil, color: UIColor(color), width: CGFloat(max(1.0, width)))
+            canvas.tool = PKInkingTool(
+                .pencil,
+                color: UIColor(color).withAlphaComponent(CGFloat(min(max(opacity, 0.05), 1.0))),
+                width: CGFloat(max(0.5, width))
+            )
         case .highlighter:
             canvas.tool = PKInkingTool(
                 .marker,
-                color: UIColor(color).withAlphaComponent(0.34),
-                width: CGFloat(max(10.0, width * 2.6))
+                color: UIColor(color).withAlphaComponent(CGFloat(min(max(opacity, 0.05), 1.0))),
+                width: CGFloat(max(0.5, width))
             )
         case .eraser:
             canvas.tool = PKEraserTool(.vector)
@@ -340,6 +440,12 @@ struct PencilCanvasView: UIViewRepresentable {
     /// Coordinates drawing changes, viewport zoom, lasso geometry, proportional resizing, and Undo/Redo.
     final class Coordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, UIGestureRecognizerDelegate {
         /// Captures one resize drag so every frame is derived from the same unmodified drawing.
+        private struct MoveSession {
+            let originalDrawing: PKDrawing
+            let selectedIndices: [Int]
+            let originalBounds: CGRect
+        }
+
         private struct ResizeSession {
             let originalDrawing: PKDrawing
             let selectedIndices: [Int]
@@ -353,6 +459,8 @@ struct PencilCanvasView: UIViewRepresentable {
         weak var canvas: PKCanvasView?
         weak var contentView: UIView?
         weak var backgroundView: UIImageView?
+        weak var imageObjectLayer: CanvasImageObjectLayerView?
+        weak var imageObjectInteractionView: CanvasImageObjectInteractionView?
         weak var measurementGridView: MeasurementGridView?
         weak var selectionOverlay: SelectionResizeOverlay?
         weak var lassoObserver: UIPanGestureRecognizer?
@@ -365,10 +473,13 @@ struct PencilCanvasView: UIViewRepresentable {
         var onDrawingChanged: (PKDrawing) -> Void
         var onUndoManagerChanged: (UndoManager?) -> Void
         var onZoomChanged: (CGFloat) -> Void
+        var onImageObjectSelectionChanged: (UUID?) -> Void = { _ in }
+        var onImageObjectsCommitted: ([CanvasImageObject], UUID?, String) -> Void = { _, _, _ in }
 
         private var lassoPoints: [CGPoint] = []
         private var selectedStrokeIndices: [Int] = []
         private var resizeSession: ResizeSession?
+        private var moveSession: MoveSession?
 
         /// Stores callbacks used by PencilKit and scroll-view delegates.
         init(
@@ -384,7 +495,7 @@ struct PencilCanvasView: UIViewRepresentable {
         /// Publishes PencilKit drawing changes and keeps an existing index-based selection frame attached to moved strokes.
         func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
             guard !loading else { return }
-            if resizeSession == nil && !selectedStrokeIndices.isEmpty {
+            if resizeSession == nil && moveSession == nil && !selectedStrokeIndices.isEmpty {
                 refreshSelectionBounds()
             }
             onDrawingChanged(canvasView.drawing)
@@ -398,6 +509,7 @@ struct PencilCanvasView: UIViewRepresentable {
         func scrollViewDidZoom(_ scrollView: UIScrollView) {
             centerCanvas()
             selectionOverlay?.updateZoom(scrollView.zoomScale)
+            imageObjectInteractionView?.updateZoom(scrollView.zoomScale)
             reportZoom()
         }
 
@@ -425,6 +537,7 @@ struct PencilCanvasView: UIViewRepresentable {
             guard activeTool == .lasso, let canvas else { return }
             switch recognizer.state {
             case .began:
+                imageObjectInteractionView?.clearSelection(notify: true)
                 lassoPoints = [recognizer.location(in: canvas)]
             case .changed:
                 let point = recognizer.location(in: canvas)
@@ -445,6 +558,92 @@ struct PencilCanvasView: UIViewRepresentable {
             default:
                 break
             }
+        }
+
+        /// Moves the entire current lasso selection by dragging the blue pill handle.
+        @objc func handleMoveSelection(_ recognizer: UIPanGestureRecognizer) {
+            guard activeTool == .lasso,
+                  let overlay = selectionOverlay,
+                  let canvas = canvas,
+                  let bounds = currentSelectionBounds(in: canvas.drawing),
+                  !selectedStrokeIndices.isEmpty else { return }
+
+            switch recognizer.state {
+            case .began:
+                moveSession = MoveSession(
+                    originalDrawing: canvas.drawing,
+                    selectedIndices: selectedStrokeIndices,
+                    originalBounds: bounds
+                )
+            case .changed, .ended:
+                guard let session = moveSession else { return }
+                let raw = recognizer.translation(in: overlay)
+                let dx = min(
+                    max(raw.x, -session.originalBounds.minX),
+                    logicalCanvasSize.width - session.originalBounds.maxX
+                )
+                let dy = min(
+                    max(raw.y, -session.originalBounds.minY),
+                    logicalCanvasSize.height - session.originalBounds.maxY
+                )
+                applyMove(
+                    dx: dx,
+                    dy: dy,
+                    session: session,
+                    canvas: canvas,
+                    overlay: overlay
+                )
+                if recognizer.state == .ended {
+                    let finalDrawing = canvas.drawing
+                    moveSession = nil
+                    registerMoveUndo(original: session.originalDrawing, final: finalDrawing)
+                    onDrawingChanged(finalDrawing)
+                    onUndoManagerChanged(canvas.undoManager)
+                }
+            case .cancelled, .failed:
+                if let session = moveSession {
+                    loading = true
+                    canvas.drawing = session.originalDrawing
+                    loading = false
+                    moveSession = nil
+                    refreshSelectionBounds()
+                }
+            default:
+                break
+            }
+        }
+
+        private func applyMove(
+            dx: CGFloat,
+            dy: CGFloat,
+            session: MoveSession,
+            canvas: PKCanvasView,
+            overlay: SelectionResizeOverlay
+        ) {
+            let transform = CGAffineTransform(translationX: dx, y: dy)
+            var selectedStrokes: [PKStroke] = []
+            var validIndices: [Int] = []
+            for index in session.selectedIndices
+            where index >= 0 && index < session.originalDrawing.strokes.count {
+                selectedStrokes.append(session.originalDrawing.strokes[index])
+                validIndices.append(index)
+            }
+            guard !selectedStrokes.isEmpty else { return }
+
+            var selectedDrawing = PKDrawing(strokes: selectedStrokes)
+            selectedDrawing.transform(using: transform)
+            var allStrokes = session.originalDrawing.strokes
+            for (offset, index) in validIndices.enumerated()
+            where offset < selectedDrawing.strokes.count {
+                allStrokes[index] = selectedDrawing.strokes[offset]
+            }
+            loading = true
+            canvas.drawing = PKDrawing(strokes: allStrokes)
+            loading = false
+            overlay.setSelection(
+                bounds: session.originalBounds.offsetBy(dx: dx, dy: dy),
+                zoomScale: scrollView?.zoomScale ?? 1.0
+            )
         }
 
         /// Starts, updates, or commits one proportional resize drag from a circular corner handle.
@@ -523,6 +722,9 @@ struct PencilCanvasView: UIViewRepresentable {
             }
             selectedStrokeIndices = selected
             refreshSelectionBounds()
+            if selected.isEmpty {
+                imageObjectInteractionView?.selectObject(inLasso: lassoPoints)
+            }
         }
 
         /// Uses an even-odd ray test for freeform lasso containment.
@@ -617,6 +819,28 @@ struct PencilCanvasView: UIViewRepresentable {
             overlay.setSelection(bounds: resizedBounds, zoomScale: scrollView?.zoomScale ?? 1.0)
         }
 
+        private func registerMoveUndo(original: PKDrawing, final: PKDrawing) {
+            guard let manager = canvas?.undoManager else { return }
+            manager.registerUndo(withTarget: self) { target in
+                target.restoreDrawingForMove(original, reciprocal: final)
+            }
+            manager.setActionName("Move Selection")
+        }
+
+        private func restoreDrawingForMove(_ drawing: PKDrawing, reciprocal: PKDrawing) {
+            guard let canvas else { return }
+            loading = true
+            canvas.drawing = drawing
+            loading = false
+            canvas.undoManager?.registerUndo(withTarget: self) { target in
+                target.restoreDrawingForMove(reciprocal, reciprocal: drawing)
+            }
+            canvas.undoManager?.setActionName("Move Selection")
+            refreshSelectionBounds()
+            onDrawingChanged(drawing)
+            onUndoManagerChanged(canvas.undoManager)
+        }
+
         /// Registers a custom resize as one Undo/Redo operation after the finger drag finishes.
         private func registerResizeUndo(original: PKDrawing, final: PKDrawing) {
             guard let manager = canvas?.undoManager else { return }
@@ -645,13 +869,150 @@ struct PencilCanvasView: UIViewRepresentable {
         func setZoomTo100Percent() {
             guard let scroll = scrollView else { return }
             if scroll.minimumZoomScale > 1.0 {
-                scroll.minimumZoomScale = 1.0
+                scroll.minimumZoomScale = 0.05
             }
             if scroll.maximumZoomScale < 1.0 {
-                scroll.maximumZoomScale = 1.0
+                scroll.maximumZoomScale = 10.0
             }
             scroll.setZoomScale(1.0, animated: false)
-            centerCanvas()
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
             selectionOverlay?.updateZoom(scroll.zoomScale)
             reportZoom()
         }

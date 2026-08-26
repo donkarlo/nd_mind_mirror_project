@@ -1,3 +1,4 @@
+import Foundation
 import SwiftUI
 
 @main
@@ -11,10 +12,13 @@ struct NDGraphicApp: App {
 
 /// The first screen intentionally has no PencilKit, URLSession, UserDefaults,
 /// or bridge object. Swift Playgrounds must render this screen before any of
-/// the graphic stack is initialized. This also makes a stale/cached package
-/// obvious because the version is printed in the UI.
+/// the graphic stack is initialized.
 struct NDGraphicBootstrapView: View {
     @State private var openWorkspace = false
+
+    private var displayVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"
+    }
 
     var body: some View {
         ZStack {
@@ -28,7 +32,7 @@ struct NDGraphicBootstrapView: View {
                 VStack(spacing: 24) {
                     Image(systemName: "brain.head.profile")
                         .font(.system(size: 76, weight: .semibold))
-                    Text("ND Graphic 0.30.10")
+                    Text("ND Graphic \(displayVersion)")
                         .font(.system(size: 38, weight: .bold))
                     Text("Mind Mirror iPad graphic editor")
                         .font(.title3)

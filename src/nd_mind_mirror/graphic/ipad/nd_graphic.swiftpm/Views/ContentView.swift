@@ -13,6 +13,13 @@ struct ContentView: View {
     @State private var tool: GraphicTool = .pencil
     @State private var pencil = PencilSettings()
     @StateObject private var recentColors = RecentPencilColors()
+    @State private var recentGraphics: [RecentGraphicItem] = RecentGraphicStore.load()
+    @AppStorage("graphic.last.canvas.width") private var rememberedCanvasWidth: Double = 1240
+    @AppStorage("graphic.last.canvas.height") private var rememberedCanvasHeight: Double = 1754
+    // ND_DYNAMIC_TOOLBAR_STATE_V1
+    @StateObject private var savedTools = SavedDrawingToolStore()
+    @StateObject private var imageObjectManager = CanvasImageObjectManager()
+    @AppStorage("graphic.stroke.lastOpacity") private var toolOpacity: Double = 1.0
     @State private var localDrawing = PKDrawing()
     @State private var backgroundImage: UIImage?
     @State private var selectedPhotoItem: PhotosPickerItem?
@@ -30,6 +37,12 @@ struct ContentView: View {
     @State private var canvasUndoManager: UndoManager?
     @State private var showDiagnostics = true
     @State private var showMeasurementGrid = true
+    @State private var showMeasurementRulers = true
+
+    // ND_CONTENT_BUNDLE_VERSION_V1
+    private var displayVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"
+    }
 
     /// Selects the connection, waiting, or drawing screen for the current bridge state.
     var body: some View {
@@ -53,14 +66,36 @@ struct ContentView: View {
             localToken = token
             localDrawing = bridge.drawing
             backgroundImage = GraphicDocumentStore.backgroundImage(from: bridge.document)
-            if let width = bridge.document?.canvasWidth, width > 0 {
-                canvasWidth = Double(width)
-                canvasWidthText = String(width)
+            // ND_IMAGE_OBJECT_DOCUMENT_LOAD_V1
+            if let path = bridge.selectedPath {
+                if bridge.currentOperation == "insert" {
+                    imageObjectManager.beginNewDocument(documentIdentifier: path)
+                } else {
+                    imageObjectManager.load(
+                        documentIdentifier: path,
+                        remoteObjects: bridge.document?.imageObjects
+                    )
+                }
+            } else {
+                imageObjectManager.load(documentIdentifier: "")
             }
-            if let height = bridge.document?.canvasHeight, height > 0 {
-                canvasHeight = Double(height)
-                canvasHeightText = String(height)
+
+            if bridge.currentOperation == "insert" {
+                canvasWidth = max(rememberedCanvasWidth.rounded(), 64)
+                canvasHeight = max(rememberedCanvasHeight.rounded(), 64)
+            } else {
+                if let width = bridge.document?.canvasWidth, width > 0 {
+                    canvasWidth = Double(width)
+                }
+                if let height = bridge.document?.canvasHeight, height > 0 {
+                    canvasHeight = Double(height)
+                }
             }
+            canvasWidthText = String(Int(canvasWidth))
+            canvasHeightText = String(Int(canvasHeight))
+            rememberedCanvasWidth = canvasWidth
+            rememberedCanvasHeight = canvasHeight
+
             canvasToken += 1
             if let remotePencil = bridge.document?.pencil {
                 if let width = remotePencil.width { pencil.width = width }
@@ -69,12 +104,16 @@ struct ContentView: View {
                     recentColors.remember(hex: color, for: tool)
                 }
             }
+            rememberCurrentGraphic()
+            zoom100RequestToken &+= 1
+
         }
-        .onChange(of: tool) { oldTool, newTool in
-            switchToolColor(from: oldTool, to: newTool)
-            if !newTool.supportsColor {
-                showRecentColors = false
-            }
+        .onChange(of: tool) { _, _ in
+            showRecentColors = false
+        }
+        // ND_IMAGE_OBJECT_AUTOSAVE_V1
+        .onChange(of: imageObjectManager.editRevision) { _, _ in
+            scheduleAutosave(drawing: localDrawing, immediate: true)
         }
     }
 
@@ -82,7 +121,7 @@ struct ContentView: View {
     private var startupBanner: some View {
         HStack(spacing: 8) {
             Image(systemName: "pencil.and.scribble")
-            Text("ND Graphic v0.30.10")
+            Text("ND Graphic v\(displayVersion)")
                 .font(.subheadline.bold())
             Spacer()
             Text(bridge.isConnected ? "Connected" : "Not connected")
@@ -188,15 +227,32 @@ struct ContentView: View {
                 tool: tool,
                 color: pencil.color,
                 width: pencil.width,
+                opacity: toolOpacity,
+                imageObjects: imageObjectManager.objects,
+                selectedImageObjectID: imageObjectManager.selectedID,
                 logicalCanvasSize: logicalCanvasSize,
                 showMeasurementGrid: showMeasurementGrid,
+                showMeasurementRulers: showMeasurementRulers,
                 zoom100RequestToken: zoom100RequestToken,
                 onDrawingChanged: { drawing in
                     localDrawing = drawing
                     scheduleAutosave(drawing: drawing)
                 },
-                onUndoManagerChanged: { manager in canvasUndoManager = manager },
-                onZoomChanged: { scale in zoomScale = scale }
+                onUndoManagerChanged: { manager in
+                    canvasUndoManager = manager
+                    imageObjectManager.undoManager = manager
+                },
+                onZoomChanged: { scale in zoomScale = scale },
+                onImageObjectSelectionChanged: { id in
+                    imageObjectManager.setSelected(id)
+                },
+                onImageObjectsCommitted: { objects, selectedID, actionName in
+                    imageObjectManager.commitFromCanvas(
+                        objects,
+                        selectedID: selectedID,
+                        actionName: actionName
+                    )
+                }
             )
             .clipped()
         }
@@ -215,45 +271,124 @@ struct ContentView: View {
                 Button {
                     showMeasurementGrid.toggle()
                 } label: {
-                    Label(showMeasurementGrid ? "Ruler" : "Ruler off", systemImage: "ruler")
+                    Label(showMeasurementGrid ? "Grid" : "Grid off", systemImage: "grid")
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
-                .help("Show or hide the 0.5 cm grid and the top/left centimeter rulers")
+                .help("Show or hide the 0.5 cm measurement grid")
 
-                Picker("Tool", selection: $tool) {
-                    Image(systemName: "pencil").tag(GraphicTool.pencil)
-                    Image(systemName: "highlighter").tag(GraphicTool.highlighter)
-                    Image(systemName: "eraser").tag(GraphicTool.eraser)
-                    Image(systemName: "lasso").tag(GraphicTool.lasso)
+                Button {
+                    showMeasurementRulers.toggle()
+                } label: {
+                    Label(showMeasurementRulers ? "Ruler" : "Ruler off", systemImage: "ruler")
                 }
-                .pickerStyle(.segmented)
-                .frame(width: 184)
-                .accessibilityLabel("Drawing tool")
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .help("Show or hide the top and left centimeter rulers")
+
+                // ND_DYNAMIC_SAVED_TOOLS_V1
+                ForEach(savedTools.tools) { saved in
+                    Button {
+                        applySavedTool(saved)
+                    } label: {
+                        Image(systemName: saved.kind == .highlighter ? "highlighter" : "pencil")
+                            .symbolRenderingMode(.monochrome)
+                            .font(.system(
+                                size: CGFloat(min(max(16.0 + saved.width * 0.22, 17.0), 29.0)),
+                                weight: saved.width >= 40 ? .black
+                                    : saved.width >= 24 ? .bold
+                                    : saved.width >= 12 ? .semibold
+                                    : saved.width >= 5 ? .medium
+                                    : .regular
+                            ))
+                            .foregroundStyle(Color(hex: saved.colorHex).opacity(saved.opacity))
+                            .frame(width: 34, height: 28)
+                            .background(
+                                isSavedToolActive(saved) ? Color.accentColor.opacity(0.18) : Color.clear,
+                                in: RoundedRectangle(cornerRadius: 7)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                Menu {
+                    if tool.supportsColor && tool.supportsWidth {
+                        Button("Add current settings") {
+                            _ = savedTools.add(
+                                kind: tool,
+                                color: pencil.color,
+                                width: pencil.width,
+                                opacity: toolOpacity
+                            )
+                        }
+                    }
+                    Button("Add Pencil with current settings") {
+                        _ = savedTools.add(
+                            kind: .pencil,
+                            color: pencil.color,
+                            width: pencil.width,
+                            opacity: toolOpacity
+                        )
+                    }
+                    Button("Add Highlighter with current settings") {
+                        _ = savedTools.add(
+                            kind: .highlighter,
+                            color: pencil.color,
+                            width: pencil.width,
+                            opacity: toolOpacity
+                        )
+                    }
+                } label: {
+                    Image(systemName: "plus.circle")
+                        .frame(width: 28, height: 28)
+                }
+                .help("Add another persistent drawing tool")
+
+                // ND_SAVED_TOOL_MANAGEMENT_MENU_V1
+                Menu {
+                    ForEach(savedTools.tools) { saved in
+                        Menu("\(saved.kind.rawValue) • \(saved.colorHex)") {
+                            Button("Update from current settings") {
+                                savedTools.update(
+                                    id: saved.id,
+                                    kind: tool.supportsColor ? tool : saved.kind,
+                                    color: pencil.color,
+                                    width: pencil.width,
+                                    opacity: toolOpacity
+                                )
+                            }
+                            Button("Move left") { savedTools.moveLeft(id: saved.id) }
+                            Button("Move right") { savedTools.moveRight(id: saved.id) }
+                            Divider()
+                            Button("Delete saved tool", role: .destructive) {
+                                savedTools.remove(id: saved.id)
+                            }
+                        }
+                    }
+                } label: {
+                    Image(systemName: "slider.horizontal.3")
+                        .frame(width: 28, height: 28)
+                }
+                .help("Manage saved drawing tools")
+
+                toolButton(.eraser, systemImage: "eraser")
+                toolButton(.lasso, systemImage: "lasso")
 
                 if tool.supportsColor {
                     ColorPicker("Color", selection: toolColorBinding, supportsOpacity: false)
                         .labelsHidden()
                         .frame(width: 30)
-                    Button {
-                        showRecentColors.toggle()
-                    } label: {
-                        Image(systemName: showRecentColors ? "circle.grid.3x3.fill" : "circle.grid.3x3")
-                            .frame(width: 28, height: 28)
-                    }
-                    .buttonStyle(.bordered)
-                    .accessibilityLabel("Recent colors")
-                    .popover(isPresented: $showRecentColors, arrowEdge: .top) {
-                        recentColorGrid
-                    }
                 }
 
                 if tool.supportsWidth {
-                    CompactThicknessSlider(value: $pencil.width, range: 1...24, step: 0.5)
+                    CompactThicknessSlider(value: $pencil.width, range: 0.5...60, step: 0.5)
                         .frame(width: 108, height: 24)
-                    Text(String(format: "%.1f", pencil.width))
-                        .font(.caption2.monospacedDigit())
-                        .frame(minWidth: 30, alignment: .trailing)
+                }
+
+                if tool.supportsColor {
+                    Slider(value: $toolOpacity, in: 0.05...1.0, step: 0.05)
+                        .frame(width: 88)
+                        .help("Opacity")
                 }
 
                 PhotosPicker(selection: $selectedPhotoItem, matching: .images) {
@@ -263,12 +398,24 @@ struct ContentView: View {
                 .buttonStyle(.bordered)
                 .onChange(of: selectedPhotoItem) { _, item in importPhoto(item) }
 
+                // ND_IMAGE_DELETE_BUTTON_V1
+                Button {
+                    imageObjectManager.deleteSelected()
+                } label: {
+                    Image(systemName: "trash")
+                }
+                .disabled(imageObjectManager.selectedID == nil)
+                .help("Delete selected image object")
+
                 Button { canvasUndoManager?.undo() } label: { Image(systemName: "arrow.uturn.backward") }
                     .disabled(!(canvasUndoManager?.canUndo ?? false))
                 Button { canvasUndoManager?.redo() } label: { Image(systemName: "arrow.uturn.forward") }
                     .disabled(!(canvasUndoManager?.canRedo ?? false))
 
                 Menu {
+                    Text("Current • \(Int(canvasWidth)) × \(Int(canvasHeight)) px")
+                        .foregroundStyle(.blue)
+                    Divider()
                     Button("A4 portrait — 21 × 29.7 cm — 1240 × 1754") { setCanvasSize(width: 1240, height: 1754) }
                     Button("A4 landscape — 1754 × 1240") { setCanvasSize(width: 1754, height: 1240) }
                     Button("Square — 1600 × 1600") { setCanvasSize(width: 1600, height: 1600) }
@@ -312,17 +459,24 @@ struct ContentView: View {
     /// Shows source/image identity, zoom controls, and logical canvas size above the canvas.
     private var canvasStatusBar: some View {
         HStack(spacing: 12) {
-            if let sourceName = bridge.document?.sourceName,
-               let imageName = bridge.document?.imageName {
-                Text("\(sourceName) > \(imageName)")
+            Menu {
+                if recentGraphics.isEmpty {
+                    Text("No recent graphics")
+                } else {
+                    ForEach(recentGraphics) { item in
+                        Button(item.label) {
+                            bridge.requestOpen(path: item.path)
+                        }
+                    }
+                }
+            } label: {
+                Text(activeGraphicLabel)
                     .font(.caption2.weight(.semibold))
                     .lineLimit(1)
                     .truncationMode(.middle)
-            } else if let imageName = bridge.document?.imageName {
-                Text(imageName)
-                    .font(.caption2.weight(.semibold))
-                    .lineLimit(1)
             }
+            .help("Open one of the ten most recently edited graphics")
+
             Menu {
                 Button("100%") {
                     zoom100RequestToken &+= 1
@@ -333,8 +487,6 @@ struct ContentView: View {
             .buttonStyle(.bordered)
             .controlSize(.mini)
             .help("Zoom options")
-
-            Text("Canvas \(Int(canvasWidth)) × \(Int(canvasHeight)) px")
             if tool == .lasso {
                 Text("Lasso: draw around strokes, then drag the selection")
                     .foregroundStyle(.secondary)
@@ -345,6 +497,23 @@ struct ContentView: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 4)
         .background(Color(uiColor: .secondarySystemBackground))
+    }
+
+    /// Applies one persistent toolbar drawing tool.
+    private func applySavedTool(_ saved: SavedDrawingTool) {
+        tool = saved.kind
+        pencil.color = Color(hex: saved.colorHex)
+        pencil.width = saved.width
+        toolOpacity = saved.opacity
+        recentColors.remember(hex: saved.colorHex, for: saved.kind)
+    }
+
+    private func isSavedToolActive(_ saved: SavedDrawingTool) -> Bool {
+        guard tool == saved.kind else { return false }
+        let sameColor = pencil.color.hexRGB().uppercased() == saved.colorHex.uppercased()
+        return sameColor
+            && abs(pencil.width - saved.width) < 0.01
+            && abs(toolOpacity - saved.opacity) < 0.01
     }
 
     /// Binds the color picker to the current tool and records its choice only in that tool's history.
@@ -409,8 +578,8 @@ struct ContentView: View {
         NavigationStack {
             Form {
                 Section("Canvas size in pixels") {
-                    TextField("Width", text: $canvasWidthText).keyboardType(.numberPad)
-                    TextField("Height", text: $canvasHeightText).keyboardType(.numberPad)
+                    TextField("Width", text: $canvasWidthText).keyboardType(.asciiCapableNumberPad)
+                    TextField("Height", text: $canvasHeightText).keyboardType(.asciiCapableNumberPad)
                 }
             }
             .navigationTitle("Canvas Size")
@@ -460,25 +629,59 @@ struct ContentView: View {
     }
 
     /// Returns the clamped logical canvas size used for rendering and persistence.
+    private var activeGraphicLabel: String {
+        if let sourceName = bridge.document?.sourceName,
+           let imageName = bridge.document?.imageName {
+            return "\(sourceName) > \(imageName)"
+        }
+        if let imageName = bridge.document?.imageName { return imageName }
+        if let path = bridge.selectedPath { return URL(fileURLWithPath: path).lastPathComponent }
+        return "Graphic"
+    }
+
+    private var minimumCanvasSize: CGSize {
+        let bounds = localDrawing.bounds
+        return CGSize(
+            width: max(64, ceil(max(bounds.maxX, 0) + 8)),
+            height: max(64, ceil(max(bounds.maxY, 0) + 8))
+        )
+    }
+
+    private func rememberCurrentGraphic() {
+        guard let path = bridge.selectedPath else { return }
+        recentGraphics = RecentGraphicStore.remember(path: path, label: activeGraphicLabel)
+    }
+
+
     private var logicalCanvasSize: CGSize {
         CGSize(width: CGFloat(max(canvasWidth, 64)), height: CGFloat(max(canvasHeight, 64)))
     }
 
-    /// Applies a bounded canvas size without replacing the current drawing/background state.
+    /// Resizes the logical canvas without clipping existing PencilKit strokes.
     private func setCanvasSize(width: Double, height: Double) {
-        canvasWidth = min(max(width.rounded(), 64), 8192)
-        canvasHeight = min(max(height.rounded(), 64), 8192)
+        let requestedWidth = max(width.rounded(), 64)
+        let requestedHeight = max(height.rounded(), 64)
+        let minimum = minimumCanvasSize
+        guard requestedWidth >= minimum.width && requestedHeight >= minimum.height else {
+            bridge.status = "Canvas cannot be smaller than the graphic (minimum \(Int(ceil(minimum.width))) × \(Int(ceil(minimum.height))) px)"
+            return
+        }
+        canvasWidth = requestedWidth
+        canvasHeight = requestedHeight
         canvasWidthText = String(Int(canvasWidth))
         canvasHeightText = String(Int(canvasHeight))
+        rememberedCanvasWidth = canvasWidth
+        rememberedCanvasHeight = canvasHeight
         bridge.save(
             drawing: localDrawing,
             backgroundImage: backgroundImage,
             logicalCanvasSize: logicalCanvasSize,
             pencil: pencil
         )
+        zoom100RequestToken &+= 1
     }
 
-    /// Loads a selected Photos image as the canvas background and persists it through the bridge.
+    /// Inserts a selected Photos image as an editable object instead of replacing the document background.
     private func importPhoto(_ item: PhotosPickerItem?) {
         guard let item else { return }
         Task {
@@ -488,16 +691,15 @@ struct ContentView: View {
                 return
             }
             await MainActor.run {
-                backgroundImage = image
                 selectedPhotoItem = nil
-                bridge.save(
-                    drawing: localDrawing,
-                    backgroundImage: image,
-                    logicalCanvasSize: logicalCanvasSize,
-                    pencil: pencil,
-                    persistBackground: true
-                )
+                if imageObjectManager.insert(image: image, canvasSize: logicalCanvasSize) != nil {
+                    tool = .lasso
+                    bridge.status = "Image inserted — use Lasso/finger to move or resize"
+                } else {
+                    bridge.status = "Could not insert the selected photo"
+                }
             }
         }
     }
+
 }

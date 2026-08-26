@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QEvent, Qt
+from PySide6.QtCore import QEvent, Qt, Slot
 from PySide6.QtGui import QPaintEvent, QPainter, QPalette, QPen
 from PySide6.QtWidgets import QApplication, QTextEdit, QWidget
 
@@ -24,16 +24,26 @@ class PersistentCaretOverlay(QWidget):
         editor.cursorPositionChanged.connect(self.update)
         editor.selectionChanged.connect(self.update)
         editor.textChanged.connect(self.update)
-        editor.verticalScrollBar().valueChanged.connect(lambda _value: self.update())
-        editor.horizontalScrollBar().valueChanged.connect(lambda _value: self.update())
+        editor.verticalScrollBar().valueChanged.connect(self._on_scroll_changed)
+        editor.horizontalScrollBar().valueChanged.connect(self._on_scroll_changed)
 
         application = QApplication.instance()
         if application is not None:
-            application.focusChanged.connect(lambda _old, _new: self.update())
+            application.focusChanged.connect(self._on_application_focus_changed)
 
         self._sync_geometry()
         self.show()
         self.raise_()
+
+    @Slot(int)
+    def _on_scroll_changed(self, _value: int) -> None:
+        """Refresh the overlay after editor scrolling."""
+        self.update()
+
+    @Slot(object, object)
+    def _on_application_focus_changed(self, _old, _new) -> None:
+        """Refresh without leaving a lambda callback alive after deletion."""
+        self.update()
 
     def eventFilter(self, watched, event) -> bool:
         """Keep the overlay sized to the viewport and refreshed across layout changes."""

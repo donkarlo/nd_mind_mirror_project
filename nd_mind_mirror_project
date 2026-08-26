@@ -14,7 +14,13 @@ SRC_ROOT = PROJECT_ROOT / "src"
 STATE_DIR = Path.home() / ".local" / "state" / "nd_mind_mirror_project"
 STARTUP_LOG_PATH = STATE_DIR / "startup.log"
 CRASH_LOG_PATH = STATE_DIR / "crash.log"
+PYCACHE_DIR = STATE_DIR / "pycache"
 _REEXEC_GUARD = "ND_MIND_MIRROR_PREFERRED_PYTHON_ACTIVE"
+
+# Keep generated Python bytecode out of Dropbox. The cache still exists, but
+# under ~/.local/state so startup remains fast without Dropbox sync churn.
+os.environ["PYTHONPYCACHEPREFIX"] = str(PYCACHE_DIR)
+sys.pycache_prefix = str(PYCACHE_DIR)
 
 os.environ["LANG"] = "C.UTF-8"
 os.environ["LC_ALL"] = "C.UTF-8"
@@ -60,6 +66,7 @@ def _reexec_with_preferred_python() -> None:
     )
     environment = os.environ.copy()
     environment[_REEXEC_GUARD] = "1"
+    environment["PYTHONPYCACHEPREFIX"] = str(PYCACHE_DIR)
     os.execve(
         str(target),
         [str(target), str(Path(__file__).resolve()), *sys.argv[1:]],
@@ -96,19 +103,8 @@ def _handle_unhandled_exception(exc_type, exc_value, exc_traceback) -> None:
 sys.excepthook = _handle_unhandled_exception
 atexit.register(lambda: _append_startup_log("Python process exiting normally"))
 
-# Keep the editable iPad source and transfer ZIP current before Qt starts. This
-# migration is idempotent and never creates a second project.
-try:
-    from nd_mind_mirror.graphic.ipad.package_builder import IpadPackageBuilder
-
-    ipad_package = IpadPackageBuilder(PROJECT_ROOT).refresh()
-    if ipad_package is not None:
-        _append_startup_log(f"iPad package ready: {ipad_package}")
-except Exception as exc:
-    _append_startup_log(
-        f"iPad package refresh failed: {type(exc).__name__}: {exc}"
-    )
-
+# The application layer owns the one iPad package refresh. Do not rebuild the
+# same ZIP a second time in the launcher.
 from nd_mind_mirror.app.mind_mirror_application import MindMirrorApplication
 
 _append_startup_log("MindMirrorApplication imported")

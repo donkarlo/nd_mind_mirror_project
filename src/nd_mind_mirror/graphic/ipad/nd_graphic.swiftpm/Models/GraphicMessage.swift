@@ -8,6 +8,7 @@ struct GraphicDocumentPayload: Codable {
     var canvasHeight: Int?
     var drawingDataBase64: String?
     var backgroundImageBase64: String?
+    var imageObjects: [CanvasImageObject]?
     var pencil: PencilPayload?
 
     enum CodingKeys: String, CodingKey {
@@ -18,6 +19,7 @@ struct GraphicDocumentPayload: Codable {
         case canvasHeight = "canvas_height"
         case drawingDataBase64 = "drawing_data_base64"
         case backgroundImageBase64 = "background_image_base64"
+        case imageObjects = "image_objects"
         case pencil
     }
 }

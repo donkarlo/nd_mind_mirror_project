@@ -5,6 +5,7 @@ enum GraphicImageRenderer {
     static func pngData(
         drawing: PKDrawing,
         backgroundImage: UIImage? = nil,
+        imageObjects: [CanvasImageObject] = [],
         logicalCanvasSize: CGSize,
         scale: CGFloat = 1.0
     ) -> Data? {
@@ -22,6 +23,10 @@ enum GraphicImageRenderer {
             context.fill(rect)
             if let backgroundImage {
                 backgroundImage.draw(in: aspectFitRect(imageSize: backgroundImage.size, canvas: rect))
+            }
+            for object in imageObjects {
+                guard let bitmap = object.image else { continue }
+                bitmap.draw(in: object.frame.intersection(rect))
             }
             drawing.image(from: rect, scale: scale).draw(in: rect)
         }

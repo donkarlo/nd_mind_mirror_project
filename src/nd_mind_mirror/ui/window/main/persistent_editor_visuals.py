@@ -9,7 +9,6 @@ from nd_mind_mirror.ui.editor.latex.latex_editor import LatexEditor
 from nd_mind_mirror.ui.editor.yaml.yaml_editor import YamlEditor
 from nd_mind_mirror.ui.window.main.logical_line_number_overlay import LogicalLineNumberOverlay
 from nd_mind_mirror.ui.window.main.persistent_caret_overlay import PersistentCaretOverlay
-from nd_mind_mirror.ui.window.main.preview_highlight_controller import PreviewHighlightController
 from nd_mind_mirror.ui.window.main.source_tab_indentation_controller import SourceTabIndentationController
 
 
@@ -24,7 +23,6 @@ class PersistentEditorVisuals:
         if cls._installed:
             return
 
-        PreviewHighlightController.install()
         SourceTabIndentationController.install()
 
         original_latex_init: Callable = LatexEditor.__init__
@@ -50,11 +48,21 @@ class PersistentEditorVisuals:
         YamlEditor.__init__ = yaml_init
         GenericTextEditor.__init__ = generic_init
 
+        # Keep legacy adaptations in one place instead of stacking migration-
+        # specific patch modules throughout the startup path.
         from nd_mind_mirror.ui.window.main.runtime_fixes import LateRuntimeFixes
         from nd_mind_mirror.ui.window.main.image_sequence_fix import ImageSequenceFix
+        from nd_mind_mirror.ui.window.main.editor_runtime_extensions import (
+            EditorRuntimeExtensions,
+        )
+        from nd_mind_mirror.ui.window.main.workspace_reference_controller import (
+            WorkspaceReferenceController,
+        )
 
         LateRuntimeFixes.install()
         ImageSequenceFix.install()
+        EditorRuntimeExtensions.install()
+        WorkspaceReferenceController.install()
         cls._installed = True
 
     @staticmethod

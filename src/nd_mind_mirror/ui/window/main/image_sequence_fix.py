@@ -25,6 +25,7 @@ class ImageSequenceFix:
         r"\\(?:textwidth|linewidth|columnwidth)\s*(?:,|$)",
         re.IGNORECASE,
     )
+    _RESIZE_DEBOUNCE_MS = 90
 
     @classmethod
     def install(cls) -> None:
@@ -161,15 +162,19 @@ class ImageSequenceFix:
 
     @classmethod
     def _schedule_visual_resize(cls, editor: LatexVisualEditor) -> None:
-        """Resize once immediately and twice after Qt finishes the current layout pass."""
-        cls._resize_all_graphics(editor)
-        QTimer.singleShot(0, lambda e=editor: cls._resize_all_graphics(e))
-        QTimer.singleShot(90, lambda e=editor: cls._resize_all_graphics(e))
-        QTimer.singleShot(240, lambda e=editor: cls._resize_all_graphics(e))
+        """Coalesce repeated layout/resource events into one full-document image pass."""
+        timer = getattr(editor, "_nd_image_resize_timer", None)
+        if timer is None:
+            timer = QTimer(editor)
+            timer.setSingleShot(True)
+            timer.setInterval(cls._RESIZE_DEBOUNCE_MS)
+            timer.timeout.connect(lambda e=editor: cls._resize_all_graphics(e))
+            editor._nd_image_resize_timer = timer
+        timer.start()
 
     @classmethod
     def _patch_visual_image_size(cls) -> None:
-        """Make Visual image width track explicit LaTeX width even after window/panel resizing."""
+        """Make Visual image width track explicit LaTeX width without repeated whole-document scans."""
         original_insert = LatexVisualEditor._insert_graphic_block
         original_refresh = LatexVisualEditor.refresh_graphic_resources
         original_resize_event = LatexVisualEditor.resizeEvent
@@ -177,6 +182,8 @@ class ImageSequenceFix:
 
         def insert_graphic_block(editor, cursor, raw, graphic_path, source_line=0):
             original_insert(editor, cursor, raw, graphic_path, source_line=source_line)
+            # The newly inserted block is cheap to size immediately. Any other
+            # affected graphics are handled once by the coalesced pass.
             cls._resize_block_image(editor, cursor.block(), raw)
             cls._schedule_visual_resize(editor)
 

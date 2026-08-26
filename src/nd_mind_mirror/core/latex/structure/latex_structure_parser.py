@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from pathlib import Path
 import re
 
 
@@ -12,7 +13,7 @@ class LatexStructureItem:
 
 
 class LatexStructureParser:
-    """Extract LaTeX structural headings without modifying source text."""
+    """Extract LaTeX headings and graphics without modifying source text."""
 
     _HEADING_ORDER = {
         "part": 0,
@@ -28,6 +29,12 @@ class LatexStructureParser:
         r"paragraph|subparagraph)"
         r"(?P<star>\*)?(?![A-Za-z@])"
     )
+    _IMAGE_PATTERN = re.compile(
+        r"\\includegraphics(?:\s*\[[^\]]*\])?\s*\{(?P<path>[^{}]+)\}"
+    )
+    _FIGURE_BEGIN_PATTERN = re.compile(r"\\begin\s*\{figure\*?\}")
+    _FIGURE_END_PATTERN = re.compile(r"\\end\s*\{figure\*?\}")
+    _CAPTION_PATTERN = re.compile(r"\\caption(?:\s*\[[^\]]*\])?\s*")
     _LITERAL_BEGIN_PATTERN = re.compile(
         r"\\begin\s*\{(?P<name>verbatim|Verbatim|lstlisting|minted)\}"
     )
@@ -60,10 +67,7 @@ class LatexStructureParser:
                 if optional_title is not None and optional_title.strip()
                 else required_title
             )
-            display_title = self._display_title(raw_title)
-            if not display_title:
-                display_title = "(untitled)"
-
+            display_title = self._display_title(raw_title) or "(untitled)"
             kind = match.group("kind")
             result.append(
                 LatexStructureItem(
@@ -75,7 +79,100 @@ class LatexStructureParser:
                 )
             )
 
+        headings = list(result)
+        for match in self._IMAGE_PATTERN.finditer(structural):
+            previous_heading = None
+            for heading in headings:
+                if heading.source_position < match.start():
+                    previous_heading = heading
+                else:
+                    break
+
+            image_level = (
+                min(previous_heading.level + 1, 7)
+                if previous_heading is not None
+                else 7
+            )
+            raw_path = source[match.start("path"):match.end("path")]
+            title = self._caption_for_image(source, structural, match.start())
+            if not title:
+                title = self._image_file_name(raw_path)
+
+            result.append(
+                LatexStructureItem(
+                    kind="image",
+                    title=title or "(image)",
+                    line_number=structural.count("\n", 0, match.start()) + 1,
+                    level=image_level,
+                    source_position=match.start(),
+                )
+            )
+
+        result.sort(key=lambda item: item.source_position)
         return result
+
+    def _caption_for_image(
+        self,
+        source: str,
+        structural: str,
+        image_position: int,
+    ) -> str:
+        last_begin = None
+        for match in self._FIGURE_BEGIN_PATTERN.finditer(
+            structural,
+            0,
+            image_position,
+        ):
+            last_begin = match
+
+        if last_begin is None:
+            return ""
+
+        last_end = None
+        for match in self._FIGURE_END_PATTERN.finditer(
+            structural,
+            0,
+            image_position,
+        ):
+            last_end = match
+
+        if last_end is not None and last_end.start() > last_begin.start():
+            return ""
+
+        figure_end = self._FIGURE_END_PATTERN.search(
+            structural,
+            image_position,
+        )
+        if figure_end is None:
+            return ""
+
+        caption_match = self._CAPTION_PATTERN.search(
+            structural,
+            last_begin.end(),
+            figure_end.start(),
+        )
+        if caption_match is None:
+            return ""
+
+        cursor = self._skip_space(structural, caption_match.end())
+        if cursor >= len(structural) or structural[cursor] != "{":
+            return ""
+
+        parsed = self._balanced_argument(source, cursor, "{", "}")
+        if parsed is None:
+            return ""
+
+        return self._display_title(parsed[0])
+
+    @staticmethod
+    def _image_file_name(raw_path: str) -> str:
+        text = raw_path.strip()
+        text = re.sub(r"\\[A-Za-z@]+", "", text)
+        text = text.replace("{", "").replace("}", "").strip()
+        if not text:
+            return raw_path.strip()
+        normalized = text.replace("\\", "/")
+        return Path(normalized).name or normalized
 
     def _display_title(self, raw: str) -> str:
         text = raw.strip()
@@ -95,7 +192,6 @@ class LatexStructureParser:
             text,
         )
 
-        # Preserve the visible argument of common inline formatting commands.
         for _ in range(5):
             updated = re.sub(
                 r"\\(?:textbf|textit|emph|texttt|textrm|textsf|underline)"
@@ -118,8 +214,6 @@ class LatexStructureParser:
         for old, new in replacements.items():
             text = text.replace(old, new)
 
-        # Keep accent sequences such as M\"obius readable rather than trying
-        # to execute TeX. Remove remaining control-word syntax only.
         text = re.sub(r"\\[A-Za-z@]+\*?", "", text)
         text = text.replace("{", "").replace("}", "")
         text = re.sub(r"\s+", " ", text)
@@ -173,7 +267,10 @@ class LatexStructureParser:
                     + ending
                 )
                 name = begin.group("name")
-                if re.search(rf"\\end\s*\{{{re.escape(name)}\}}", body[begin.end():]) is None:
+                if re.search(
+                    rf"\\end\s*\{{{re.escape(name)}\}}",
+                    body[begin.end():],
+                ) is None:
                     literal_environment = name
                 continue
 
@@ -225,7 +322,8 @@ class LatexStructureParser:
                     return source[opening_index + 1:index], index + 1
         return None
 
-    def _skip_space(self, source: str, index: int) -> int:
+    @staticmethod
+    def _skip_space(source: str, index: int) -> int:
         while index < len(source) and source[index].isspace():
             index += 1
         return index

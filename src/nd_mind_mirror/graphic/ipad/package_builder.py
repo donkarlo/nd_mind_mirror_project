@@ -1,17 +1,19 @@
-"""Build the iPad Swift Playgrounds transfer ZIP from the visible editable Swift package source."""
+"""Build the canonical iPad Swift Playgrounds transfer ZIP without source duplication."""
 
 from pathlib import Path
+import re
 import zipfile
 
-from nd_mind_mirror.graphic.ipad.source_migration import IpadSourceMigration
 from nd_mind_mirror.graphic.ipad.source_hotfix_migration import IpadSourceHotfixMigration
+from nd_mind_mirror.graphic.ipad.source_post_hotfix import IpadSourcePostHotfix
 
 
 class IpadPackageBuilder:
-    """Keep editable iPad source migrated and refresh the transfer archive when needed."""
+    """Apply idempotent current-source fixes and refresh the transfer archive."""
 
     _README_START = "<!-- ND_IPAD_CURRENT_FEATURES_START -->"
     _README_END = "<!-- ND_IPAD_CURRENT_FEATURES_END -->"
+    _NUMBERED_PACKAGE_RE = re.compile(r"^nd_graphic \(\d+\)\.swiftpm$")
 
     def __init__(self, project_root: str | Path) -> None:
         self.project_root = Path(project_root).expanduser().resolve()
@@ -29,10 +31,9 @@ class IpadPackageBuilder:
         if not self.source.is_dir():
             return None
 
-        # Keep the older idempotent migration first, then apply the current
-        # behavior hotfixes so the legacy migration cannot overwrite them.
-        IpadSourceMigration(self.source).apply()
+        self._remove_numbered_package_copies()
         IpadSourceHotfixMigration(self.source).apply()
+        IpadSourcePostHotfix(self.source).apply()
         self._sync_readme_features()
 
         source_files = sorted(path for path in self.source.rglob("*") if path.is_file())
@@ -60,8 +61,25 @@ class IpadPackageBuilder:
         temporary.replace(self.destination)
         return self.destination
 
+    def _remove_numbered_package_copies(self) -> None:
+        """Remove only file conflict copies named ``nd_graphic (N).swiftpm``."""
+        try:
+            candidates = tuple(self.source.parent.iterdir())
+        except OSError:
+            return
+
+        for candidate in candidates:
+            if not candidate.is_file():
+                continue
+            if self._NUMBERED_PACKAGE_RE.fullmatch(candidate.name) is None:
+                continue
+            try:
+                candidate.unlink()
+            except OSError:
+                pass
+
     def _sync_readme_features(self) -> None:
-        """Keep README focused on current capabilities rather than version history."""
+        """Describe current capabilities only; never append per-version history."""
         readme = self.project_root / "README.md"
         if not readme.is_file():
             return
@@ -73,33 +91,38 @@ class IpadPackageBuilder:
         block = (
             f"{self._README_START}\n"
             "### Current iPad graphic and preview features\n\n"
-            "- The canonical editable Swift Playgrounds package is visible at `src/nd_mind_mirror/graphic/ipad/nd_graphic.swiftpm/`; there is no separate hidden Swift source project.\n"
-            "- The native iPad graphic editor shows `source.tex > image.png` for the active managed figure.\n"
-            "- New managed iPad graphics use an A4 portrait canvas (1240 × 1754 px); the A4 portrait preset remains available for existing graphics.\n"
-            "- The iPad canvas has a visible 0.5 cm measurement grid plus numbered top and left centimeter rulers; the overlay is view-only and is never rendered into the saved PNG.\n"
-            "- Resizing the logical canvas preserves the current PencilKit drawing and background image instead of forcing a document reload.\n"
-            "- Editing an ordinary existing PNG on iPad preserves that PNG as the initial background when its sidecar has no PencilKit/background payload, so opening it no longer produces a blank white canvas.\n"
-            "- The recent-color grid opens as a floating popover anchored to its toolbar button, does not push the canvas, and closes automatically after a color is selected.\n"
-            "- The iPad zoom menu includes an explicit 100% command that sets the PencilKit viewport to logical zoom scale 1.0 and recenters the canvas.\n"
-            "- Navigator reveal operations avoid scrolling when the requested item is already visible, preserve pixel scroll offsets across proxy relayouts, and keep rename/drag viewport position stable.\n"
-            "- Visual mode accepts pasted clipboard images by routing them through the same managed-image insertion path as Source mode.\n"
-            "- Bookmark Go To waits for the target tab to become active before positioning the cursor.\n"
-            "- Preview edit highlighting keeps the last non-empty selection visible across Source/Visual/Preview switches.\n"
-            "- Delete confirmation focuses Yes for immediate keyboard confirmation while keeping the existing confirmation dialog.\n"
-            "- Idle memory compaction periodically releases unused Python/glibc heap pages without disabling editor features.\n"
-            "- Ubuntu uses one `Preview` button as the preview open/close toggle; the old × control is hidden and the active button has a light-gray background.\n"
-            "- Visual mode sizes `\\includegraphics[width=N\\textwidth|\\linewidth|\\columnwidth]` images from the visible text width and reapplies the size after layout/resize changes.\n"
+            "- LaTeX Structure includes `\\includegraphics` entries. A graphic inside a `figure` uses its `\\caption` text when present; otherwise Structure shows the image filename.\n"
+            "- Preview Auto Fit fits the complete physical PDF page width once for a newly opened LaTeX document, keeps that zoom fixed during typing/live reloads, and never raster-scans pages to calculate fit.\n"
+            "- Preview wheel/touchpad scrolling is handled directly by the PDF viewport. Source/Visual selection highlighting is applied only after the current SyncTeX mapping is ready, so highlighting does not control wheel scrolling or use stale PDF coordinates.\n"
+            "- Live Preview cancels an obsolete LaTeX compile after the normal typing debounce and immediately renders the newest editor generation instead of waiting indefinitely for an old compile.\n"
+            "- The canonical editable Swift Playgrounds package is `src/nd_mind_mirror/graphic/ipad/nd_graphic.swiftpm/`; startup removes numbered `nd_graphic (N).swiftpm` transfer/conflict copies and never treats them as source.\n"
+            "- New Ubuntu `Insert image in iPad` graphics reuse the last edited iPad canvas size; both new and existing graphics open at logical 100% with the canvas aligned to the top-left viewport. Two-finger pinch zoom remains enabled after opening.\n"
+            "- Starting the iPad app or reconnecting the bridge does not reopen a stale previous insert/update request and does not create a new blank graphic. Opening an insert request no longer performs an eager blank save before the user changes the canvas.\n"
+            "- Existing update backgrounds are preserved during ordinary iPad autosaves even if SwiftUI briefly exposes a nil background while a document is loading, preventing a white canvas from overwriting the real PNG.\n"
+            "- The iPad toolbar can keep any number of persistent Pencil and Highlighter tools. Saved tools store tool type, color, visible width, and opacity in `UserDefaults`; their toolbar buttons are icon-only, with icon color, visual weight/size, and alpha reflecting those saved settings.\n"
+            "- Pencil and Highlighter width/opacity remain adjustable, but the toolbar no longer prints numeric thickness or transparency labels beside those controls.\n"
+            "- Photos selected on iPad are inserted as editable image objects rather than replacing the document background. Image objects keep aspect ratio, start at a bounded top-left size, can be selected by finger or Apple Pencil Lasso, moved, proportionally resized, deleted, and support Undo/Redo for insert/delete/move/resize.\n"
+            "- Editable image-object metadata is stored in the graphic sidecar and returned by the bridge on later Edit operations, while the Ubuntu/base background remains a separate layer. The saved PNG composites base background, image objects, and PencilKit strokes.\n"
+            "- Lasso stroke selection keeps its four proportional resize handles and dedicated blue move handle for dragging the selected strokes, with Undo/Redo support.\n"
+            "- Canvas width and height are not capped at the former 8192 px limit. Existing PencilKit strokes define the minimum safe canvas dimensions, and the iPad reports when a requested canvas would clip the graphic.\n"
+            "- Custom canvas numeric fields request the ASCII-capable number pad so canvas dimensions are entered with English digits.\n"
+            "- The iPad measurement Grid and centimeter Rulers have independent toolbar switches and remain view-only overlays.\n"
+            "- PencilKit internal content geometry is synchronized with logical canvas resizing so the full A4 portrait drawing area accepts Apple Pencil input.\n"
+            "- Tapping the active source/image identity opens the ten most recently edited graphics and can request any of them from the Ubuntu bridge.\n"
+            "- The current canvas dimensions are shown at the top of the canvas-size menu rather than permanently occupying the status bar.\n"
+            "- `Ctrl+Shift+Delete` deletes the file represented by the current editor tab, using the normal delete confirmation workflow.\n"
+            "- Pinned tabs have close buttons; closing one explicitly unpins it and closes the file.\n"
+            "- Preview Lock prevents Source/Visual synchronization from moving the PDF and preserves the current zoom/scroll view through live reloads.\n"
+            "- Preview Extend hides Navigator and Source/Visual panes so Preview alone fills the main window, and restores the previous pane visibility when toggled off.\n"
+            "- Auto Fit no longer performs delayed multi-pass zoom/recenter restoration after each reload; QML preserves the view directly, reducing preview jumps and UI stalls.\n"
+            "- Visual mode accepts pasted clipboard images through the same managed-image insertion workflow as Source mode, while explicit LaTeX image widths continue to track the visible text width.\n"
+            "- Navigator selection, rename, drag, bookmarks, autosave, and idle memory compaction remain enabled.\n"
             f"{self._README_END}"
         )
 
-        updated = text
-        updated = updated.replace(
+        updated = text.replace(
             "src/nd_mind_mirror/graphic/ipad/.source/nd_graphic.swiftpm/",
             "src/nd_mind_mirror/graphic/ipad/nd_graphic.swiftpm/",
-        )
-        updated = updated.replace(
-            "generated automatically from the hidden source package",
-            "generated automatically from the visible editable source package",
         )
         if self._README_START in updated and self._README_END in updated:
             start = updated.index(self._README_START)
@@ -112,4 +135,4 @@ class IpadPackageBuilder:
             try:
                 readme.write_text(updated, encoding="utf-8")
             except OSError:
-                return
+                pass

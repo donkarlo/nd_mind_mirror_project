@@ -24,7 +24,7 @@ from nd_mind_mirror.ui.window.main.undo_redo_controller import UndoRedoControlle
 from nd_mind_mirror.ui.window.main.visual_persian_font_controller import (
     VisualPersianFontController,
 )
-from nd_mind_mirror.ui.window.main.visual_window_bounded_controller import VisualWindowController
+from nd_mind_mirror.ui.window.main.visual_window_controller import VisualWindowController
 
 
 class EnhancedMainWindow(MainWindow):

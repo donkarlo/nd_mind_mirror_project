@@ -1,4 +1,4 @@
-"""Keep Navigator file operations stable and synchronize Source/Visual selections with Preview."""
+"""Keep Navigator interactions stable and make Preview highlighting selection-only."""
 
 from __future__ import annotations
 
@@ -11,12 +11,11 @@ from PySide6.QtWidgets import QAbstractItemView, QApplication, QMenu
 
 
 class WorkspaceInteractionController:
-    """Coordinate fast Navigator updates, path remapping, Dropbox paths, and Preview selection highlighting."""
+    """Coordinate Navigator selection, path remapping, and lightweight Preview sync."""
 
     _INDEX_RETRY_DELAYS_MS = (0, 20, 50, 100, 180, 300)
 
     def __init__(self, main_window) -> None:
-        """Install the interaction fixes on an already constructed enhanced main window."""
         self._window = main_window
         self._panel = main_window._file_system_panel
         self._tree = self._panel._tree
@@ -25,20 +24,17 @@ class WorkspaceInteractionController:
         self._preview = main_window._preview_panel.preview
         self._context_controller = getattr(main_window, "_navigator_context_controller", None)
         self._navigator_selection_generation = 0
-        self._last_highlight_text = None
-
+        # Compatibility handle only. LateRuntimeFixes still references this
+        # timer during construction; the performance cleanup disables it.
         self._highlight_timer = QTimer(main_window)
         self._highlight_timer.setSingleShot(True)
-        self._highlight_timer.setInterval(35)
-        self._highlight_timer.timeout.connect(self._sync_preview_highlight)
 
         self._install_fast_navigator_selection()
         self._install_context_menu()
         self._install_path_remap_guard()
-        self._install_preview_highlight_bridge()
+        self._install_selection_only_preview_sync()
 
     def _install_fast_navigator_selection(self) -> None:
-        """Replace delayed recenter passes with one non-jumping selection pass and short model retries."""
         controller = self
 
         def select_path(panel, path: str | Path, *, force_reveal: bool = False) -> None:
@@ -58,11 +54,7 @@ class WorkspaceInteractionController:
             controller._navigator_selection_generation += 1
             generation = controller._navigator_selection_generation
             panel._pending_reveal = target
-            controller._select_index_when_available(
-                target,
-                generation,
-                retry_index=0,
-            )
+            controller._select_index_when_available(target, generation, retry_index=0)
 
         self._panel.select_path = MethodType(select_path, self._panel)
 
@@ -72,7 +64,6 @@ class WorkspaceInteractionController:
         generation: int,
         retry_index: int,
     ) -> None:
-        """Select a QFileSystemModel index once it exists without repeatedly recentering the tree."""
         if generation != self._navigator_selection_generation:
             return
         if not self._panel._is_same_or_child(target, self._panel._root_path):
@@ -120,7 +111,6 @@ class WorkspaceInteractionController:
         self._panel._pending_reveal = None
 
     def _install_context_menu(self) -> None:
-        """Replace the current Navigator menu with the same grouped actions plus Copy Dropbox Path."""
         if self._context_controller is None:
             return
         try:
@@ -132,7 +122,6 @@ class WorkspaceInteractionController:
         self._tree.customContextMenuRequested.connect(self._show_navigator_menu)
 
     def _show_navigator_menu(self, position) -> None:
-        """Show Navigator commands while exposing both absolute and Dropbox-root-relative paths."""
         index = self._tree.indexAt(position)
         if not index.isValid():
             return
@@ -241,7 +230,6 @@ class WorkspaceInteractionController:
 
     @staticmethod
     def _dropbox_path(path: Path) -> str:
-        """Return the path relative to ~/Dropbox with a leading slash, or an empty string outside Dropbox."""
         try:
             relative = path.expanduser().resolve().relative_to(
                 (Path.home() / "Dropbox").resolve()
@@ -251,12 +239,10 @@ class WorkspaceInteractionController:
         return "/" + relative.as_posix()
 
     def _install_path_remap_guard(self) -> None:
-        """Cancel stale renders before a move and remap renderer paths immediately after rename or drag."""
         self._panel.path_about_to_move.connect(self._before_path_move)
         self._panel.path_renamed.connect(self._after_path_renamed)
 
     def _before_path_move(self, _old_path: str) -> None:
-        """Stop queued/running preview work so it cannot compile from a path that is about to disappear."""
         for timer_name in ("_timer", "_sync_timer"):
             timer = getattr(self._renderer, timer_name, None)
             if timer is not None:
@@ -272,7 +258,6 @@ class WorkspaceInteractionController:
                 pass
 
     def _after_path_renamed(self, old_path: str, new_path: str) -> None:
-        """Remap every renderer path that may still point into the old file or folder tree."""
         old_root = Path(old_path).expanduser().resolve()
         new_root = Path(new_path).expanduser().resolve()
         for attribute in (
@@ -291,7 +276,6 @@ class WorkspaceInteractionController:
 
     @staticmethod
     def _remap_path(value, old_root: Path, new_root: Path) -> Path | None:
-        """Map one path under old_root to the corresponding location under new_root."""
         if value is None:
             return None
         try:
@@ -302,7 +286,6 @@ class WorkspaceInteractionController:
         return (new_root / relative).resolve()
 
     def _render_current_path_after_move(self) -> None:
-        """Render the active LaTeX tab from its already-remapped new path."""
         path = self._editor_panel.current_path()
         editor = self._editor_panel.current_editor()
         if path is None or editor is None:
@@ -315,51 +298,74 @@ class WorkspaceInteractionController:
         except AttributeError:
             return
         self._renderer.render(source, source_path=path, immediate=True)
-        self._schedule_preview_highlight()
 
-    def _install_preview_highlight_bridge(self) -> None:
-        """Bypass the old Arabic-script suppression and keep Source/Visual selection visible in Preview."""
-        def set_edit_highlight(text: str) -> None:
-            self._set_preview_highlight_text(str(text or ""))
+    def _install_selection_only_preview_sync(self) -> None:
+        """Do not start SyncTeX/search work for a plain caret or editor scrolling."""
+        try:
+            self._editor_panel.current_cursor_changed.disconnect(
+                self._window._on_current_cursor_changed
+            )
+        except (RuntimeError, TypeError):
+            pass
+        try:
+            self._editor_panel.current_view_changed.disconnect(
+                self._window._on_current_view_changed
+            )
+        except (RuntimeError, TypeError):
+            pass
 
-        self._preview.set_edit_highlight = set_edit_highlight
         self._editor_panel.current_cursor_changed.connect(
-            lambda *_args: self._schedule_preview_highlight()
+            self._on_editor_cursor_changed
         )
         self._editor_panel.current_view_changed.connect(
-            lambda *_args: self._schedule_preview_highlight()
+            self._on_editor_view_changed
         )
-        self._editor_panel.current_document_changed.connect(
-            lambda *_args: self._schedule_preview_highlight()
-        )
-        self._schedule_preview_highlight()
+        self._set_preview_highlight_text("")
 
-    def _schedule_preview_highlight(self) -> None:
-        """Debounce selection-to-PDF search updates while typing or changing editor mode."""
-        self._highlight_timer.start()
+    def _selection_highlight_text(self) -> str:
+        editor = self._editor_panel.current_editor()
+        if editor is None:
+            return ""
+        try:
+            visual = str(getattr(editor, "edit_mode", "source")) == "visual"
+            cursor = editor._visual_editor.textCursor() if visual else editor.textCursor()
+            if not cursor.hasSelection():
+                return ""
+            text = cursor.selectedText().replace("\u2029", " ").strip()
+            if not visual:
+                text = editor._preview_visible_source_text(text)
+            return editor._normalize_preview_target(text)[:180]
+        except (AttributeError, RuntimeError, TypeError, ValueError):
+            return ""
+
+    def _on_editor_cursor_changed(self, path: str, line: int, column: int) -> None:
+        try:
+            self._window._structure_panel.set_current_line(int(line))
+        except (AttributeError, RuntimeError, TypeError, ValueError):
+            pass
+
+        text = self._selection_highlight_text()
+        self._set_preview_highlight_text(text)
+        if not text:
+            return
+
+        try:
+            self._window._request_preview_source_position(path, line, column)
+        except (AttributeError, RuntimeError, TypeError, ValueError):
+            pass
+
+    def _on_editor_view_changed(self, _path: str, _line: int, _column: int) -> None:
+        """Editor scrolling must not trigger SyncTeX, PDF search, or full rehighlight."""
+        return
+
+    def _update_preview_selection_highlight(self) -> None:
+        self._set_preview_highlight_text(self._selection_highlight_text())
 
     def _sync_preview_highlight(self) -> None:
-        """Read the active Source/Visual selection and mirror it into the PDF search highlight."""
-        editor = self._editor_panel.current_editor()
-        if editor is None or not hasattr(editor, "active_preview_highlight_text"):
-            text = ""
-        else:
-            try:
-                text = str(editor.active_preview_highlight_text() or "")
-            except (AttributeError, RuntimeError):
-                text = ""
-        self._set_preview_highlight_text(text)
+        self._update_preview_selection_highlight()
 
     def _set_preview_highlight_text(self, text: str) -> None:
-        """Write editHighlightText directly to QML so Persian/Arabic text is not discarded."""
-        value = str(text or "")
-        if value == self._last_highlight_text:
-            return
-        pdf_view = getattr(self._preview, "_pdf_view", None)
-        if pdf_view is None:
-            return
-        root = pdf_view.rootObject()
-        if root is None:
-            return
-        root.setProperty("editHighlightText", value)
-        self._last_highlight_text = value
+        try:
+            self._preview.set_edit_highlight(str(text or ""))
+        except (AttributeError, RuntimeError):
+            pass

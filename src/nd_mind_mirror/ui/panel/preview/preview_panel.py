@@ -1,10 +1,13 @@
 from pathlib import Path
+import shutil
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
+    QFileDialog,
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMessageBox,
     QPushButton,
     QSizePolicy,
     QStackedWidget,
@@ -35,7 +38,12 @@ class PreviewPanel(Panel):
         self._close_button.hide()
 
         self._export_button = QPushButton("Export PDF", self)
-        self._export_button.clicked.connect(self.export_requested.emit)
+        self._export_button.setToolTip(
+            "Save the PDF currently shown in Preview. The existing rendered PDF "
+            "is copied immediately, so Export does not compile LaTeX again."
+        )
+        self._export_button.clicked.connect(self._export_current_pdf_directly)
+        self._export_dialog = None
 
         self._fit_button = QPushButton("Fit", self)
         self._fit_button.setToolTip(
@@ -136,6 +144,68 @@ class PreviewPanel(Panel):
             "preview panel, ignoring unused white page margins horizontally. "
             "The Zoom field shows the resulting render scale."
         )
+
+    def _export_current_pdf_directly(self) -> None:
+        """Save the already-rendered Preview PDF without starting another LaTeX compile."""
+        rendered_pdf = self._preview.current_pdf_path
+        if rendered_pdf is None:
+            QMessageBox.information(
+                self,
+                "Export PDF",
+                "There is no rendered PDF to export yet.",
+            )
+            return
+
+        rendered_pdf = Path(rendered_pdf).expanduser().resolve()
+        if not rendered_pdf.is_file():
+            QMessageBox.critical(
+                self,
+                "Export PDF",
+                f"Rendered PDF does not exist:\n{rendered_pdf}",
+            )
+            return
+
+        window = self.window()
+        editor_panel = getattr(window, "_editor_panel", None)
+        source_path = editor_panel.current_path() if editor_panel is not None else None
+        if source_path is not None:
+            default_path = Path(source_path).expanduser().resolve().with_suffix(".pdf")
+        else:
+            default_path = Path.home() / rendered_pdf.name
+
+        dialog = QFileDialog(self, "Export PDF")
+        dialog.setAcceptMode(QFileDialog.AcceptMode.AcceptSave)
+        dialog.setFileMode(QFileDialog.FileMode.AnyFile)
+        dialog.setNameFilter("PDF files (*.pdf)")
+        dialog.setDefaultSuffix("pdf")
+        dialog.selectFile(str(default_path))
+        dialog.setOption(QFileDialog.Option.DontUseNativeDialog, True)
+        dialog.setModal(False)
+
+        def save_selected(destination: str) -> None:
+            destination_path = Path(destination).expanduser()
+            if destination_path.suffix.lower() != ".pdf":
+                destination_path = destination_path.with_suffix(".pdf")
+            try:
+                destination_path.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(rendered_pdf, destination_path)
+            except OSError as exc:
+                QMessageBox.critical(self, "Export PDF", str(exc))
+                return
+            status_bar = getattr(window, "statusBar", None)
+            if callable(status_bar):
+                status_bar().showMessage(
+                    f"Exported PDF to {destination_path}",
+                    5000,
+                )
+
+        dialog.fileSelected.connect(save_selected)
+        dialog.finished.connect(self._clear_export_dialog)
+        self._export_dialog = dialog
+        dialog.open()
+
+    def _clear_export_dialog(self, _result: int) -> None:
+        self._export_dialog = None
 
     def _apply_zoom_edit(self) -> None:
         text = self._zoom_edit.text().strip().rstrip("%").strip()

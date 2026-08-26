@@ -24,7 +24,7 @@ struct PencilSettings: Equatable {
     init(width: Double? = nil, color: Color? = nil) {
         let storedWidth = UserDefaults.standard.double(forKey: Self.widthKey)
         let resolvedWidth = width ?? (storedWidth > 0 ? storedWidth : 6.0)
-        self.width = min(max(resolvedWidth, 1.0), 24.0)
+        self.width = min(max(resolvedWidth, 0.5), 60.0)
 
         if let color {
             self.color = color

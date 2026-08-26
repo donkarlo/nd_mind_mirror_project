@@ -4,8 +4,9 @@ editor:
   source_font_size: 16
   # LaTeX Visual mode can use a different base font size from Source mode.
   visual_font_size: 16
-  # Persian/Arabic script in LaTeX Visual mode uses this family independently.
-  visual_persian_font_family: "Noto Naskh Arabic"
+  # Persian/Arabic shaping font shared by LaTeX Source and Visual.
+  # Noto Sans Arabic keeps combining marks such as kasra visually separated.
+  persian_font_family: "Noto Sans Arabic"
   font_min_size: 6
   font_max_size: 40
   line_height_percent: 200
@@ -23,10 +24,22 @@ editor:
   source_update_debounce_ms: 70
   source_large_document_threshold_chars: 120000
   source_large_document_debounce_ms: 180
+  # Delay before incremental QTextDocument block layout is recomputed.
+  # 40 ms coalesces fast typing better while remaining visually immediate.
+  source_layout_update_debounce_ms: 40
   # Visual serialization is coalesced so large documents remain responsive.
   visual_update_debounce_ms: 180
   visual_large_document_threshold_chars: 120000
   visual_large_document_debounce_ms: 650
+  # Cursor-centered Visual render window. Four pages on each side keeps the
+  # active projection small without making ordinary scrolling feel sparse.
+  visual_window_pages_above: 4
+  visual_window_pages_below: 4
+  visual_window_estimated_chars_per_page: 2400
+  visual_window_min_lines_per_page: 12
+  visual_window_max_lines_per_page: 45
+  visual_window_rewindow_delay_ms: 90
+  visual_window_scroll_edge_ratio: 0.14
   # auto: LaTeX control/setup lines stay LTR; Persian prose becomes RTL.
   # rtl: force ordinary prose RTL while still keeping LaTeX control lines LTR.
   # ltr: keep every source line LTR.
@@ -41,6 +54,7 @@ editor:
   indent_guides_enabled: true
   indent_guide_color: "#d0d0d0"
   indent_guide_width: 1.0
+  # Cursor thickness in pixels, shared by Source, Visual and non-focus caret.
   cursor_width: 2
   cursor_flash_time_ms: 650
   soft_wrap: true
@@ -88,6 +102,14 @@ ui:
 preview:
   # Used when auto_fit_on_open is false.
   default_zoom_percent: 100
+  # Safe PDF zoom bounds. Lower max zoom reduces the largest page texture Qt
+  # can request; raise it only when very deep zoom is actually needed.
+  min_zoom_percent: 20
+  max_zoom_percent: 500
+  # Manual Fit uses a deliberately small sampled raster. Auto Fit uses the
+  # physical page width and does not need this raster scan.
+  fit_raster_width_px: 480
+  fit_raster_sample_step_px: 4
   # Fit a newly opened LaTeX source to the preview width automatically.
   auto_fit_on_open: true
   # Fit makes the widest rendered content use this percentage of the preview
@@ -100,7 +122,8 @@ preview:
   large_document_debounce_ms: 420
   cursor_sync_enabled: true
   cursor_sync_debounce_ms: 120
-  # Highlight the current edit phrase in the PDF using Qt's native search layer.
+  # Only explicit Source/Visual selections use the PDF text highlight.
+  # With no selection, SyncTeX shows a bold purple caret marker instead.
   edit_location_highlight_enabled: true
   edit_location_highlight_debounce_ms: 220
   latex_template_path: "templates/latex_preview_template.tex"
