@@ -225,6 +225,8 @@ class LatexStructurePanel(Panel):
     def _apply_current_line_highlight(self) -> None:
         items = self._all_items_in_source_order()
         target: QTreeWidgetItem | None = None
+        self._tree.clearSelection()
+        self._tree.setCurrentItem(None)
         for item in items:
             try:
                 item_line = int(
@@ -235,6 +237,7 @@ class LatexStructurePanel(Panel):
                 )
             except (TypeError, ValueError):
                 continue
+            item.setSelected(False)
             item.setBackground(0, self._clear_brush)
             if item_line <= self._current_line:
                 target = item

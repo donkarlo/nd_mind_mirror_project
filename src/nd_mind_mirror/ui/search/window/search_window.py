@@ -607,7 +607,18 @@ class SearchWindow(QWidget):
 
         path = Path(str(path_text))
         if path.is_dir():
-            item.setExpanded(not item.isExpanded())
+            # ND_MIGRATION4_FOLDER_REVEAL
+            # Folder hits behave like file hits: close Search and reveal the
+            # actual folder in the main Navigator instead of expanding the
+            # temporary search-result tree.
+            parent = self.parentWidget()
+            navigator = getattr(parent, "_file_system_panel", None)
+            if navigator is not None:
+                navigator.select_path(
+                    str(path.resolve()),
+                    force_reveal=True,
+                )
+            self.close()
             return
 
         self.latex_file_selected.emit(str(path.resolve()))

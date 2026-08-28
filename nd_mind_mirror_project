@@ -106,6 +106,12 @@ atexit.register(lambda: _append_startup_log("Python process exiting normally"))
 # The application layer owns the one iPad package refresh. Do not rebuild the
 # same ZIP a second time in the launcher.
 from nd_mind_mirror.app.mind_mirror_application import MindMirrorApplication
+from nd_mind_mirror.ui.window.main.large_document_performance_controller import (
+    LargeDocumentPerformanceController,
+)
+
+# Install after legacy class patches but before any editor/search widgets are built.
+LargeDocumentPerformanceController.install_startup_hook()
 
 _append_startup_log("MindMirrorApplication imported")
 exit_code = MindMirrorApplication.run(sys.argv)

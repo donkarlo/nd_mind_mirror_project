@@ -9,17 +9,26 @@ from PySide6.QtCore import QTimer
 from PySide6.QtGui import QTextCursor
 
 from nd_mind_mirror.core.clipboard.image.clipboard_image_saver import ClipboardImageSaver
+from nd_mind_mirror.core.latex.input.recursive.recursive_input_resolver import (
+    RecursiveInputResolver,
+)
 from nd_mind_mirror.graphic.core.document_manager import GraphicDocumentManager
 from nd_mind_mirror.ui.editor.latex.latex_visual_editor import LatexVisualEditor
 from nd_mind_mirror.ui.preview.latex.latex_preview import LatexPreview
 
 
 class ImageSequenceFix:
-    """Apply monotonic image names, faithful Visual image widths, and stale-preview reset guards."""
+    """Apply monotonic image names, faithful Visual image widths, and source-local preview paths."""
 
     _installed = False
     _PATTERN = re.compile(r"^img_(\d+)\.png$", re.IGNORECASE)
     _INCLUDE_OPTIONS = re.compile(r"\\includegraphics\s*\[(?P<options>[^\]]*)\]", re.IGNORECASE)
+    _INCLUDEGRAPHICS = re.compile(
+        r"(?P<prefix>\\includegraphics\s*(?:\[[^\]]*\]\s*)?)"
+        r"\{(?P<path>[^{}]+)\}",
+        re.IGNORECASE,
+    )
+    _GRAPHIC_EXTENSIONS = (".pdf", ".png", ".jpg", ".jpeg", ".svg", ".eps", ".webp")
     _RELATIVE_WIDTH = re.compile(
         r"(?:^|,)\s*width\s*=\s*(?P<ratio>[0-9]*\.?[0-9]+)\s*"
         r"\\(?:textwidth|linewidth|columnwidth)\s*(?:,|$)",
@@ -29,7 +38,7 @@ class ImageSequenceFix:
 
     @classmethod
     def install(cls) -> None:
-        """Install the shared image allocator, Visual width projection, and source-switch preview reset."""
+        """Install the shared image allocator, Visual sizing, source-local preview paths, and reset guards."""
         if cls._installed:
             return
 
@@ -67,6 +76,7 @@ class ImageSequenceFix:
         ClipboardImageSaver.save = save
         ClipboardImageSaver.next_available_path = staticmethod(next_available_path)
         GraphicDocumentManager._next_image_path = next_graphic_path
+        cls._patch_preview_graphic_paths()
         cls._patch_visual_image_size()
         cls._patch_preview_source_reset()
         cls._installed = True
@@ -205,6 +215,72 @@ class ImageSequenceFix:
         LatexVisualEditor.refresh_graphic_resources = refresh_graphic_resources
         LatexVisualEditor.resizeEvent = resize_event
         LatexVisualEditor.load_source = load_source
+
+    @classmethod
+    def _patch_preview_graphic_paths(cls) -> None:
+        """Resolve each relative includegraphics path beside the file that owns that source line."""
+        original_resolve_line_code = RecursiveInputResolver._resolve_line_code
+
+        def resolve_line_code(
+            resolver,
+            code,
+            containing_file,
+            stack,
+            context,
+            current_heading,
+            heading_mapping,
+        ):
+            rewritten = cls._rewrite_includegraphics_paths(
+                str(code),
+                Path(containing_file),
+            )
+            return original_resolve_line_code(
+                resolver,
+                rewritten,
+                containing_file,
+                stack,
+                context,
+                current_heading,
+                heading_mapping,
+            )
+
+        RecursiveInputResolver._resolve_line_code = resolve_line_code
+
+    @classmethod
+    def _rewrite_includegraphics_paths(cls, code: str, containing_file: Path) -> str:
+        """Make existing relative graphic files absolute without touching macro-based references."""
+        parent = Path(containing_file).expanduser().resolve().parent
+
+        def replace(match: re.Match[str]) -> str:
+            raw = match.group("path").strip()
+            if not raw or raw.startswith("\\") or "://" in raw:
+                return match.group(0)
+
+            candidate = Path(raw).expanduser()
+            if candidate.is_absolute():
+                return match.group(0)
+
+            base = parent / candidate
+            options = [base]
+            if not candidate.suffix:
+                options = [base.with_suffix(extension) for extension in cls._GRAPHIC_EXTENSIONS]
+
+            resolved: Path | None = None
+            for option in options:
+                try:
+                    current = option.resolve()
+                except OSError:
+                    continue
+                if current.is_file():
+                    resolved = current
+                    break
+
+            if resolved is None:
+                return match.group(0)
+
+            return f"{match.group('prefix')}{{{resolved.as_posix()}}}"
+
+        return cls._INCLUDEGRAPHICS.sub(replace, str(code))
 
     @staticmethod
     def _patch_preview_source_reset() -> None:

@@ -43,8 +43,8 @@ final class SelectionResizeOverlay: UIView {
         for handle in handles {
             addSubview(handle)
         }
-        moveHandle.backgroundColor = .systemBlue
-        moveHandle.layer.borderColor = UIColor.white.cgColor
+        moveHandle.backgroundColor = UIColor.systemGray3.withAlphaComponent(0.72)
+        moveHandle.layer.borderColor = UIColor.systemGray5.cgColor
         moveHandle.layer.borderWidth = 1.5
         moveHandle.isUserInteractionEnabled = true
         addSubview(moveHandle)
@@ -114,12 +114,12 @@ final class SelectionResizeOverlay: UIView {
         borderLayer.lineWidth = lineWidth
         borderLayer.path = UIBezierPath(rect: bounds).cgPath
 
-        let moveWidth = 46.0 / scale
-        let moveHeight = 24.0 / scale
+        let moveWidth = 34.0 / scale
+        let moveHeight = 18.0 / scale
         moveHandle.bounds = CGRect(x: 0, y: 0, width: moveWidth, height: moveHeight)
         moveHandle.center = CGPoint(
             x: bounds.midX,
-            y: max(moveHeight / 2, bounds.minY - 16.0 / scale)
+            y: max(moveHeight / 2, bounds.minY - 13.0 / scale)
         )
         moveHandle.layer.cornerRadius = moveHeight / 2
         moveHandle.layer.borderWidth = max(1.5 / scale, 0.6)
@@ -710,7 +710,7 @@ struct PencilCanvasView: UIViewRepresentable {
                 )
                 if !included {
                     for point in stroke.path {
-                        if pointInPolygon(point.location, polygon: lassoPoints) {
+                        if pointInPolygon(point.location.applying(stroke.transform), polygon: lassoPoints) {
                             included = true
                             break
                         }
@@ -784,6 +784,35 @@ struct PencilCanvasView: UIViewRepresentable {
             return min(max(projected, 0.08), 20.0)
         }
 
+        // ND_MIGRATION4_PRESERVE_STROKE_THICKNESS
+        /// Applies only geometry to a stroke while preserving each PencilKit control-point size.
+        private func strokeByApplyingGeometryTransform(
+            _ stroke: PKStroke,
+            transform: CGAffineTransform
+        ) -> PKStroke {
+            let points = stroke.path.map { point in
+                PKStrokePoint(
+                    location: point.location.applying(stroke.transform).applying(transform),
+                    timeOffset: point.timeOffset,
+                    size: point.size,
+                    opacity: point.opacity,
+                    force: point.force,
+                    azimuth: point.azimuth,
+                    altitude: point.altitude
+                )
+            }
+            let path = PKStrokePath(
+                controlPoints: points,
+                creationDate: Date()
+            )
+            return PKStroke(
+                ink: stroke.ink,
+                path: path,
+                transform: .identity,
+                mask: stroke.mask
+            )
+        }
+
         /// Applies one uniform transform to only the selected stroke indices while the opposite corner stays fixed.
         private func applyResize(
             scale: CGFloat,
@@ -804,8 +833,11 @@ struct PencilCanvasView: UIViewRepresentable {
                 .scaledBy(x: scale, y: scale)
                 .translatedBy(x: -fixed.x, y: -fixed.y)
 
-            var selectedDrawing = PKDrawing(strokes: selectedStrokes)
-            selectedDrawing.transform(using: transform)
+            let selectedDrawing = PKDrawing(
+                strokes: selectedStrokes.map {
+                    strokeByApplyingGeometryTransform($0, transform: transform)
+                }
+            )
             var allStrokes = session.originalDrawing.strokes
             for (offset, index) in validIndices.enumerated() where offset < selectedDrawing.strokes.count {
                 allStrokes[index] = selectedDrawing.strokes[offset]
@@ -875,6 +907,88 @@ struct PencilCanvasView: UIViewRepresentable {
                 scroll.maximumZoomScale = 10.0
             }
             scroll.setZoomScale(1.0, animated: false)
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
+            scroll.contentInset = .zero
+            scroll.contentOffset = .zero
             scroll.contentInset = .zero
             scroll.contentOffset = .zero
             scroll.contentInset = .zero

@@ -1,8 +1,9 @@
 """Layer focused UX enhancements over the current MainWindow without replacing its large implementation."""
 
 from pathlib import Path
+import re
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QProcess, Qt
 from PySide6.QtGui import QAction, QKeySequence, QShortcut
 from PySide6.QtWidgets import QMenu
 
@@ -30,9 +31,15 @@ from nd_mind_mirror.ui.window.main.visual_window_controller import VisualWindowC
 class EnhancedMainWindow(MainWindow):
     """Compose the requested navigator, editor, preview, pinning, and shortcut enhancements."""
 
+    _ABSOLUTE_INPUT_PATTERN = re.compile(
+        r"\\(?:input|include)\s*\{(?P<path>/[^{}]+)\}"
+    )
+    _SMALL_PREVIEW_SOURCE_CHARS = 60_000
+
     def __init__(self, parent=None) -> None:
         """Initialize the existing window first, then attach additive controllers to its stable widgets."""
         super().__init__(parent)
+        self._install_preview_render_recovery()
         self._visual_window_controller = VisualWindowController(
             self._editor_panel,
             self,
@@ -85,6 +92,69 @@ class EnhancedMainWindow(MainWindow):
         )
         self._install_navigator_rename_shortcut()
         self._install_shortcut_settings()
+        self._sync_auto_format_action(self._editor_panel.current_path())
+
+    def _install_preview_render_recovery(self) -> None:
+        """Keep small-file Preview live and fail immediately on missing absolute inputs."""
+        renderer = self._renderer
+        base_compile_pending_source = renderer._compile_pending_source
+        base_render = renderer.render
+        last_render_path: Path | None = None
+
+        # ND_MIGRATION4_IMMEDIATE_SMALL_OPEN
+        # A newly opened small source should start compiling immediately. The
+        # normal typing debounce remains in force for subsequent keystrokes.
+        def render_source(
+            source: str,
+            source_path=None,
+            immediate: bool = False,
+        ) -> None:
+            nonlocal last_render_path
+            resolved = None
+            if source_path is not None:
+                try:
+                    resolved = Path(source_path).expanduser().resolve()
+                except (OSError, TypeError, ValueError):
+                    resolved = None
+            first_small_open = (
+                len(source) < self._SMALL_PREVIEW_SOURCE_CHARS
+                and resolved is not None
+                and resolved != last_render_path
+            )
+            if resolved is not None:
+                last_render_path = resolved
+            base_render(
+                source,
+                source_path=source_path,
+                immediate=bool(immediate or first_small_open),
+            )
+
+        def compile_pending_source() -> None:
+            source = str(getattr(renderer, "_pending_source", "") or "")
+            for match in self._ABSOLUTE_INPUT_PATTERN.finditer(source):
+                raw_path = match.group("path").strip()
+                candidate = Path(raw_path).expanduser()
+                options = [candidate]
+                if not candidate.suffix:
+                    options.append(candidate.with_suffix(".tex"))
+                if not any(option.is_file() for option in options):
+                    renderer.failed.emit(f"Missing LaTeX input: {raw_path}")
+                    return
+
+            # ND_FAST_PREVIEW_COALESCE
+            # Never kill a healthy small-file compile because another startup
+            # signal arrived. The renderer already coalesces queued generations
+            # and starts only the newest one when the active process finishes.
+            base_compile_pending_source()
+
+        renderer.render = render_source
+        renderer._compile_pending_source = compile_pending_source
+        try:
+            renderer._timer.timeout.disconnect()
+        except (RuntimeError, TypeError):
+            pass
+        renderer._timer.timeout.connect(compile_pending_source)
+        self._nd_preview_compile_pending_source = compile_pending_source
 
     def _install_latex_insert_toolbar(self) -> None:
         """Add the unfamiliar-character popup and iffalse button above every LaTeX Source/Visual tab."""
@@ -107,6 +177,19 @@ class EnhancedMainWindow(MainWindow):
         """Show special LaTeX controls only for tex/tikz documents where both edit modes exist."""
         suffix = Path(path).suffix.lower() if path else ""
         self._special_latex_toolbar.setVisible(suffix in {".tex", ".tikz"})
+
+    def _on_current_document_changed(self, path: str, content: str) -> None:
+        """Keep the base document-change behavior and expose Auto Format for YAML."""
+        super()._on_current_document_changed(path, content)
+        self._sync_auto_format_action(path)
+
+    def _sync_auto_format_action(self, path: str | Path | None) -> None:
+        """Enable the shared Auto Format action for LaTeX and YAML editors."""
+        self._format_action.setText("Auto Format")
+        suffix = Path(path).suffix.lower() if path else ""
+        self._format_action.setEnabled(
+            suffix in {".tex", ".tikz", ".yaml", ".yml"}
+        )
 
     def _pin_navigator_path(self, path: Path) -> None:
         """Open a Navigator file if necessary and add it to the persistent pinned tab group."""

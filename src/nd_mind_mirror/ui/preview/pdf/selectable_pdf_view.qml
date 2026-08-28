@@ -629,6 +629,11 @@ Rectangle {
     }
 
     function scheduleHighlightResultChoice() {
+        // ND_MIGRATION4_SINGLE_HIGHLIGHT
+        // Qt may recreate the search-result resource after a PDF reload. Make
+        // every non-current match transparent again before choosing the one
+        // nearest to the SyncTeX cursor location.
+        root.configureEditHighlightStyle()
         root.highlightSearchAttempts = 0
         highlightResultRetry.restart()
     }

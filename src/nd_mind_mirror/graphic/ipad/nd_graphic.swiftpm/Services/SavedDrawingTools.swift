@@ -34,7 +34,13 @@ final class SavedDrawingToolStore: ObservableObject {
     }
 
     @discardableResult
-    func add(kind: GraphicTool, color: Color, width: Double, opacity: Double) -> UUID? {
+    func add(
+        kind: GraphicTool,
+        color: Color,
+        width: Double,
+        opacity: Double,
+        after afterID: UUID? = nil
+    ) -> UUID? {
         guard kind.supportsColor && kind.supportsWidth else { return nil }
         let value = SavedDrawingTool(
             id: UUID(),
@@ -43,7 +49,12 @@ final class SavedDrawingToolStore: ObservableObject {
             width: Self.canonicalWidth(width),
             opacity: Self.canonicalOpacity(opacity)
         )
-        tools.append(value)
+        if let afterID,
+           let index = tools.firstIndex(where: { $0.id == afterID }) {
+            tools.insert(value, at: index + 1)
+        } else {
+            tools.append(value)
+        }
         persist()
         return value.id
     }

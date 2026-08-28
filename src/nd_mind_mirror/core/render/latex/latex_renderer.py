@@ -24,6 +24,40 @@ class LatexRenderer(Renderer):
     source_position_mapped = Signal(int, float, float)
     dependencies_changed = Signal(object)
 
+    _PERSIAN_SCRIPT_PATTERN = re.compile(
+        "[\u0600-\u06ff\u0750-\u077f\u0870-\u089f"
+        "\u08a0-\u08ff\ufb50-\ufdff\ufe70-\ufeff]"
+    )
+    _LUA_PACKAGE_PATTERN = re.compile(
+        r"\\usepackage(?:\[[^\]]*\])?\{[^}]*"
+        r"(?:fontspec|unicode-math|xepersian|polyglossia|luacode|luaotfload)"
+        r"[^}]*\}",
+        re.IGNORECASE,
+    )
+    _LUA_PREPARED_PATTERN = re.compile(
+        r"\\(?:setmainfont|setsansfont|setmonofont|newfontfamily|setmathfont|usegdlibrary)\b"
+        r"|graphdrawing",
+        re.IGNORECASE,
+    )
+    _LUA_SOURCE_PATTERN = re.compile(
+        r"\\(?:directlua|includegraphvizrel)\b",
+        re.IGNORECASE,
+    )
+    _TIKZ_LIBRARY_LINE_PATTERN = re.compile(
+        r"^(?P<indent>[ \t]*)\\usetikzlibrary\s*"
+        r"\{(?P<items>[^}]*)\}(?P<tail>[ \t]*(?:%.*)?)$"
+    )
+    _GD_LIBRARY_LINE_PATTERN = re.compile(
+        r"^(?P<indent>[ \t]*)\\usegdlibrary\s*"
+        r"\{[^}]*\}(?P<tail>[ \t]*(?:%.*)?)$"
+    )
+    _GRAPH_DRAWING_USE_PATTERN = re.compile(
+        r"\\graph\b"
+        r"|\\pgfgd\b"
+        r"|(?:layered|tree|spring|circular|force|random)\s+layout\b",
+        re.IGNORECASE,
+    )
+
     def __init__(
         self,
         template_path: str | Path,
@@ -38,9 +72,7 @@ class LatexRenderer(Renderer):
     ) -> None:
         super().__init__(parent)
 
-        self._temp_dir = Path(
-            tempfile.mkdtemp(prefix="nd_mind_mirror_")
-        )
+        self._temp_dir = Path(tempfile.mkdtemp(prefix="nd_mind_mirror_"))
         self._tex_path = self._temp_dir / "preview.tex"
         self._pdf_path = self._temp_dir / "preview.pdf"
         self._enabled = True
@@ -57,11 +89,11 @@ class LatexRenderer(Renderer):
         self._bibliography_ran_for_generation = False
         self._compile_output: list[str] = []
         self._last_process_output = ""
-        self._process_environment = (
-            QProcessEnvironment.systemEnvironment()
-        )
+        self._process_environment = QProcessEnvironment.systemEnvironment()
         self._working_directory = Path.cwd()
         self._latex_executable = ""
+        self._latex_engine = ""
+        self._fast_engine_fallback_attempted = False
         self._suppress_finished = False
         self._cache_source_path: Path | None = None
         self._current_source_text = ""
@@ -82,37 +114,30 @@ class LatexRenderer(Renderer):
 
         self._input_resolver = RecursiveInputResolver()
         self._graphic_dependency_resolver = GraphicDependencyResolver()
-        self._preview_source_builder = (
-            LatexPreviewSourceBuilder(
-                template_path,
-                beamer_template_path=beamer_template_path,
-            )
+        self._preview_source_builder = LatexPreviewSourceBuilder(
+            template_path,
+            beamer_template_path=beamer_template_path,
         )
 
         self._process = QProcess(self)
-        self._process.finished.connect(
-            self._on_process_finished
-        )
+        self._process.finished.connect(self._on_process_finished)
 
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
         self._timer.setInterval(self._normal_debounce_ms)
-        self._timer.timeout.connect(
-            self._compile_pending_source
-        )
+        self._timer.timeout.connect(self._compile_pending_source)
 
         self._sync_process = QProcess(self)
-        self._sync_process.finished.connect(
-            self._on_sync_process_finished
-        )
+        self._sync_process.finished.connect(self._on_sync_process_finished)
         self._sync_timer = QTimer(self)
         self._sync_timer.setSingleShot(True)
-        self._sync_timer.setInterval(
-            max(int(cursor_sync_debounce_ms), 30)
-        )
-        self._sync_timer.timeout.connect(
-            self._map_pending_source_position
-        )
+        self._sync_timer.setInterval(max(int(cursor_sync_debounce_ms), 30))
+        self._sync_timer.timeout.connect(self._map_pending_source_position)
+
+        self._compile_watchdog = QTimer(self)
+        self._compile_watchdog.setSingleShot(True)
+        self._compile_watchdog.setInterval(60_000)
+        self._compile_watchdog.timeout.connect(self._on_compile_timeout)
 
     def apply_settings(
         self,
@@ -125,12 +150,8 @@ class LatexRenderer(Renderer):
         large_document_threshold_chars: int | None = None,
         large_document_debounce_ms: int | None = None,
     ) -> None:
-        self._preview_source_builder.set_template_path(
-            template_path
-        )
-        self._preview_source_builder.set_beamer_template_path(
-            beamer_template_path
-        )
+        self._preview_source_builder.set_template_path(template_path)
+        self._preview_source_builder.set_beamer_template_path(beamer_template_path)
         self._shell_escape = bool(shell_escape)
         if debounce_ms is not None:
             self._normal_debounce_ms = max(int(debounce_ms), 50)
@@ -146,15 +167,11 @@ class LatexRenderer(Renderer):
                 self._normal_debounce_ms,
             )
         if cursor_sync_enabled is not None:
-            self._cursor_sync_enabled = bool(
-                cursor_sync_enabled
-            )
+            self._cursor_sync_enabled = bool(cursor_sync_enabled)
             if not self._cursor_sync_enabled:
                 self._sync_timer.stop()
         if cursor_sync_debounce_ms is not None:
-            self._sync_timer.setInterval(
-                max(int(cursor_sync_debounce_ms), 30)
-            )
+            self._sync_timer.setInterval(max(int(cursor_sync_debounce_ms), 30))
 
     def set_enabled(self, enabled: bool) -> None:
         self._enabled = bool(enabled)
@@ -179,17 +196,9 @@ class LatexRenderer(Renderer):
     ) -> None:
         if not self._enabled or not self._cursor_sync_enabled:
             return
-
-        self._pending_sync_source_path = Path(
-            source_path
-        ).expanduser().resolve()
+        self._pending_sync_source_path = Path(source_path).expanduser().resolve()
         self._pending_sync_line = max(int(line), 1)
         self._pending_sync_column = max(int(column), 1)
-        # Never map a cursor position against a stale SyncTeX/PDF while a
-        # newer source generation is queued or compiling. That race was a
-        # major cause of the preview jumping to unrelated locations while
-        # typing. The latest cursor position is retained and mapped as soon as
-        # the matching PDF generation is published.
         if self._preview_is_current_for_sync():
             self._sync_timer.start()
 
@@ -204,13 +213,10 @@ class LatexRenderer(Renderer):
         self._latest_requested_generation += 1
         self._pending_generation = self._latest_requested_generation
         self._pending_source = source
-
         if source_path is None:
             self._pending_source_path = self._source_path
         else:
-            self._pending_source_path = Path(
-                source_path
-            ).expanduser().resolve()
+            self._pending_source_path = Path(source_path).expanduser().resolve()
             self._source_path = self._pending_source_path
 
         if immediate:
@@ -228,33 +234,14 @@ class LatexRenderer(Renderer):
         self._timer.start()
 
     def _compile_pending_source(self) -> None:
-        # Live edits are coalesced while LuaLaTeX is already working.  Killing
-        # and relaunching an 80-page document every few hundred milliseconds
-        # causes severe CPU churn and is the main source of periodic editor
-        # slowdowns.  The finished handler immediately starts only the newest
-        # queued generation.
-        if (
-            self._process.state()
-            != QProcess.ProcessState.NotRunning
-        ):
-            return
-
-        executable = shutil.which("lualatex")
-
-        if executable is None:
-            self.failed.emit(
-                "lualatex was not found on PATH."
-            )
+        if self._process.state() != QProcess.ProcessState.NotRunning:
             return
 
         source = self._pending_source
         source_path = self._pending_source_path
         self._active_generation = self._pending_generation
 
-        expanded = self._input_resolver.resolve(
-            source,
-            source_path,
-        )
+        expanded = self._input_resolver.resolve(source, source_path)
         graphic_dependencies = self._graphic_dependency_resolver.collect(
             source,
             source_path,
@@ -272,109 +259,172 @@ class LatexRenderer(Renderer):
                 source_path=source_path,
                 title_source=source,
             )
+            prepared = self._optimize_preview_for_fast_engine(
+                prepared,
+                expanded,
+            )
         except (OSError, ValueError) as exc:
             if self._is_current_generation():
                 self.failed.emit(str(exc))
             return
 
-        # Keep AUX/BBl data while repeatedly editing the same file. This lets
-        # the first live pass reuse already-resolved citations and references.
-        # A tab/file switch gets a clean auxiliary state so one document cannot
-        # leak labels or bibliography data into another.
+        executable, engine = self._select_latex_engine(source, prepared)
+        if executable is None:
+            if self._is_current_generation():
+                self.failed.emit(
+                    "No usable LaTeX engine was found on PATH "
+                    "(tried pdflatex and lualatex)."
+                )
+            return
+
         if source_path != self._cache_source_path:
             self._clean_previous_outputs(keep_auxiliary=False)
             self._cache_source_path = source_path
         else:
             self._clean_previous_outputs(keep_auxiliary=True)
 
-        # Keep the original editor source and the generated preview source
-        # together. SyncTeX line mapping depends on both; without these
-        # snapshots cursor/scroll requests have no source lines to map.
         self._current_source_text = source
         self._current_prepared_text = prepared
 
         try:
-            self._tex_path.write_text(
-                prepared,
-                encoding="utf-8",
-            )
+            self._tex_path.write_text(prepared, encoding="utf-8")
         except OSError as exc:
             if self._is_current_generation():
                 self.failed.emit(str(exc))
             return
 
         self._working_directory = (
-            source_path.parent
-            if source_path is not None
-            else Path.cwd()
+            source_path.parent if source_path is not None else Path.cwd()
         )
-        self._process_environment = (
-            self._build_process_environment(
-                self._working_directory
-            )
+        self._process_environment = self._build_process_environment(
+            self._working_directory
         )
         self._latex_executable = executable
+        self._latex_engine = engine
+        self._fast_engine_fallback_attempted = False
         self._compile_output = []
         self._last_process_output = ""
         self._bibliography_ran_for_generation = False
         self._start_lualatex("latex1")
+
+    def _optimize_preview_for_fast_engine(
+        self,
+        prepared: str,
+        expanded_source: str,
+    ) -> str:
+        """Omit unused PGF graph-drawing libraries from the temporary preview."""
+        if self._GRAPH_DRAWING_USE_PATTERN.search(expanded_source):
+            return prepared
+
+        optimized: list[str] = []
+        for line in prepared.splitlines(keepends=True):
+            body = line.rstrip("\r\n")
+            newline = line[len(body):]
+
+            tikz_match = self._TIKZ_LIBRARY_LINE_PATTERN.match(body)
+            if tikz_match is not None:
+                items = [
+                    item.strip()
+                    for item in tikz_match.group("items").split(",")
+                    if item.strip()
+                ]
+                filtered = [
+                    item
+                    for item in items
+                    if item.casefold() != "graphdrawing"
+                ]
+                if len(filtered) != len(items):
+                    indent = tikz_match.group("indent")
+                    tail = tikz_match.group("tail") or ""
+                    if filtered:
+                        body = (
+                            indent
+                            + "\\usetikzlibrary{"
+                            + ",".join(filtered)
+                            + "}"
+                            + tail
+                        )
+                    else:
+                        body = (
+                            indent
+                            + "% nd_mind_mirror preview: "
+                            + "unused graphdrawing library omitted"
+                        )
+                    optimized.append(body + newline)
+                    continue
+
+            gd_match = self._GD_LIBRARY_LINE_PATTERN.match(body)
+            if gd_match is not None:
+                optimized.append(
+                    gd_match.group("indent")
+                    + "% nd_mind_mirror preview: "
+                    + "unused graph drawing library omitted"
+                    + newline
+                )
+                continue
+
+            optimized.append(line)
+
+        return "".join(optimized)
+
+    def _select_latex_engine(
+        self,
+        source: str,
+        prepared: str,
+    ) -> tuple[str | None, str]:
+        requires_lua = bool(
+            self._PERSIAN_SCRIPT_PATTERN.search(prepared)
+            or self._LUA_PACKAGE_PATTERN.search(prepared)
+            or self._LUA_PREPARED_PATTERN.search(prepared)
+            or self._LUA_SOURCE_PATTERN.search(source)
+        )
+
+        if not requires_lua:
+            executable = shutil.which("pdflatex")
+            if executable is not None:
+                return executable, "pdflatex"
+
+        executable = shutil.which("lualatex")
+        if executable is not None:
+            return executable, "lualatex"
+
+        if requires_lua:
+            return None, "lualatex"
+
+        executable = shutil.which("pdflatex")
+        return executable, "pdflatex" if executable else ""
 
     def _build_process_environment(
         self,
         working_directory: Path,
     ) -> QProcessEnvironment:
         environment = QProcessEnvironment.systemEnvironment()
-        # External-tool diagnostics must stay in English regardless of the
-        # desktop locale. Dynamic source snippets are never printed by us.
         environment.insert("LANG", "C.UTF-8")
         environment.insert("LC_ALL", "C.UTF-8")
-        tex_paths = [str(working_directory)]
-
-        project_root = self._input_resolver.project_root
-        if project_root is not None:
-            tex_paths.append(f"{project_root}//")
-
-        for ancestor in list(working_directory.parents)[:5]:
-            tex_paths.append(str(ancestor))
-
-        existing_texinputs = environment.value(
-            "TEXINPUTS",
-            "",
-        )
-
-        combined = ":".join(tex_paths)
-        if existing_texinputs:
-            combined += ":" + existing_texinputs
-        else:
-            combined += ":"
-
-        environment.insert(
-            "TEXINPUTS",
-            combined,
-        )
+        # Keep TeX lookup local and deterministic. A recursive project-root
+        # entry (``project_root//``) makes kpathsea walk the entire Dropbox
+        # repository for package and asset lookups on every live compile.
+        # Recursive ``\\input``/``\\include`` files are already expanded by
+        # RecursiveInputResolver, while ordinary relative assets resolve from
+        # the source document directory.
+        environment.insert("TEXINPUTS", f"{working_directory}:")
         return environment
 
-    def _start_lualatex(
-        self,
-        phase: str,
-    ) -> None:
+    def _start_lualatex(self, phase: str) -> None:
         arguments = [
             "-interaction=nonstopmode",
             "-halt-on-error",
             "-file-line-error",
             "-synctex=1",
         ]
-
         if self._shell_escape:
             arguments.append("-shell-escape")
-
         arguments.extend(
             [
                 f"-output-directory={self._temp_dir}",
                 str(self._tex_path),
             ]
         )
-
         self._start_process(
             phase=phase,
             program=self._latex_executable,
@@ -397,14 +447,12 @@ class LatexRenderer(Renderer):
             )
             if not needs_biber:
                 return "none"
-
             executable = shutil.which("biber")
             if executable is None:
                 self.failed.emit(
                     "This preview requires biber, but biber was not found on PATH."
                 )
                 return "missing"
-
             self._bibliography_ran_for_generation = True
             self._start_process(
                 phase="biber",
@@ -414,28 +462,20 @@ class LatexRenderer(Renderer):
             )
             return "started"
 
-        aux_text = ""
         try:
-            aux_text = aux_path.read_text(
-                encoding="utf-8",
-                errors="replace",
-            )
+            aux_text = aux_path.read_text(encoding="utf-8", errors="replace")
         except OSError:
-            pass
+            aux_text = ""
 
         has_bibdata = "\\bibdata" in aux_text
-        has_citations = (
-            "\\citation" in aux_text
-            or "\\nocite" in aux_text
-        )
-
+        has_citations = "\\citation" in aux_text or "\\nocite" in aux_text
         if not has_bibdata or not has_citations:
             return "none"
 
         needs_bibtex = (
             not bbl_path.is_file()
             or "undefined citations" in output_lower
-            or "citation" in output_lower and "undefined" in output_lower
+            or ("citation" in output_lower and "undefined" in output_lower)
             or "rerun bibtex" in output_lower
             or "run bibtex" in output_lower
         )
@@ -472,35 +512,39 @@ class LatexRenderer(Renderer):
         working_directory: Path,
     ) -> None:
         self._phase = phase
-        self._process.setProcessEnvironment(
-            self._process_environment
-        )
-        self._process.setWorkingDirectory(
-            str(working_directory)
-        )
+        self._process.setProcessEnvironment(self._process_environment)
+        self._process.setWorkingDirectory(str(working_directory))
         self._process.setProgram(program)
         self._process.setArguments(arguments)
         self._process.start()
+        self._compile_watchdog.start()
+        self._compile_watchdog.start()
+        self._compile_watchdog.start()
+        self._compile_watchdog.start()
+        self._compile_watchdog.start()
+        self._compile_watchdog.start()
+        self._compile_watchdog.start()
+        self._compile_watchdog.start()
+        self._compile_watchdog.start()
+        self._compile_watchdog.start()
+        self._compile_watchdog.start()
+        self._compile_watchdog.start()
+        self._compile_watchdog.start()
+        self._compile_watchdog.start()
+        self._compile_watchdog.start()
+        self._compile_watchdog.start()
+        self._compile_watchdog.start()
 
-    def _on_process_finished(
-        self,
-        exit_code: int,
-        exit_status,
-    ) -> None:
+    def _on_process_finished(self, exit_code: int, exit_status) -> None:
+        self._compile_watchdog.stop()
         if self._suppress_finished:
             return
 
-        stdout = bytes(
-            self._process.readAllStandardOutput()
-        ).decode(
-            "utf-8",
-            errors="replace",
+        stdout = bytes(self._process.readAllStandardOutput()).decode(
+            "utf-8", errors="replace"
         )
-        stderr = bytes(
-            self._process.readAllStandardError()
-        ).decode(
-            "utf-8",
-            errors="replace",
+        stderr = bytes(self._process.readAllStandardError()).decode(
+            "utf-8", errors="replace"
         )
         output = (stdout + "\n" + stderr).strip()
         self._last_process_output = output
@@ -512,24 +556,24 @@ class LatexRenderer(Renderer):
             return
 
         if exit_code != 0:
+            if self._retry_with_lualatex_after_fast_engine_failure():
+                return
             self._emit_compile_failure()
             return
 
         if self._phase == "latex1":
-            # Resolve bibliography before publishing a newly built PDF when
-            # BibTeX/Biber is actually required. Publishing latex1 first can
-            # leave a visible `?` citation even though the bibliography itself
-            # already appears later in the document. For documents that do not
-            # need a bibliography tool, keep the original fast first-pass
-            # publication behavior.
+            # ND_FAST_FIRST_PASS_PUBLISH
+            # Publish the first successful PDF immediately. Bibliography and
+            # reference-settling passes continue only after the user already
+            # has a visible preview.
+            if not self._publish_current_pdf():
+                self._emit_compile_failure()
+                return
+
             bibliography_status = self._start_bibliography_tool()
             if bibliography_status == "started":
                 return
             if bibliography_status == "missing":
-                return
-
-            if not self._publish_current_pdf():
-                self._emit_compile_failure()
                 return
 
             if self._needs_latex_rerun(output):
@@ -541,18 +585,12 @@ class LatexRenderer(Renderer):
             return
 
         if self._phase == "latex2":
-            # A bibliography build needs the canonical two LaTeX passes after
-            # BibTeX/Biber. The first pass reads preview.bbl; the second settles
-            # citation/reference state. Do not stop early merely because the
-            # log omitted a generic rerun warning.
             if self._bibliography_ran_for_generation:
                 self._start_lualatex("latex3")
                 return
-
             if not self._publish_current_pdf():
                 self._emit_compile_failure()
                 return
-
             if self._needs_latex_rerun(output):
                 self._start_lualatex("latex3")
             return
@@ -563,6 +601,26 @@ class LatexRenderer(Renderer):
             return
 
         self._emit_compile_failure()
+
+    def _retry_with_lualatex_after_fast_engine_failure(self) -> bool:
+        if (
+            not self._phase.startswith("latex")
+            or self._latex_engine != "pdflatex"
+            or self._fast_engine_fallback_attempted
+        ):
+            return False
+        executable = shutil.which("lualatex")
+        if executable is None:
+            return False
+
+        self._fast_engine_fallback_attempted = True
+        self._latex_engine = "lualatex"
+        self._latex_executable = executable
+        self._compile_output = []
+        self._last_process_output = ""
+        self._clean_previous_outputs(keep_auxiliary=False)
+        self._start_lualatex(self._phase)
+        return True
 
     def _needs_latex_rerun(self, output: str) -> bool:
         lower = output.lower()
@@ -579,43 +637,25 @@ class LatexRenderer(Renderer):
     def _publish_current_pdf(self) -> bool:
         if not self._pdf_path.exists():
             return False
-
-        published_pdf = self._publish_pdf(
-            self._active_generation
-        )
+        published_pdf = self._publish_pdf(self._active_generation)
         if published_pdf is None:
             return False
-
         self._last_published_generation = self._active_generation
         self.rendered.emit(str(published_pdf))
         if self._cursor_sync_enabled:
             self._sync_timer.start()
         return True
 
-    def _publish_pdf(
-        self,
-        generation: int,
-    ) -> Path | None:
+    def _publish_pdf(self, generation: int) -> Path | None:
         self._publish_counter += 1
-        destination = (
-            self._temp_dir
-            / (
-                f"preview_render_{generation:08d}_"
-                f"{self._publish_counter:08d}.pdf"
-            )
+        destination = self._temp_dir / (
+            f"preview_render_{generation:08d}_{self._publish_counter:08d}.pdf"
         )
-
         try:
-            shutil.copy2(
-                self._pdf_path,
-                destination,
-            )
+            shutil.copy2(self._pdf_path, destination)
         except OSError as exc:
-            self._compile_output.append(
-                f"Could not publish rendered PDF: {exc}"
-            )
+            self._compile_output.append(f"Could not publish rendered PDF: {exc}")
             return None
-
         self._published_pdf_paths.append(destination)
         self._prune_published_pdfs()
         return destination
@@ -636,108 +676,63 @@ class LatexRenderer(Renderer):
         )
 
     def _map_pending_source_position(self) -> None:
-        if not self._cursor_sync_enabled:
+        if not self._cursor_sync_enabled or not self._preview_is_current_for_sync():
             return
-        if not self._preview_is_current_for_sync():
-            return
-
         source_path = self._pending_sync_source_path
         if source_path is None or source_path != self._cache_source_path:
             return
-
         if not self._pdf_path.is_file():
             return
-
         synctex_path = self._temp_dir / "preview.synctex.gz"
         if not synctex_path.is_file():
             return
-
         executable = shutil.which("synctex")
         if executable is None:
             return
-
-        preview_line = self._preview_line_for_source_line(
-            self._pending_sync_line
-        )
+        preview_line = self._preview_line_for_source_line(self._pending_sync_line)
         if preview_line is None:
             return
-
-        if (
-            self._sync_process.state()
-            != QProcess.ProcessState.NotRunning
-        ):
+        if self._sync_process.state() != QProcess.ProcessState.NotRunning:
             self._sync_process.kill()
             self._sync_process.waitForFinished(250)
-
-        self._sync_process.setWorkingDirectory(
-            str(self._temp_dir)
-        )
+        self._sync_process.setWorkingDirectory(str(self._temp_dir))
         self._sync_process.setProgram(executable)
         self._sync_process.setArguments(
             [
                 "view",
                 "-i",
-                (
-                    f"{preview_line}:"
-                    f"{self._pending_sync_column}:"
-                    f"{self._tex_path}"
-                ),
+                f"{preview_line}:{self._pending_sync_column}:{self._tex_path}",
                 "-o",
                 str(self._pdf_path),
             ]
         )
         self._sync_process.start()
 
-    def _on_sync_process_finished(
-        self,
-        exit_code: int,
-        exit_status,
-    ) -> None:
+    def _on_sync_process_finished(self, exit_code: int, exit_status) -> None:
         if exit_code != 0:
             return
-
-        output = bytes(
-            self._sync_process.readAllStandardOutput()
-        ).decode(
-            "utf-8",
-            errors="replace",
+        output = bytes(self._sync_process.readAllStandardOutput()).decode(
+            "utf-8", errors="replace"
         )
-
         page_match = re.search(r"(?m)^Page:(\d+)", output)
-        x_match = re.search(
-            r"(?m)^x:([-+]?\d+(?:\.\d+)?)",
-            output,
-        )
-        y_match = re.search(
-            r"(?m)^y:([-+]?\d+(?:\.\d+)?)",
-            output,
-        )
+        x_match = re.search(r"(?m)^x:([-+]?\d+(?:\.\d+)?)", output)
+        y_match = re.search(r"(?m)^y:([-+]?\d+(?:\.\d+)?)", output)
         if page_match is None or x_match is None or y_match is None:
             return
-
         page = max(int(page_match.group(1)) - 1, 0)
-        x = float(x_match.group(1))
-        y = float(y_match.group(1))
-        self.source_position_mapped.emit(page, x, y)
+        self.source_position_mapped.emit(
+            page,
+            float(x_match.group(1)),
+            float(y_match.group(1)),
+        )
 
-    def _preview_line_for_source_line(
-        self,
-        source_line: int,
-    ) -> int | None:
+    def _preview_line_for_source_line(self, source_line: int) -> int | None:
         source_lines = self._current_source_text.splitlines()
         prepared_lines = self._current_prepared_text.splitlines()
         if not source_lines or not prepared_lines:
             return None
 
-        source_index = max(
-            0,
-            min(int(source_line) - 1, len(source_lines) - 1),
-        )
-
-        # Cursor lines are often blank or syntactically repetitive. Search a
-        # small neighborhood for the nearest non-empty source line, then map
-        # that exact line into the generated preview source. This keeps cursor
-        # sync cheap enough to run while editing even for large documents.
+        source_index = max(0, min(int(source_line) - 1, len(source_lines) - 1))
         candidate_source_indices = [source_index]
         for distance in range(1, 9):
             candidate_source_indices.extend(
@@ -746,19 +741,15 @@ class LatexRenderer(Renderer):
 
         best_rank: tuple[int, int, float, int] | None = None
         best_offset: int | None = None
-
         for nearby_index in candidate_source_indices:
             if nearby_index < 0 or nearby_index >= len(source_lines):
                 continue
-
             target = source_lines[nearby_index]
             if not target.strip():
                 continue
-
             for prepared_index, prepared_line in enumerate(prepared_lines):
                 if prepared_line != target:
                     continue
-
                 score = 0
                 for delta in (-3, -2, -1, 1, 2, 3):
                     source_neighbor = nearby_index + delta
@@ -770,7 +761,6 @@ class LatexRenderer(Renderer):
                         == prepared_lines[prepared_neighbor]
                     ):
                         score += 1
-
                 distance_penalty = abs(nearby_index - source_index)
                 source_ratio = nearby_index / max(len(source_lines) - 1, 1)
                 prepared_ratio = prepared_index / max(len(prepared_lines) - 1, 1)
@@ -784,16 +774,11 @@ class LatexRenderer(Renderer):
                 if best_rank is None or rank > best_rank:
                     best_rank = rank
                     best_offset = prepared_index - nearby_index
-
             if best_rank is not None and best_rank[0] >= 3:
                 break
 
         if best_offset is not None:
             return max(source_index + best_offset + 1, 1)
-
-        # Last-resort approximation if the current source line was transformed
-        # by recursive input expansion. It is intentionally conservative; a
-        # later cursor move on a normal prose/command line will refine it.
         ratio = source_index / max(len(source_lines) - 1, 1)
         return max(
             1,
@@ -804,44 +789,410 @@ class LatexRenderer(Renderer):
         )
 
     def _emit_compile_failure(self) -> None:
-        output = "\n".join(
-            self._compile_output
-        ).strip()
-        message = self._extract_useful_error(
-            output
-        )
-
+        output = "\n".join(self._compile_output).strip()
+        message = self._extract_useful_error(output)
         unresolved = self._input_resolver.unresolved
         if unresolved:
             message += (
                 "\n\nnd_mind_mirror unresolved inputs:\n"
                 + "\n".join(unresolved)
             )
-
         self.failed.emit(message)
 
     def _is_current_generation(self) -> bool:
-        return (
-            self._active_generation
-            == self._latest_requested_generation
-        )
+        return self._active_generation == self._latest_requested_generation
 
-    def _stop_running_process(self) -> None:
+    def _on_compile_timeout(self) -> None:
+        if self._process.state() == QProcess.ProcessState.NotRunning:
+            return
+        phase = self._phase or "latex"
+        self._compile_watchdog.stop()
+        self._compile_watchdog.stop()
+        self._compile_watchdog.stop()
+        self._compile_watchdog.stop()
+        self._compile_watchdog.stop()
+        self._compile_watchdog.stop()
+        self._compile_watchdog.stop()
+        self._compile_watchdog.stop()
+        self._compile_watchdog.stop()
+        self._compile_watchdog.stop()
+        self._compile_watchdog.stop()
+        self._compile_watchdog.stop()
+        self._compile_watchdog.stop()
+        self._compile_watchdog.stop()
+        self._compile_watchdog.stop()
+        self._compile_watchdog.stop()
+        self._suppress_finished = True
+        self._process.kill()
+        self._process.waitForFinished(1000)
+        self._suppress_finished = False
+        if self._is_current_generation():
+            self.failed.emit(f"Preview {phase} timed out after 60 seconds.")
+        if self._pending_generation > self._active_generation:
+            QTimer.singleShot(0, self._compile_pending_source)
+
+    def _on_compile_timeout(self) -> None:
+        """Abort a stuck preview subprocess and move on to the newest request."""
         if (
             self._process.state()
             == QProcess.ProcessState.NotRunning
         ):
             return
 
+        phase = self._phase or "latex"
         self._suppress_finished = True
         self._process.kill()
         self._process.waitForFinished(1000)
         self._suppress_finished = False
 
-    def _clean_previous_outputs(
-        self,
-        keep_auxiliary: bool,
-    ) -> None:
+        if self._is_current_generation():
+            self.failed.emit(
+                f"Preview {phase} timed out after 15 seconds."
+            )
+
+        if self._pending_generation > self._active_generation:
+            QTimer.singleShot(0, self._compile_pending_source)
+
+    def _on_compile_timeout(self) -> None:
+        """Abort a stuck preview subprocess and move on to the newest request."""
+        if (
+            self._process.state()
+            == QProcess.ProcessState.NotRunning
+        ):
+            return
+
+        phase = self._phase or "latex"
+        self._suppress_finished = True
+        self._process.kill()
+        self._process.waitForFinished(1000)
+        self._suppress_finished = False
+
+        if self._is_current_generation():
+            self.failed.emit(
+                f"Preview {phase} timed out after 15 seconds."
+            )
+
+        if self._pending_generation > self._active_generation:
+            QTimer.singleShot(0, self._compile_pending_source)
+
+    def _on_compile_timeout(self) -> None:
+        """Abort a stuck preview subprocess and move on to the newest request."""
+        if (
+            self._process.state()
+            == QProcess.ProcessState.NotRunning
+        ):
+            return
+
+        phase = self._phase or "latex"
+        self._suppress_finished = True
+        self._process.kill()
+        self._process.waitForFinished(1000)
+        self._suppress_finished = False
+
+        if self._is_current_generation():
+            self.failed.emit(
+                f"Preview {phase} timed out after 15 seconds."
+            )
+
+        if self._pending_generation > self._active_generation:
+            QTimer.singleShot(0, self._compile_pending_source)
+
+    def _on_compile_timeout(self) -> None:
+        """Abort a stuck preview subprocess and move on to the newest request."""
+        if (
+            self._process.state()
+            == QProcess.ProcessState.NotRunning
+        ):
+            return
+
+        phase = self._phase or "latex"
+        self._suppress_finished = True
+        self._process.kill()
+        self._process.waitForFinished(1000)
+        self._suppress_finished = False
+
+        if self._is_current_generation():
+            self.failed.emit(
+                f"Preview {phase} timed out after 15 seconds."
+            )
+
+        if self._pending_generation > self._active_generation:
+            QTimer.singleShot(0, self._compile_pending_source)
+
+    def _on_compile_timeout(self) -> None:
+        """Abort a stuck preview subprocess and move on to the newest request."""
+        if (
+            self._process.state()
+            == QProcess.ProcessState.NotRunning
+        ):
+            return
+
+        phase = self._phase or "latex"
+        self._suppress_finished = True
+        self._process.kill()
+        self._process.waitForFinished(1000)
+        self._suppress_finished = False
+
+        if self._is_current_generation():
+            self.failed.emit(
+                f"Preview {phase} timed out after 15 seconds."
+            )
+
+        if self._pending_generation > self._active_generation:
+            QTimer.singleShot(0, self._compile_pending_source)
+
+    def _on_compile_timeout(self) -> None:
+        """Abort a stuck preview subprocess and move on to the newest request."""
+        if (
+            self._process.state()
+            == QProcess.ProcessState.NotRunning
+        ):
+            return
+
+        phase = self._phase or "latex"
+        self._suppress_finished = True
+        self._process.kill()
+        self._process.waitForFinished(1000)
+        self._suppress_finished = False
+
+        if self._is_current_generation():
+            self.failed.emit(
+                f"Preview {phase} timed out after 15 seconds."
+            )
+
+        if self._pending_generation > self._active_generation:
+            QTimer.singleShot(0, self._compile_pending_source)
+
+    def _on_compile_timeout(self) -> None:
+        """Abort a stuck preview subprocess and move on to the newest request."""
+        if (
+            self._process.state()
+            == QProcess.ProcessState.NotRunning
+        ):
+            return
+
+        phase = self._phase or "latex"
+        self._suppress_finished = True
+        self._process.kill()
+        self._process.waitForFinished(1000)
+        self._suppress_finished = False
+
+        if self._is_current_generation():
+            self.failed.emit(
+                f"Preview {phase} timed out after 15 seconds."
+            )
+
+        if self._pending_generation > self._active_generation:
+            QTimer.singleShot(0, self._compile_pending_source)
+
+    def _on_compile_timeout(self) -> None:
+        """Abort a stuck preview subprocess and move on to the newest request."""
+        if (
+            self._process.state()
+            == QProcess.ProcessState.NotRunning
+        ):
+            return
+
+        phase = self._phase or "latex"
+        self._suppress_finished = True
+        self._process.kill()
+        self._process.waitForFinished(1000)
+        self._suppress_finished = False
+
+        if self._is_current_generation():
+            self.failed.emit(
+                f"Preview {phase} timed out after 15 seconds."
+            )
+
+        if self._pending_generation > self._active_generation:
+            QTimer.singleShot(0, self._compile_pending_source)
+
+    def _on_compile_timeout(self) -> None:
+        """Abort a stuck preview subprocess and move on to the newest request."""
+        if (
+            self._process.state()
+            == QProcess.ProcessState.NotRunning
+        ):
+            return
+
+        phase = self._phase or "latex"
+        self._suppress_finished = True
+        self._process.kill()
+        self._process.waitForFinished(1000)
+        self._suppress_finished = False
+
+        if self._is_current_generation():
+            self.failed.emit(
+                f"Preview {phase} timed out after 15 seconds."
+            )
+
+        if self._pending_generation > self._active_generation:
+            QTimer.singleShot(0, self._compile_pending_source)
+
+    def _on_compile_timeout(self) -> None:
+        """Abort a stuck preview subprocess and move on to the newest request."""
+        if (
+            self._process.state()
+            == QProcess.ProcessState.NotRunning
+        ):
+            return
+
+        phase = self._phase or "latex"
+        self._suppress_finished = True
+        self._process.kill()
+        self._process.waitForFinished(1000)
+        self._suppress_finished = False
+
+        if self._is_current_generation():
+            self.failed.emit(
+                f"Preview {phase} timed out after 15 seconds."
+            )
+
+        if self._pending_generation > self._active_generation:
+            QTimer.singleShot(0, self._compile_pending_source)
+
+    def _on_compile_timeout(self) -> None:
+        """Abort a stuck preview subprocess and move on to the newest request."""
+        if (
+            self._process.state()
+            == QProcess.ProcessState.NotRunning
+        ):
+            return
+
+        phase = self._phase or "latex"
+        self._suppress_finished = True
+        self._process.kill()
+        self._process.waitForFinished(1000)
+        self._suppress_finished = False
+
+        if self._is_current_generation():
+            self.failed.emit(
+                f"Preview {phase} timed out after 15 seconds."
+            )
+
+        if self._pending_generation > self._active_generation:
+            QTimer.singleShot(0, self._compile_pending_source)
+
+    def _on_compile_timeout(self) -> None:
+        """Abort a stuck preview subprocess and move on to the newest request."""
+        if (
+            self._process.state()
+            == QProcess.ProcessState.NotRunning
+        ):
+            return
+
+        phase = self._phase or "latex"
+        self._suppress_finished = True
+        self._process.kill()
+        self._process.waitForFinished(1000)
+        self._suppress_finished = False
+
+        if self._is_current_generation():
+            self.failed.emit(
+                f"Preview {phase} timed out after 15 seconds."
+            )
+
+        if self._pending_generation > self._active_generation:
+            QTimer.singleShot(0, self._compile_pending_source)
+
+    def _on_compile_timeout(self) -> None:
+        """Abort a stuck preview subprocess and move on to the newest request."""
+        if (
+            self._process.state()
+            == QProcess.ProcessState.NotRunning
+        ):
+            return
+
+        phase = self._phase or "latex"
+        self._suppress_finished = True
+        self._process.kill()
+        self._process.waitForFinished(1000)
+        self._suppress_finished = False
+
+        if self._is_current_generation():
+            self.failed.emit(
+                f"Preview {phase} timed out after 15 seconds."
+            )
+
+        if self._pending_generation > self._active_generation:
+            QTimer.singleShot(0, self._compile_pending_source)
+
+    def _on_compile_timeout(self) -> None:
+        """Abort a stuck preview subprocess and move on to the newest request."""
+        if (
+            self._process.state()
+            == QProcess.ProcessState.NotRunning
+        ):
+            return
+
+        phase = self._phase or "latex"
+        self._suppress_finished = True
+        self._process.kill()
+        self._process.waitForFinished(1000)
+        self._suppress_finished = False
+
+        if self._is_current_generation():
+            self.failed.emit(
+                f"Preview {phase} timed out after 15 seconds."
+            )
+
+        if self._pending_generation > self._active_generation:
+            QTimer.singleShot(0, self._compile_pending_source)
+
+    def _on_compile_timeout(self) -> None:
+        """Abort a stuck preview subprocess and move on to the newest request."""
+        if (
+            self._process.state()
+            == QProcess.ProcessState.NotRunning
+        ):
+            return
+
+        phase = self._phase or "latex"
+        self._suppress_finished = True
+        self._process.kill()
+        self._process.waitForFinished(1000)
+        self._suppress_finished = False
+
+        if self._is_current_generation():
+            self.failed.emit(
+                f"Preview {phase} timed out after 15 seconds."
+            )
+
+        if self._pending_generation > self._active_generation:
+            QTimer.singleShot(0, self._compile_pending_source)
+
+    def _on_compile_timeout(self) -> None:
+        """Abort a stuck preview subprocess and move on to the newest request."""
+        if (
+            self._process.state()
+            == QProcess.ProcessState.NotRunning
+        ):
+            return
+
+        phase = self._phase or "latex"
+        self._suppress_finished = True
+        self._process.kill()
+        self._process.waitForFinished(1000)
+        self._suppress_finished = False
+
+        if self._is_current_generation():
+            self.failed.emit(
+                f"Preview {phase} timed out after 15 seconds."
+            )
+
+        if self._pending_generation > self._active_generation:
+            QTimer.singleShot(0, self._compile_pending_source)
+
+    def _stop_running_process(self) -> None:
+        if self._process.state() == QProcess.ProcessState.NotRunning:
+            return
+        self._compile_watchdog.stop()
+        self._suppress_finished = True
+        self._process.kill()
+        self._process.waitForFinished(1000)
+        self._suppress_finished = False
+
+    def _clean_previous_outputs(self, keep_auxiliary: bool) -> None:
         keep_suffixes = {
             ".aux",
             ".bbl",
@@ -851,7 +1202,6 @@ class LatexRenderer(Renderer):
             ".nav",
             ".snm",
         }
-
         for path in self._temp_dir.glob("preview.*"):
             if path == self._tex_path:
                 continue
@@ -862,22 +1212,10 @@ class LatexRenderer(Renderer):
             except OSError:
                 pass
 
-    def _extract_useful_error(
-        self,
-        output: str,
-    ) -> str:
+    def _extract_useful_error(self, output: str) -> str:
         if not output:
-            return (
-                "LaTeX compilation failed without "
-                "diagnostic output."
-            )
-
-        lines = [
-            line
-            for line in output.splitlines()
-            if line.strip()
-        ]
-
+            return "LaTeX compilation failed without diagnostic output."
+        lines = [line for line in output.splitlines() if line.strip()]
         interesting = [
             line
             for line in lines
@@ -890,11 +1228,5 @@ class LatexRenderer(Renderer):
             or "Citation" in line
             or "Warning--" in line
         ]
-
-        selected = (
-            interesting[-24:]
-            if interesting
-            else lines[-30:]
-        )
-
+        selected = interesting[-24:] if interesting else lines[-30:]
         return "\n".join(selected)

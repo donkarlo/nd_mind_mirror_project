@@ -464,8 +464,8 @@ class EditorRuntimeExtensions:
 
         if anchor == position:
             return {}
-        first = editor._source_position_for_location(*anchor)
-        second = editor._source_position_for_location(*position)
+        first = editor._source_position_for_location(anchor)
+        second = editor._source_position_for_location(position)
         source_text = editor.toPlainText()[min(first, second) : max(first, second)]
         try:
             preview_text = str(editor.active_preview_highlight_text() or "")
@@ -617,14 +617,18 @@ class EditorRuntimeExtensions:
                 payload = cls._selection_payload(editor)
                 if payload:
                     first = editor._source_position_for_location(
-                        int(payload["selection_anchor_line"]),
-                        int(payload["selection_anchor_column"]),
+                        (
+                            int(payload["selection_anchor_line"]),
+                            int(payload["selection_anchor_column"]),
+                        )
                     )
                     second = editor._source_position_for_location(
-                        int(payload["selection_position_line"]),
-                        int(payload["selection_position_column"]),
+                        (
+                            int(payload["selection_position_line"]),
+                            int(payload["selection_position_column"]),
+                        )
                     )
-                    clicked = editor._source_position_for_location(line, column)
+                    clicked = editor._source_position_for_location((line, column))
                     if not min(first, second) <= clicked <= max(first, second):
                         payload = {}
                 if payload:
@@ -640,9 +644,7 @@ class EditorRuntimeExtensions:
                     ]
                     line, column = min(
                         endpoints,
-                        key=lambda value: editor._source_position_for_location(
-                            *value
-                        ),
+                        key=lambda value: editor._source_position_for_location(value),
                     )
                 item: dict[str, object] = {
                     "line": int(line),

@@ -1,6 +1,7 @@
 """Guarantee that every hierarchical Structure tree paints exactly one semantic highlight."""
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QBrush
 from PySide6.QtWidgets import QAbstractItemView
 
 
@@ -31,7 +32,7 @@ class StructureHighlightController:
             tree.setCurrentItem(None)
             for item in items:
                 item.setSelected(False)
-                item.setData(0, Qt.ItemDataRole.BackgroundRole, None)
+                item.setBackground(0, QBrush())
                 try:
                     item_line = int(item.data(0, Qt.ItemDataRole.UserRole))
                 except (TypeError, ValueError):

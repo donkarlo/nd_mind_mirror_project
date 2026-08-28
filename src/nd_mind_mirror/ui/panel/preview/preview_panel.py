@@ -43,7 +43,6 @@ class PreviewPanel(Panel):
             "is copied immediately, so Export does not compile LaTeX again."
         )
         self._export_button.clicked.connect(self._export_current_pdf_directly)
-        self._export_dialog = None
 
         self._fit_button = QPushButton("Fit", self)
         self._fit_button.setToolTip(
@@ -173,39 +172,30 @@ class PreviewPanel(Panel):
         else:
             default_path = Path.home() / rendered_pdf.name
 
-        dialog = QFileDialog(self, "Export PDF")
-        dialog.setAcceptMode(QFileDialog.AcceptMode.AcceptSave)
-        dialog.setFileMode(QFileDialog.FileMode.AnyFile)
-        dialog.setNameFilter("PDF files (*.pdf)")
-        dialog.setDefaultSuffix("pdf")
-        dialog.selectFile(str(default_path))
-        dialog.setOption(QFileDialog.Option.DontUseNativeDialog, True)
-        dialog.setModal(False)
+        destination, _selected_filter = QFileDialog.getSaveFileName(
+            self,
+            "Export PDF",
+            str(default_path),
+            "PDF files (*.pdf)",
+        )
+        if not destination:
+            return
 
-        def save_selected(destination: str) -> None:
-            destination_path = Path(destination).expanduser()
-            if destination_path.suffix.lower() != ".pdf":
-                destination_path = destination_path.with_suffix(".pdf")
-            try:
-                destination_path.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(rendered_pdf, destination_path)
-            except OSError as exc:
-                QMessageBox.critical(self, "Export PDF", str(exc))
-                return
-            status_bar = getattr(window, "statusBar", None)
-            if callable(status_bar):
-                status_bar().showMessage(
-                    f"Exported PDF to {destination_path}",
-                    5000,
-                )
-
-        dialog.fileSelected.connect(save_selected)
-        dialog.finished.connect(self._clear_export_dialog)
-        self._export_dialog = dialog
-        dialog.open()
-
-    def _clear_export_dialog(self, _result: int) -> None:
-        self._export_dialog = None
+        destination_path = Path(destination).expanduser()
+        if destination_path.suffix.lower() != ".pdf":
+            destination_path = destination_path.with_suffix(".pdf")
+        try:
+            destination_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(rendered_pdf, destination_path)
+        except OSError as exc:
+            QMessageBox.critical(self, "Export PDF", str(exc))
+            return
+        status_bar = getattr(window, "statusBar", None)
+        if callable(status_bar):
+            status_bar().showMessage(
+                f"Exported PDF to {destination_path}",
+                5000,
+            )
 
     def _apply_zoom_edit(self) -> None:
         text = self._zoom_edit.text().strip().rstrip("%").strip()

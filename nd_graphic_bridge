@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Launch the ND Graphic bridge through the project-local bridge runner.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-exec "$ROOT/src/nd_mind_mirror/graphic/bridge/run_graphic_bridge.sh" "$@"
+exec /bin/bash "$ROOT/src/nd_mind_mirror/graphic/bridge/run_graphic_bridge.sh" "$@"

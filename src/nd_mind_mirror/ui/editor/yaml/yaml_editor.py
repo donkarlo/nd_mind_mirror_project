@@ -7,6 +7,7 @@ from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QKeyEvent, QTextCursor
 
 from nd_mind_mirror.core.settings.yaml.yaml_settings import YamlSettings
+from nd_mind_mirror.core.yaml.formatting.yaml_formatter import YamlFormatter
 from nd_mind_mirror.ui.editor.base.text_editor import TextEditor
 from nd_mind_mirror.ui.highlighter.yaml.yaml_syntax_highlighter import (
     YamlSyntaxHighlighter,
@@ -29,6 +30,7 @@ class YamlEditor(TextEditor):
         super().__init__(parent)
         self._source_path = Path(source_path).expanduser().resolve()
         self._indent_size = 4
+        self._formatter = YamlFormatter(self._indent_size)
         self._source_update_debounce_ms = 70
         self._source_large_document_threshold_chars = 120000
         self._source_large_document_debounce_ms = 180
@@ -54,6 +56,8 @@ class YamlEditor(TextEditor):
     def apply_settings(self, app_settings: YamlSettings) -> None:
         """Apply shared editor and YAML indentation preferences."""
         self._indent_size = max(int(app_settings.editor_indent_size), 1)
+        if hasattr(self, "_formatter"):
+            self._formatter.set_indent_size(self._indent_size)
         self._source_update_debounce_ms = app_settings.editor_source_update_debounce_ms
         self._source_large_document_threshold_chars = app_settings.editor_source_large_document_threshold_chars
         self._source_large_document_debounce_ms = app_settings.editor_source_large_document_debounce_ms
@@ -185,8 +189,47 @@ class YamlEditor(TextEditor):
         self.document().setModified(False)
 
     def format_document(self) -> None:
-        """Leave YAML untouched by the LaTeX formatter."""
-        return
+        """Normalize YAML indentation as one undoable edit while preserving selection."""
+        source = self.toPlainText()
+        formatted = self._formatter.format(source)
+        if formatted == source:
+            return
+
+        active = self.textCursor()
+        anchor_location = self._location_for_position(active.anchor())
+        position_location = self._location_for_position(active.position())
+
+        edit = QTextCursor(self.document())
+        edit.beginEditBlock()
+        edit.select(QTextCursor.SelectionType.Document)
+        edit.insertText(formatted)
+        edit.endEditBlock()
+
+        restored = QTextCursor(self.document())
+        restored.setPosition(self._position_for_location(anchor_location))
+        restored.setPosition(
+            self._position_for_location(position_location),
+            QTextCursor.MoveMode.KeepAnchor,
+        )
+        self.setTextCursor(restored)
+        self.ensureCursorVisible()
+
+    def _location_for_position(self, position: int) -> tuple[int, int]:
+        """Convert an absolute QTextDocument position to zero-based line/column."""
+        maximum = max(self.document().characterCount() - 1, 0)
+        bounded = max(0, min(int(position), maximum))
+        block = self.document().findBlock(bounded)
+        if not block.isValid():
+            return 0, 0
+        return block.blockNumber(), bounded - block.position()
+
+    def _position_for_location(self, location: tuple[int, int]) -> int:
+        """Convert a saved zero-based line/column to a bounded document position."""
+        line, column = location
+        block = self.document().findBlockByNumber(max(int(line), 0))
+        if not block.isValid():
+            return max(self.document().characterCount() - 1, 0)
+        return block.position() + min(max(int(column), 0), len(block.text()))
 
     def _emit_content(self) -> None:
         """Debounce content emission according to document size."""

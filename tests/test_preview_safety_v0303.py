@@ -39,3 +39,11 @@ def test_sparse_content_fit_falls_back_to_page_width() -> None:
     code = (root / "src/nd_mind_mirror/ui/preview/pdf/selectable_pdf_view.py").read_text()
     assert "_MIN_CONTENT_FIT_FRACTION = 0.20" in code
     assert "content_width_points = 0.0" in code
+
+
+def test_preview_export_uses_native_dialog_and_current_source_directory() -> None:
+    root = Path(__file__).resolve().parents[1]
+    code = (root / "src/nd_mind_mirror/ui/panel/preview/preview_panel.py").read_text()
+    assert "QFileDialog.getSaveFileName(" in code
+    assert "DontUseNativeDialog" not in code
+    assert 'resolve().with_suffix(".pdf")' in code

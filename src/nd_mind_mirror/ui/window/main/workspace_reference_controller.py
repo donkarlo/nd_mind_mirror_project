@@ -159,16 +159,7 @@ class WorkspaceReferenceController:
             cls._resolver_for_renderer(renderer)
 
         def environment(renderer: LatexRenderer, working_directory: Path):
-            result = cls._original_environment(renderer, working_directory)
-            root = cls._resolver_for_renderer(renderer).default_path
-            if root is None:
-                return result
-            recursive = f"{root}//"
-            for name in ("TEXINPUTS", "BIBINPUTS", "BSTINPUTS"):
-                existing = result.value(name, "")
-                if recursive not in [part for part in existing.split(":") if part]:
-                    result.insert(name, recursive + (":" + existing if existing else ":"))
-            return result
+            return cls._original_environment(renderer, working_directory)
 
         def preview_build(builder: LatexPreviewSourceBuilder, *args, **kwargs) -> str:
             prepared = cls._original_preview_build(builder, *args, **kwargs)

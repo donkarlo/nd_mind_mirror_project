@@ -32,6 +32,7 @@ The file on disk is always the canonical source. Visual editing, Preview wrapper
 
 - LaTeX hierarchy recognizes `\part`, `\chapter`, `\section`, `\subsection`, `\subsubsection`, `\paragraph`, and `\subparagraph`.
 - YAML has a hierarchy-oriented Structure view.
+- `Ctrl+Shift+F` auto-formats `.yaml`/`.yml` indentation using the configured editor indent size while preserving comments, key order, quoting, and block-scalar text.
 - Clicking Structure moves the editor to the corresponding source location.
 - Only the deepest active structure row is semantically highlighted.
 
@@ -263,11 +264,11 @@ New and modified implementation files begin with a concise module description. N
 - New Ubuntu `Insert image in iPad` graphics reuse the last edited iPad canvas size; both new and existing graphics open at logical 100% with the canvas aligned to the top-left viewport. Two-finger pinch zoom remains enabled after opening.
 - Starting the iPad app or reconnecting the bridge does not reopen a stale previous insert/update request and does not create a new blank graphic. Opening an insert request no longer performs an eager blank save before the user changes the canvas.
 - Existing update backgrounds are preserved during ordinary iPad autosaves even if SwiftUI briefly exposes a nil background while a document is loading, preventing a white canvas from overwriting the real PNG.
-- The iPad toolbar can keep any number of persistent Pencil and Highlighter tools. Saved tools store tool type, color, visible width, and opacity in `UserDefaults`; their toolbar buttons are icon-only, with icon color, visual weight/size, and alpha reflecting those saved settings.
-- Pencil and Highlighter width/opacity remain adjustable, but the toolbar no longer prints numeric thickness or transparency labels beside those controls.
+- Pencil and Highlighter toolbar buttons each open their own settings popup for color, thickness, and transparency. The popup can add a new tool immediately after the current tool, change the current tool, switch among same-kind saved tools, or delete one; the main toolbar no longer duplicates those three setting controls.
+- JPG/JPEG and PNG `\includegraphics` targets can both be opened in iPad Edit mode; existing image edits use the native pixel size and save back in the target image format.
 - Photos selected on iPad are inserted as editable image objects rather than replacing the document background. Image objects keep aspect ratio, start at a bounded top-left size, can be selected by finger or Apple Pencil Lasso, moved, proportionally resized, deleted, and support Undo/Redo for insert/delete/move/resize.
 - Editable image-object metadata is stored in the graphic sidecar and returned by the bridge on later Edit operations, while the Ubuntu/base background remains a separate layer. The saved PNG composites base background, image objects, and PencilKit strokes.
-- Lasso stroke selection keeps its four proportional resize handles and dedicated blue move handle for dragging the selected strokes, with Undo/Redo support.
+- Lasso stroke selection keeps four proportional resize handles plus a smaller pale-gray move handle. Resizing changes geometry without scaling stroke thickness, and transformed stroke points are tested in canvas coordinates so moving a selection cannot silently move a different stroke.
 - Canvas width and height are not capped at the former 8192 px limit. Existing PencilKit strokes define the minimum safe canvas dimensions, and the iPad reports when a requested canvas would clip the graphic.
 - Custom canvas numeric fields request the ASCII-capable number pad so canvas dimensions are entered with English digits.
 - The iPad measurement Grid and centimeter Rulers have independent toolbar switches and remain view-only overlays.
@@ -280,5 +281,9 @@ New and modified implementation files begin with a concise module description. N
 - Preview Extend hides Navigator and Source/Visual panes so Preview alone fills the main window, and restores the previous pane visibility when toggled off.
 - Auto Fit no longer performs delayed multi-pass zoom/recenter restoration after each reload; QML preserves the view directly, reducing preview jumps and UI stalls.
 - Visual mode accepts pasted clipboard images through the same managed-image insertion workflow as Source mode, while explicit LaTeX image widths continue to track the visible text width.
+- Folder hits in Double-Shift Search close Search and are revealed, scrolled to, and highlighted in the main Navigator.
+- Small LaTeX files begin their first Preview compile immediately; Auto Fit no longer raster-scans PDF pages on the GUI thread.
+- Preview edit synchronization renders only the current/nearest search result as the visible highlight even when the same phrase occurs more than once.
+- `latex_shortcuts.yaml` is excluded from periodic autosave and is validated as a non-empty shortcut mapping before an explicit save can overwrite it.
 - Navigator selection, rename, drag, bookmarks, autosave, and idle memory compaction remain enabled.
 <!-- ND_IPAD_CURRENT_FEATURES_END -->

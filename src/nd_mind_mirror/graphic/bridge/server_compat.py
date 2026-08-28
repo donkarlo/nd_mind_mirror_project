@@ -1,4 +1,4 @@
-"""Bridge compatibility helpers for editable PNG backgrounds and recent iPad documents."""
+"""Bridge compatibility helpers for editable PNG/JPEG backgrounds and recent iPad documents."""
 
 from __future__ import annotations
 
@@ -8,6 +8,9 @@ import json
 from pathlib import Path
 import time
 from typing import Any
+
+from PySide6.QtCore import QBuffer, QIODevice
+from PySide6.QtGui import QImage
 
 from . import __version__
 from .server import GraphicBridgeServer
@@ -112,6 +115,31 @@ class PreservingGraphicBridgeServer(GraphicBridgeServer):
         resolved = sidecar.expanduser().resolve()
         update = dict(payload)
         injected = False
+
+        # ND_MIGRATION4_JPEG_PRESERVE
+        # The iPad renderer sends a lossless PNG composite. If the LaTeX image
+        # being edited is .jpg/.jpeg, encode that composite back to JPEG before
+        # the base bridge atomically replaces the target file.
+        try:
+            _sidecar_data, target_image_path = self._read_document(sidecar)
+        except (OSError, ValueError):
+            target_image_path = Path()
+        if target_image_path.suffix.lower() in {".jpg", ".jpeg"}:
+            encoded = str(update.get("png_base64", "") or "")
+            if encoded:
+                try:
+                    raw = base64.b64decode(encoded, validate=True)
+                    image = QImage.fromData(raw)
+                    if not image.isNull():
+                        buffer = QBuffer()
+                        if buffer.open(QIODevice.OpenModeFlag.WriteOnly):
+                            if image.save(buffer, "JPG", 95):
+                                update["png_base64"] = base64.b64encode(
+                                    bytes(buffer.data())
+                                ).decode("ascii")
+                            buffer.close()
+                except Exception:
+                    pass
 
         if resolved in self._inferred_background_sidecars and "background_image_base64" not in update:
             try:

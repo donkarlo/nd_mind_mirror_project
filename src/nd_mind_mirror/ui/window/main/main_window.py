@@ -851,6 +851,59 @@ class MainWindow(Window):
         content: str,
         show_error: bool,
     ) -> bool:
+        # ND_MIGRATION4_SHORTCUT_SAVE_VALIDATION
+        try:
+            protected_shortcut_path = Path(
+                self._app_settings.latex_shortcuts_file_path
+            ).expanduser().resolve()
+            candidate_path = Path(path).expanduser().resolve()
+        except (OSError, TypeError, ValueError):
+            protected_shortcut_path = None
+            candidate_path = None
+
+        if (
+            protected_shortcut_path is not None
+            and candidate_path == protected_shortcut_path
+        ):
+            valid_shortcuts = False
+            validation_error = ""
+            try:
+                import yaml
+
+                payload = yaml.safe_load(content)
+                shortcuts = payload.get("shortcuts") if isinstance(payload, dict) else None
+                valid_shortcuts = (
+                    isinstance(shortcuts, dict)
+                    and bool(shortcuts)
+                    and all(
+                        isinstance(entry, dict)
+                        and isinstance(entry.get("replacement"), str)
+                        and bool(entry.get("replacement", "").strip())
+                        for entry in shortcuts.values()
+                    )
+                )
+                if not valid_shortcuts:
+                    validation_error = (
+                        "latex_shortcuts.yaml must contain a non-empty 'shortcuts' "
+                        "mapping whose entries have non-empty replacements."
+                    )
+            except Exception as exc:
+                validation_error = str(exc)
+
+            if not valid_shortcuts:
+                message = validation_error or "Invalid latex_shortcuts.yaml"
+                self.statusBar().showMessage(
+                    "Not saved: " + message,
+                    6000,
+                )
+                if show_error:
+                    QMessageBox.warning(
+                        self,
+                        "Invalid LaTeX shortcuts",
+                        "The shortcut file was not overwritten.\n\n" + message,
+                    )
+                return False
+
         try:
             self._document.save(
                 path,
@@ -898,6 +951,22 @@ class MainWindow(Window):
             path,
             content,
         ) in self._editor_panel.modified_documents():
+            # ND_MIGRATION4_SHORTCUT_AUTOSAVE_GUARD
+            # latex_shortcuts.yaml is a configuration dictionary, not a normal
+            # prose document. Never persist a half-typed transient buffer from
+            # the periodic autosave timer.
+            try:
+                shortcut_path = Path(
+                    self._app_settings.latex_shortcuts_file_path
+                ).expanduser().resolve()
+            except (OSError, TypeError, ValueError):
+                shortcut_path = None
+            try:
+                current_path = Path(path).expanduser().resolve()
+            except (OSError, TypeError, ValueError):
+                current_path = None
+            if shortcut_path is not None and current_path == shortcut_path:
+                continue
             if self._save_document(
                 path,
                 content,

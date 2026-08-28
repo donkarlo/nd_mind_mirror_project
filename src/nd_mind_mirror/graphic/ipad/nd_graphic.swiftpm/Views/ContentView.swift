@@ -18,6 +18,7 @@ struct ContentView: View {
     @AppStorage("graphic.last.canvas.height") private var rememberedCanvasHeight: Double = 1754
     // ND_DYNAMIC_TOOLBAR_STATE_V1
     @StateObject private var savedTools = SavedDrawingToolStore()
+    @State private var editingSavedToolID: UUID?
     @StateObject private var imageObjectManager = CanvasImageObjectManager()
     @AppStorage("graphic.stroke.lastOpacity") private var toolOpacity: Double = 1.0
     @State private var localDrawing = PKDrawing()
@@ -286,10 +287,11 @@ struct ContentView: View {
                 .controlSize(.small)
                 .help("Show or hide the top and left centimeter rulers")
 
-                // ND_DYNAMIC_SAVED_TOOLS_V1
+                // ND_TOOL_POPUP_MIGRATION4
                 ForEach(savedTools.tools) { saved in
                     Button {
                         applySavedTool(saved)
+                        editingSavedToolID = saved.id
                     } label: {
                         Image(systemName: saved.kind == .highlighter ? "highlighter" : "pencil")
                             .symbolRenderingMode(.monochrome)
@@ -309,87 +311,23 @@ struct ContentView: View {
                             )
                     }
                     .buttonStyle(.plain)
-                }
-
-                Menu {
-                    if tool.supportsColor && tool.supportsWidth {
-                        Button("Add current settings") {
-                            _ = savedTools.add(
-                                kind: tool,
-                                color: pencil.color,
-                                width: pencil.width,
-                                opacity: toolOpacity
-                            )
-                        }
-                    }
-                    Button("Add Pencil with current settings") {
-                        _ = savedTools.add(
-                            kind: .pencil,
-                            color: pencil.color,
-                            width: pencil.width,
-                            opacity: toolOpacity
-                        )
-                    }
-                    Button("Add Highlighter with current settings") {
-                        _ = savedTools.add(
-                            kind: .highlighter,
-                            color: pencil.color,
-                            width: pencil.width,
-                            opacity: toolOpacity
-                        )
-                    }
-                } label: {
-                    Image(systemName: "plus.circle")
-                        .frame(width: 28, height: 28)
-                }
-                .help("Add another persistent drawing tool")
-
-                // ND_SAVED_TOOL_MANAGEMENT_MENU_V1
-                Menu {
-                    ForEach(savedTools.tools) { saved in
-                        Menu("\(saved.kind.rawValue) • \(saved.colorHex)") {
-                            Button("Update from current settings") {
-                                savedTools.update(
-                                    id: saved.id,
-                                    kind: tool.supportsColor ? tool : saved.kind,
-                                    color: pencil.color,
-                                    width: pencil.width,
-                                    opacity: toolOpacity
-                                )
+                    .popover(
+                        isPresented: Binding(
+                            get: { editingSavedToolID == saved.id },
+                            set: { presented in
+                                if !presented && editingSavedToolID == saved.id {
+                                    editingSavedToolID = nil
+                                }
                             }
-                            Button("Move left") { savedTools.moveLeft(id: saved.id) }
-                            Button("Move right") { savedTools.moveRight(id: saved.id) }
-                            Divider()
-                            Button("Delete saved tool", role: .destructive) {
-                                savedTools.remove(id: saved.id)
-                            }
-                        }
+                        ),
+                        arrowEdge: .top
+                    ) {
+                        savedToolEditor(saved)
                     }
-                } label: {
-                    Image(systemName: "slider.horizontal.3")
-                        .frame(width: 28, height: 28)
                 }
-                .help("Manage saved drawing tools")
 
                 toolButton(.eraser, systemImage: "eraser")
                 toolButton(.lasso, systemImage: "lasso")
-
-                if tool.supportsColor {
-                    ColorPicker("Color", selection: toolColorBinding, supportsOpacity: false)
-                        .labelsHidden()
-                        .frame(width: 30)
-                }
-
-                if tool.supportsWidth {
-                    CompactThicknessSlider(value: $pencil.width, range: 0.5...60, step: 0.5)
-                        .frame(width: 108, height: 24)
-                }
-
-                if tool.supportsColor {
-                    Slider(value: $toolOpacity, in: 0.05...1.0, step: 0.05)
-                        .frame(width: 88)
-                        .help("Opacity")
-                }
 
                 PhotosPicker(selection: $selectedPhotoItem, matching: .images) {
                     Image(systemName: "photo.badge.plus")
@@ -497,6 +435,104 @@ struct ContentView: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 4)
         .background(Color(uiColor: .secondarySystemBackground))
+    }
+
+    /// Edits one Pencil/Highlighter configuration in a dedicated popup.
+    @ViewBuilder
+    private func savedToolEditor(_ saved: SavedDrawingTool) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Image(systemName: saved.kind == .highlighter ? "highlighter" : "pencil")
+                Text(saved.kind == .highlighter ? "Highlighter" : "Pencil")
+                    .font(.headline)
+                Spacer()
+            }
+
+            ColorPicker("Color", selection: toolColorBinding, supportsOpacity: false)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Thickness")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Slider(value: $pencil.width, in: 0.5...60, step: 0.5)
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Transparency")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Slider(
+                    value: Binding(
+                        get: { 1.0 - toolOpacity },
+                        set: { toolOpacity = 1.0 - $0 }
+                    ),
+                    in: 0.0...0.95,
+                    step: 0.05
+                )
+            }
+
+            HStack {
+                Button {
+                    if let newID = savedTools.add(
+                        kind: saved.kind,
+                        color: pencil.color,
+                        width: pencil.width,
+                        opacity: toolOpacity,
+                        after: saved.id
+                    ) {
+                        editingSavedToolID = newID
+                    }
+                } label: {
+                    Label("Add after current", systemImage: "plus")
+                }
+                .buttonStyle(.borderedProminent)
+
+                Button("Change current") {
+                    savedTools.update(
+                        id: saved.id,
+                        kind: saved.kind,
+                        color: pencil.color,
+                        width: pencil.width,
+                        opacity: toolOpacity
+                    )
+                }
+                .buttonStyle(.bordered)
+            }
+
+            Divider()
+            Text("Saved \(saved.kind == .highlighter ? "highlighters" : "pencils")")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(savedTools.tools.filter { $0.kind == saved.kind }) { other in
+                        Button {
+                            applySavedTool(other)
+                            editingSavedToolID = other.id
+                        } label: {
+                            Image(systemName: other.kind == .highlighter ? "highlighter" : "pencil")
+                                .foregroundStyle(Color(hex: other.colorHex).opacity(other.opacity))
+                                .frame(width: 32, height: 28)
+                                .background(
+                                    other.id == saved.id ? Color.accentColor.opacity(0.16) : Color.clear,
+                                    in: RoundedRectangle(cornerRadius: 7)
+                                )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+
+            Button("Delete current tool", role: .destructive) {
+                savedTools.remove(id: saved.id)
+                editingSavedToolID = nil
+            }
+        }
+        .padding(18)
+        .frame(minWidth: 360)
+        .onAppear {
+            applySavedTool(saved)
+        }
     }
 
     /// Applies one persistent toolbar drawing tool.

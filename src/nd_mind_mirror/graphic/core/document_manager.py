@@ -8,6 +8,8 @@ import re
 import struct
 import zlib
 
+from PySide6.QtGui import QImageReader
+
 
 @dataclass(frozen=True)
 class GraphicDocument:
@@ -114,13 +116,14 @@ class GraphicDocumentManager:
         if not image.is_absolute():
             image = source_file.parent / image
         image = image.resolve()
-        if image.suffix.lower() != ".png":
+        if image.suffix.lower() not in {".png", ".jpg", ".jpeg"}:
             return None
         sidecar = image.with_suffix(".ndgraphic")
         if not sidecar.exists():
             self._write_sidecar(sidecar, image, source_file)
         else:
             self._ensure_source_name(sidecar, source_file)
+            self._ensure_image_canvas_size(sidecar, image)
         return GraphicReference(
             image_path=image,
             sidecar_path=sidecar,
@@ -149,12 +152,16 @@ class GraphicDocumentManager:
         source_name = ""
         if source_path is not None:
             source_name = Path(source_path).expanduser().name
+        # ND_MIGRATION4_NATIVE_IMAGE_CANVAS
+        native_width, native_height = self._image_dimensions(image_path)
+        canvas_width = native_width if native_width > 0 else self.canvas_width
+        canvas_height = native_height if native_height > 0 else self.canvas_height
         payload = {
             "version": 1,
             "image_name": image_path.name,
             "source_name": source_name,
-            "canvas_width": self.canvas_width,
-            "canvas_height": self.canvas_height,
+            "canvas_width": canvas_width,
+            "canvas_height": canvas_height,
             "drawing_data_base64": "",
             "background_image_base64": "",
             "web_strokes": [],
@@ -167,6 +174,48 @@ class GraphicDocumentManager:
         temp = sidecar.with_suffix(sidecar.suffix + ".tmp")
         temp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
         temp.replace(sidecar)
+
+    @staticmethod
+    def _image_dimensions(image_path: Path) -> tuple[int, int]:
+        try:
+            size = QImageReader(str(image_path)).size()
+        except Exception:
+            return 0, 0
+        if not size.isValid():
+            return 0, 0
+        return max(int(size.width()), 0), max(int(size.height()), 0)
+
+    @classmethod
+    def _ensure_image_canvas_size(cls, sidecar: Path, image_path: Path) -> None:
+        """Use native JPG/PNG size until editable drawing/background data exists."""
+        try:
+            payload = json.loads(sidecar.read_text(encoding="utf-8"))
+        except (OSError, ValueError, TypeError):
+            return
+        if not isinstance(payload, dict):
+            return
+        if str(payload.get("drawing_data_base64", "") or "").strip():
+            return
+        if str(payload.get("background_image_base64", "") or "").strip():
+            return
+        if payload.get("image_objects"):
+            return
+        width, height = cls._image_dimensions(image_path)
+        if width <= 0 or height <= 0:
+            return
+        if (
+            int(payload.get("canvas_width", 0) or 0) == width
+            and int(payload.get("canvas_height", 0) or 0) == height
+        ):
+            return
+        payload["canvas_width"] = width
+        payload["canvas_height"] = height
+        try:
+            temporary = sidecar.with_suffix(sidecar.suffix + ".tmp")
+            temporary.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+            temporary.replace(sidecar)
+        except OSError:
+            return
 
     @staticmethod
     def _ensure_source_name(sidecar: Path, source_path: Path) -> None:

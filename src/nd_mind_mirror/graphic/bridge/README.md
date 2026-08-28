@@ -6,23 +6,29 @@ Run the bridge on the Ubuntu computer from the project root:
 ./nd_graphic_bridge
 ```
 
-The process exposes two local transports at the same time:
+The bridge currently supports three transports:
 
-- `http://0.0.0.0:8766` / `ws://0.0.0.0:8766/ws` for the desktop notifier, diagnostics, and compatibility clients.
-- `tcp://0.0.0.0:8767` for the native iPad Swift Playgrounds app.
+- HTTP/WebSocket for desktop diagnostics and compatibility clients. The preferred port is `8766`.
+- Legacy direct TCP fallback. The preferred port is `8767`.
+- Reverse iPad transport: the native iPad app listens on TCP port `8768`, and Ubuntu scans the LAN and connects to the iPad. This is the current native iPad transport.
 
-The current iPad app uses the WebSocket endpoint on port 8766 through `URLSessionWebSocketTask`. On iPadOS 17 and later, IP-literal connections are covered by explicit private-network CIDR exceptions in the app's `Info.plist`, which avoids the ATS `-1022` failure seen with a bare IP URL. The direct TCP endpoint on port 8767 remains available as a diagnostic/fallback transport.
+## Automatic port fallback
 
-To get the Ubuntu LAN address:
+`nd_graphic_bridge` no longer fails just because another program already owns one of the Ubuntu listener ports.
+
+- If WebSocket port `8766` is occupied, the launcher selects the next available port while keeping the legacy TCP preferred port and iPad listener port reserved. With the defaults this normally means `8769`, then `8770`, and so on.
+- If legacy TCP port `8767` is occupied, the launcher also selects the next available non-conflicting port.
+- TCP port `8768` is reserved for the listener running on the iPad and is never reused as an Ubuntu fallback port.
+- Existing processes are not killed or modified.
+- The selected ports are printed in the launcher output, for example `websocket port 8766 busy -> using 8769`.
+- The Python module performs the same collision check as a second safeguard when it is launched directly with `python -m nd_mind_mirror.graphic.bridge`.
+
+The port probe uses ordinary socket binding and does not require `sudo`, `lsof`, or manual PID cleanup.
+
+To inspect the Ubuntu LAN address when needed:
 
 ```bash
 hostname -I
-```
-
-For example, if the LAN address is `10.0.0.73`, enter this in ND Graphic:
-
-```text
-ws://10.0.0.73:8766/ws
 ```
 
 The iPad and Ubuntu computer must be on the same local network, and Local Network permission must be enabled for ND Graphic on iPadOS.

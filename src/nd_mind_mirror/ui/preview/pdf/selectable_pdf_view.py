@@ -1,4 +1,5 @@
 from pathlib import Path
+import time
 
 from PySide6.QtCore import QSize, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QImage, QMouseEvent, QWheelEvent
@@ -22,6 +23,9 @@ class SelectablePdfView(QQuickWidget):
         self._fit_token = 0
         self._zoom_token = 0
         self._last_view_status: tuple[float, int, int] | None = None
+        self._preview_perf_pdf_started_at = 0.0
+        self._preview_perf_pdf_path: Path | None = None
+        self._preview_perf_ready_reported = True
         self._is_panning = False
         self._pan_last_position = None
         self._fit_document = QPdfDocument(self)
@@ -295,6 +299,9 @@ class SelectablePdfView(QQuickWidget):
         page_height_points: float,
     ) -> tuple[float, float] | None:
         """Estimate horizontal painted-content bounds from a small PDF render."""
+        # ND_MIGRATION4_NO_FIT_RASTER_SCAN
+        # Auto Fit must never raster-scan pages on the GUI thread.
+        return None
         if page_width_points <= 0 or page_height_points <= 0:
             return None
         cache_key = (str(self._fit_document_path or ""), int(page_index))
@@ -387,6 +394,19 @@ class SelectablePdfView(QQuickWidget):
 
     def _poll_view_status(self) -> None:
         status = self.view_status()
+        if (
+            not self._preview_perf_ready_reported
+            and self._preview_perf_pdf_started_at > 0.0
+            and status[2] > 0
+        ):
+            ready_ms = (time.perf_counter() - self._preview_perf_pdf_started_at) * 1000.0
+            print(
+                "[preview-perf] qt_pdf_ready "
+                f"elapsed_ms={ready_ms:.1f} pages={status[2]} "
+                f"path={self._preview_perf_pdf_path}",
+                flush=True,
+            )
+            self._preview_perf_ready_reported = True
         rounded = (round(status[0], 2), status[1], status[2])
         if rounded == self._last_view_status:
             return
@@ -431,6 +451,23 @@ class SelectablePdfView(QQuickWidget):
             return False
 
         resolved_path = Path(path).resolve()
+        self._preview_perf_pdf_started_at = time.perf_counter()
+        self._preview_perf_pdf_path = resolved_path
+        self._preview_perf_ready_reported = False
+        try:
+            pdf_age_ms = max(
+                (time.time() - resolved_path.stat().st_mtime) * 1000.0,
+                0.0,
+            )
+        except OSError:
+            pdf_age_ms = -1.0
+        print(
+            "[preview-perf] qt_show_pdf_begin "
+            f"pdf_age_ms={pdf_age_ms:.1f} path={resolved_path} "
+            f"reset_position={bool(reset_position)}",
+            flush=True,
+        )
+        fit_load_started_at = time.perf_counter()
         if resolved_path != self._fit_document_path:
             try:
                 self._fit_document.close()
@@ -439,6 +476,12 @@ class SelectablePdfView(QQuickWidget):
                 self._rendered_bounds_cache.clear()
             except Exception:
                 self._fit_document_path = None
+        fit_load_ms = (time.perf_counter() - fit_load_started_at) * 1000.0
+        print(
+            "[preview-perf] qt_fit_document_loaded "
+            f"elapsed_ms={fit_load_ms:.1f} path={resolved_path}",
+            flush=True,
+        )
 
         root.setProperty(
             "resetPositionOnReload",
@@ -456,6 +499,13 @@ class SelectablePdfView(QQuickWidget):
         root.setProperty(
             "reloadToken",
             self._reload_token,
+        )
+        handoff_ms = (time.perf_counter() - self._preview_perf_pdf_started_at) * 1000.0
+        print(
+            "[preview-perf] qt_show_pdf_handoff "
+            f"elapsed_ms={handoff_ms:.1f} reload_token={self._reload_token} "
+            f"path={resolved_path}",
+            flush=True,
         )
         QTimer.singleShot(150, self._poll_view_status)
         return True
