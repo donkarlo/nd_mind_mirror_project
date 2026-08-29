@@ -1,5 +1,6 @@
-// Hosts the PencilKit canvas, viewport zoom with explicit 100% reset, two-finger undo, lasso selection, and proportional selection resizing.
+// Hosts the PencilKit canvas, explicit zoom, undo, lasso selection, and proportional selection resizing.
 // ND_MIND_MIRROR_IPAD_LAYOUT_20260823
+// ND_MIGRATION4_FIX2_20260828
 
 import PencilKit
 import SwiftUI
@@ -7,7 +8,6 @@ import UIKit
 
 /// Draws a touch-through selection frame with four finger-draggable proportional resize handles.
 final class SelectionResizeOverlay: UIView {
-    /// Names one corner of the active selection rectangle.
     enum Corner: Int, CaseIterable {
         case topLeft = 0
         case topRight = 1
@@ -21,9 +21,7 @@ final class SelectionResizeOverlay: UIView {
     private var selectionBounds: CGRect?
     private var zoomScale: CGFloat = 1.0
 
-    /// Creates the thin border and its four circular handles.
     override init(frame: CGRect) {
-        // ND_SELECTION_MOVE_HANDLE_V1
         handles = Corner.allCases.map { corner in
             let handle = UIView()
             handle.tag = corner.rawValue
@@ -43,19 +41,17 @@ final class SelectionResizeOverlay: UIView {
         for handle in handles {
             addSubview(handle)
         }
-        moveHandle.backgroundColor = UIColor.systemGray3.withAlphaComponent(0.72)
+        moveHandle.backgroundColor = UIColor.systemGray3.withAlphaComponent(0.62)
         moveHandle.layer.borderColor = UIColor.systemGray5.cgColor
-        moveHandle.layer.borderWidth = 1.5
+        moveHandle.layer.borderWidth = 0.9
         moveHandle.isUserInteractionEnabled = true
         addSubview(moveHandle)
     }
 
-    /// Supports UIKit construction only; Interface Builder is not used by the Swift package.
     required init?(coder: NSCoder) {
         nil
     }
 
-    /// Shows a selection rectangle using logical canvas coordinates.
     func setSelection(bounds: CGRect, zoomScale: CGFloat) {
         selectionBounds = bounds.standardized
         self.zoomScale = max(zoomScale, 0.05)
@@ -63,7 +59,6 @@ final class SelectionResizeOverlay: UIView {
         setNeedsLayout()
     }
 
-    /// Updates handle sizes after a canvas pinch without changing the logical selection.
     func updateZoom(_ zoomScale: CGFloat) {
         self.zoomScale = max(zoomScale, 0.05)
         if selectionBounds != nil {
@@ -71,14 +66,12 @@ final class SelectionResizeOverlay: UIView {
         }
     }
 
-    /// Hides the frame because no usable lasso selection remains.
     func clearSelection() {
         selectionBounds = nil
         isHidden = true
         borderLayer.path = nil
     }
 
-    /// Returns one logical corner point of the currently displayed rectangle.
     func cornerPoint(_ corner: Corner) -> CGPoint? {
         guard let bounds = selectionBounds else { return nil }
         switch corner {
@@ -93,7 +86,6 @@ final class SelectionResizeOverlay: UIView {
         }
     }
 
-    /// Returns the corner diagonally opposite the supplied corner.
     static func opposite(_ corner: Corner) -> Corner {
         switch corner {
         case .topLeft: return .bottomRight
@@ -103,7 +95,6 @@ final class SelectionResizeOverlay: UIView {
         }
     }
 
-    /// Keeps the border thin and the handles roughly 28 screen points regardless of zoom.
     override func layoutSubviews() {
         super.layoutSubviews()
         guard let bounds = selectionBounds else { return }
@@ -114,15 +105,15 @@ final class SelectionResizeOverlay: UIView {
         borderLayer.lineWidth = lineWidth
         borderLayer.path = UIBezierPath(rect: bounds).cgPath
 
-        let moveWidth = 34.0 / scale
-        let moveHeight = 18.0 / scale
+        let moveWidth = 30.0 / scale
+        let moveHeight = 16.0 / scale
         moveHandle.bounds = CGRect(x: 0, y: 0, width: moveWidth, height: moveHeight)
         moveHandle.center = CGPoint(
             x: bounds.midX,
-            y: max(moveHeight / 2, bounds.minY - 13.0 / scale)
+            y: max(moveHeight / 2, bounds.minY - 12.0 / scale)
         )
         moveHandle.layer.cornerRadius = moveHeight / 2
-        moveHandle.layer.borderWidth = max(1.5 / scale, 0.6)
+        moveHandle.layer.borderWidth = max(0.9 / scale, 0.45)
 
         for corner in Corner.allCases {
             let handle = handles[corner.rawValue]
@@ -134,7 +125,6 @@ final class SelectionResizeOverlay: UIView {
         }
     }
 
-    /// Lets PencilKit receive all touches except direct touches on resize handles.
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         guard !isHidden else { return nil }
         let movePoint = moveHandle.convert(point, from: self)
@@ -155,12 +145,10 @@ final class SelectionResizeOverlay: UIView {
 struct PencilCanvasView: UIViewRepresentable {
     let drawing: PKDrawing
     let backgroundImage: UIImage?
+    let activeToolController: ActiveDrawingToolController
     let documentToken: Int
     let documentIdentifier: String
     let tool: GraphicTool
-    let color: Color
-    let width: Double
-    let opacity: Double
     let imageObjects: [CanvasImageObject]
     let selectedImageObjectID: UUID?
     let logicalCanvasSize: CGSize
@@ -173,7 +161,6 @@ struct PencilCanvasView: UIViewRepresentable {
     let onImageObjectSelectionChanged: (UUID?) -> Void
     let onImageObjectsCommitted: ([CanvasImageObject], UUID?, String) -> Void
 
-    /// Creates the coordinator that owns PencilKit, lasso observation, resize, and UIScrollView callbacks.
     func makeCoordinator() -> Coordinator {
         Coordinator(
             onDrawingChanged: onDrawingChanged,
@@ -182,7 +169,6 @@ struct PencilCanvasView: UIViewRepresentable {
         )
     }
 
-    /// Builds the scroll view, background, PencilKit canvas, resize overlay, and gesture recognizers.
     func makeUIView(context: Context) -> UIScrollView {
         let scroll = UIScrollView()
         scroll.backgroundColor = UIColor.secondarySystemBackground
@@ -195,6 +181,8 @@ struct PencilCanvasView: UIViewRepresentable {
         scroll.showsVerticalScrollIndicator = true
         scroll.contentInsetAdjustmentBehavior = .never
         scroll.panGestureRecognizer.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
+        scroll.panGestureRecognizer.minimumNumberOfTouches = 2
+        scroll.panGestureRecognizer.maximumNumberOfTouches = 2
         scroll.pinchGestureRecognizer?.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
         scroll.minimumZoomScale = 0.05
         scroll.maximumZoomScale = 10.0
@@ -209,7 +197,6 @@ struct PencilCanvasView: UIViewRepresentable {
         background.image = backgroundImage
         content.addSubview(background)
 
-        // ND_CANVAS_IMAGE_LAYER_V1
         let imageObjectLayer = CanvasImageObjectLayerView(frame: content.bounds)
         imageObjectLayer.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         imageObjectLayer.setObjects(imageObjects)
@@ -237,9 +224,9 @@ struct PencilCanvasView: UIViewRepresentable {
         canvas.zoomScale = 1.0
         canvas.delegate = context.coordinator
         canvas.drawing = drawing
+        canvas.undoManager?.levelsOfUndo = 0
         content.addSubview(canvas)
 
-        // ND_CANVAS_IMAGE_INTERACTION_V1
         let imageObjectInteraction = CanvasImageObjectInteractionView(frame: content.bounds)
         imageObjectInteraction.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         imageObjectInteraction.onSelectionChanged = { id in
@@ -324,7 +311,8 @@ struct PencilCanvasView: UIViewRepresentable {
         context.coordinator.logicalCanvasSize = logicalCanvasSize
         context.coordinator.activeTool = tool
         context.coordinator.zoom100RequestToken = zoom100RequestToken
-        applyTool(canvas, coordinator: context.coordinator)
+        context.coordinator.lassoObserver?.isEnabled = tool == .lasso
+        activeToolController.attach(canvas: canvas, backgroundView: background)
 
         DispatchQueue.main.async {
             context.coordinator.setZoomTo100Percent()
@@ -334,7 +322,6 @@ struct PencilCanvasView: UIViewRepresentable {
         return scroll
     }
 
-    /// Synchronizes drawing, canvas size, callbacks, background, tool, selection, zoom requests, and viewport without unnecessary resets.
     func updateUIView(_ scroll: UIScrollView, context: Context) {
         let coordinator = context.coordinator
         coordinator.onDrawingChanged = onDrawingChanged
@@ -349,7 +336,13 @@ struct PencilCanvasView: UIViewRepresentable {
             selectionEnabled: tool == .lasso,
             zoomScale: scroll.zoomScale
         )
-        coordinator.backgroundView?.image = backgroundImage
+        if !activeToolController.isRasterEditing {
+            coordinator.backgroundView?.image = backgroundImage
+        }
+        if let canvas = coordinator.canvas, let background = coordinator.backgroundView {
+            canvas.undoManager?.levelsOfUndo = 0
+            activeToolController.attach(canvas: canvas, backgroundView: background)
+        }
         coordinator.measurementGridView?.showGrid = showMeasurementGrid
         coordinator.measurementGridView?.showRulers = showMeasurementRulers
         coordinator.measurementGridView?.isHidden = !showMeasurementGrid && !showMeasurementRulers
@@ -358,6 +351,7 @@ struct PencilCanvasView: UIViewRepresentable {
         let documentChanged = coordinator.documentIdentifier != documentIdentifier
         let toolChanged = coordinator.activeTool != tool
         let zoom100Requested = coordinator.zoom100RequestToken != zoom100RequestToken
+        let previousViewport = coordinator.captureViewport()
 
         if sizeChanged {
             coordinator.logicalCanvasSize = logicalCanvasSize
@@ -381,25 +375,33 @@ struct PencilCanvasView: UIViewRepresentable {
             coordinator.loading = true
             coordinator.canvas?.drawing = drawing
             coordinator.loading = false
-            if documentChanged || sizeChanged {
+            if documentChanged {
                 DispatchQueue.main.async { coordinator.setZoomTo100Percent() }
+            } else if sizeChanged {
+                DispatchQueue.main.async {
+                    coordinator.restoreViewportAfterCanvasResize(previousViewport)
+                }
             } else {
                 DispatchQueue.main.async {
-                    coordinator.centerCanvas()
-                    coordinator.reportZoom()
+                    coordinator.restoreViewportAfterCanvasResize(previousViewport)
                 }
             }
         } else if sizeChanged {
             coordinator.clearSelection()
-            DispatchQueue.main.async { coordinator.setZoomTo100Percent() }
+            DispatchQueue.main.async {
+                coordinator.restoreViewportAfterCanvasResize(previousViewport)
+            }
         }
 
         if toolChanged {
             coordinator.activeTool = tool
+            coordinator.lassoObserver?.isEnabled = tool == .lasso
             if tool != .lasso {
                 coordinator.clearSelection()
                 coordinator.imageObjectInteractionView?.clearSelection(notify: true)
             }
+        } else {
+            coordinator.lassoObserver?.isEnabled = tool == .lasso
         }
 
         if zoom100Requested {
@@ -409,37 +411,14 @@ struct PencilCanvasView: UIViewRepresentable {
             }
         }
 
-        if let canvas = coordinator.canvas {
-            applyTool(canvas, coordinator: coordinator)
-        }
     }
 
-    /// Applies the selected Pencil, Highlighter, Eraser, or native Lasso tool to PencilKit.
-    private func applyTool(_ canvas: PKCanvasView, coordinator: Coordinator) {
-        switch tool {
-        case .pencil:
-            canvas.tool = PKInkingTool(
-                .pencil,
-                color: UIColor(color).withAlphaComponent(CGFloat(min(max(opacity, 0.05), 1.0))),
-                width: CGFloat(max(0.5, width))
-            )
-        case .highlighter:
-            canvas.tool = PKInkingTool(
-                .marker,
-                color: UIColor(color).withAlphaComponent(CGFloat(min(max(opacity, 0.05), 1.0))),
-                width: CGFloat(max(0.5, width))
-            )
-        case .eraser:
-            canvas.tool = PKEraserTool(.vector)
-        case .lasso:
-            canvas.tool = PKLassoTool()
-        }
-        coordinator.lassoObserver?.isEnabled = tool == .lasso
-    }
-
-    /// Coordinates drawing changes, viewport zoom, lasso geometry, proportional resizing, and Undo/Redo.
     final class Coordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, UIGestureRecognizerDelegate {
-        /// Captures one resize drag so every frame is derived from the same unmodified drawing.
+        struct ViewportSnapshot {
+            let zoomScale: CGFloat
+            let normalizedCenter: CGPoint
+        }
+
         private struct MoveSession {
             let originalDrawing: PKDrawing
             let selectedIndices: [Int]
@@ -481,7 +460,6 @@ struct PencilCanvasView: UIViewRepresentable {
         private var resizeSession: ResizeSession?
         private var moveSession: MoveSession?
 
-        /// Stores callbacks used by PencilKit and scroll-view delegates.
         init(
             onDrawingChanged: @escaping (PKDrawing) -> Void,
             onUndoManagerChanged: @escaping (UndoManager?) -> Void,
@@ -492,20 +470,19 @@ struct PencilCanvasView: UIViewRepresentable {
             self.onZoomChanged = onZoomChanged
         }
 
-        /// Publishes PencilKit drawing changes and keeps an existing index-based selection frame attached to moved strokes.
         func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
             guard !loading else { return }
             if resizeSession == nil && moveSession == nil && !selectedStrokeIndices.isEmpty {
-                refreshSelectionBounds()
+                // An external drawing mutation can reorder PencilKit strokes.
+                // Invalidate the old index-based selection instead of risking a wrong move.
+                clearSelection()
             }
             onDrawingChanged(canvasView.drawing)
             onUndoManagerChanged(canvasView.undoManager)
         }
 
-        /// Returns the logical canvas container that UIScrollView should zoom.
         func viewForZooming(in scrollView: UIScrollView) -> UIView? { contentView }
 
-        /// Recenters the canvas, resizes selection handles, and reports zoom after each pinch update.
         func scrollViewDidZoom(_ scrollView: UIScrollView) {
             centerCanvas()
             selectionOverlay?.updateZoom(scrollView.zoomScale)
@@ -513,7 +490,6 @@ struct PencilCanvasView: UIViewRepresentable {
             reportZoom()
         }
 
-        /// Allows the passive Pencil lasso observer to run beside PencilKit's native lasso recognizers.
         func gestureRecognizer(
             _ gestureRecognizer: UIGestureRecognizer,
             shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
@@ -524,15 +500,13 @@ struct PencilCanvasView: UIViewRepresentable {
             return false
         }
 
-        /// Undoes exactly one PencilKit or custom resize operation on a two-finger tap.
         @objc func handleTwoFingerUndo(_ recognizer: UITapGestureRecognizer) {
             guard recognizer.state == .ended, let canvas else { return }
+            clearSelection()
             canvas.undoManager?.undo()
-            refreshSelectionBounds()
             onUndoManagerChanged(canvas.undoManager)
         }
 
-        /// Passively records the Apple Pencil lasso path, then derives selected stroke indices without newer PencilKit selection APIs.
         @objc func handleLassoObservation(_ recognizer: UIPanGestureRecognizer) {
             guard activeTool == .lasso, let canvas else { return }
             switch recognizer.state {
@@ -560,11 +534,10 @@ struct PencilCanvasView: UIViewRepresentable {
             }
         }
 
-        /// Moves the entire current lasso selection by dragging the blue pill handle.
         @objc func handleMoveSelection(_ recognizer: UIPanGestureRecognizer) {
             guard activeTool == .lasso,
                   let overlay = selectionOverlay,
-                  let canvas = canvas,
+                  let canvas,
                   let bounds = currentSelectionBounds(in: canvas.drawing),
                   !selectedStrokeIndices.isEmpty else { return }
 
@@ -646,12 +619,11 @@ struct PencilCanvasView: UIViewRepresentable {
             )
         }
 
-        /// Starts, updates, or commits one proportional resize drag from a circular corner handle.
         @objc func handleResize(_ recognizer: UIPanGestureRecognizer) {
             guard activeTool == .lasso,
                   let handle = recognizer.view,
                   let overlay = selectionOverlay,
-                  let canvas = canvas,
+                  let canvas,
                   let corner = SelectionResizeOverlay.Corner(rawValue: handle.tag),
                   !selectedStrokeIndices.isEmpty else { return }
 
@@ -695,31 +667,19 @@ struct PencilCanvasView: UIViewRepresentable {
             }
         }
 
-        /// Chooses stroke indices whose path samples or rendered center fall inside the completed lasso polygon.
         private func updateSelectionFromLasso(_ drawing: PKDrawing) {
             guard lassoPoints.count >= 3 else {
                 clearSelection()
                 return
             }
+
             var selected: [Int] = []
             for (index, stroke) in drawing.strokes.enumerated() {
-                let bounds = stroke.renderBounds
-                var included = pointInPolygon(
-                    CGPoint(x: bounds.midX, y: bounds.midY),
-                    polygon: lassoPoints
-                )
-                if !included {
-                    for point in stroke.path {
-                        if pointInPolygon(point.location.applying(stroke.transform), polygon: lassoPoints) {
-                            included = true
-                            break
-                        }
-                    }
-                }
-                if included {
+                if strokeIsSubstantiallyInsideLasso(stroke) {
                     selected.append(index)
                 }
             }
+
             selectedStrokeIndices = selected
             refreshSelectionBounds()
             if selected.isEmpty {
@@ -727,7 +687,21 @@ struct PencilCanvasView: UIViewRepresentable {
             }
         }
 
-        /// Uses an even-odd ray test for freeform lasso containment.
+        private func strokeIsSubstantiallyInsideLasso(_ stroke: PKStroke) -> Bool {
+            let center = CGPoint(x: stroke.renderBounds.midX, y: stroke.renderBounds.midY)
+            let centerInside = pointInPolygon(center, polygon: lassoPoints)
+            let points = stroke.path.map { $0.location.applying(stroke.transform) }
+            guard !points.isEmpty else { return centerInside }
+
+            let insideCount = points.reduce(into: 0) { count, point in
+                if pointInPolygon(point, polygon: lassoPoints) { count += 1 }
+            }
+            let fraction = CGFloat(insideCount) / CGFloat(points.count)
+
+            // A single incidental crossing must not select a different stroke.
+            return fraction >= 0.55 || (centerInside && fraction >= 0.25)
+        }
+
         private func pointInPolygon(_ point: CGPoint, polygon: [CGPoint]) -> Bool {
             guard polygon.count >= 3 else { return false }
             var inside = false
@@ -735,15 +709,16 @@ struct PencilCanvasView: UIViewRepresentable {
             for current in 0..<polygon.count {
                 let a = polygon[current]
                 let b = polygon[previous]
-                let crosses = ((a.y > point.y) != (b.y > point.y))
-                    && (point.x < (b.x - a.x) * (point.y - a.y) / ((b.y - a.y) == 0 ? 0.000001 : (b.y - a.y)) + a.x)
-                if crosses { inside.toggle() }
+                let denominator = b.y - a.y
+                if (a.y > point.y) != (b.y > point.y), abs(denominator) > 0.000_001 {
+                    let intersectionX = (b.x - a.x) * (point.y - a.y) / denominator + a.x
+                    if point.x < intersectionX { inside.toggle() }
+                }
                 previous = current
             }
             return inside
         }
 
-        /// Returns the union of render bounds for the currently selected stroke indices.
         private func currentSelectionBounds(in drawing: PKDrawing) -> CGRect? {
             var result: CGRect?
             for index in selectedStrokeIndices where index >= 0 && index < drawing.strokes.count {
@@ -754,7 +729,6 @@ struct PencilCanvasView: UIViewRepresentable {
             return bounds.insetBy(dx: -4, dy: -4)
         }
 
-        /// Recomputes the frame from selected indices after lasso movement, Undo, or programmatic drawing changes.
         private func refreshSelectionBounds() {
             guard let canvas, let overlay = selectionOverlay,
                   let bounds = currentSelectionBounds(in: canvas.drawing) else {
@@ -764,15 +738,14 @@ struct PencilCanvasView: UIViewRepresentable {
             overlay.setSelection(bounds: bounds, zoomScale: scrollView?.zoomScale ?? 1.0)
         }
 
-        /// Clears index tracking and the visible selection frame.
         func clearSelection() {
             lassoPoints.removeAll(keepingCapacity: false)
             selectedStrokeIndices.removeAll(keepingCapacity: false)
             resizeSession = nil
+            moveSession = nil
             selectionOverlay?.clearSelection()
         }
 
-        /// Projects the dragged corner onto the original diagonal so one scalar controls both axes.
         private func proportionalScale(currentPoint: CGPoint, session: ResizeSession) -> CGFloat {
             let originalX = session.originalCornerPoint.x - session.fixedPoint.x
             let originalY = session.originalCornerPoint.y - session.fixedPoint.y
@@ -784,8 +757,8 @@ struct PencilCanvasView: UIViewRepresentable {
             return min(max(projected, 0.08), 20.0)
         }
 
-        // ND_MIGRATION4_PRESERVE_STROKE_THICKNESS
-        /// Applies only geometry to a stroke while preserving each PencilKit control-point size.
+        /// Applies geometry only. PKStrokePoint.size is copied unchanged so resizing
+        /// a selected shape never changes its visible stroke thickness.
         private func strokeByApplyingGeometryTransform(
             _ stroke: PKStroke,
             transform: CGAffineTransform
@@ -813,7 +786,6 @@ struct PencilCanvasView: UIViewRepresentable {
             )
         }
 
-        /// Applies one uniform transform to only the selected stroke indices while the opposite corner stays fixed.
         private func applyResize(
             scale: CGFloat,
             session: ResizeSession,
@@ -822,7 +794,8 @@ struct PencilCanvasView: UIViewRepresentable {
         ) {
             var selectedStrokes: [PKStroke] = []
             var validIndices: [Int] = []
-            for index in session.selectedIndices where index >= 0 && index < session.originalDrawing.strokes.count {
+            for index in session.selectedIndices
+            where index >= 0 && index < session.originalDrawing.strokes.count {
                 selectedStrokes.append(session.originalDrawing.strokes[index])
                 validIndices.append(index)
             }
@@ -839,7 +812,8 @@ struct PencilCanvasView: UIViewRepresentable {
                 }
             )
             var allStrokes = session.originalDrawing.strokes
-            for (offset, index) in validIndices.enumerated() where offset < selectedDrawing.strokes.count {
+            for (offset, index) in validIndices.enumerated()
+            where offset < selectedDrawing.strokes.count {
                 allStrokes[index] = selectedDrawing.strokes[offset]
             }
             let resizedDrawing = PKDrawing(strokes: allStrokes)
@@ -873,7 +847,6 @@ struct PencilCanvasView: UIViewRepresentable {
             onUndoManagerChanged(canvas.undoManager)
         }
 
-        /// Registers a custom resize as one Undo/Redo operation after the finger drag finishes.
         private func registerResizeUndo(original: PKDrawing, final: PKDrawing) {
             guard let manager = canvas?.undoManager else { return }
             manager.registerUndo(withTarget: self) { target in
@@ -882,7 +855,6 @@ struct PencilCanvasView: UIViewRepresentable {
             manager.setActionName("Resize Selection")
         }
 
-        /// Restores one drawing and registers its reciprocal state so UIKit automatically supplies Redo.
         private func restoreDrawingForResize(_ drawing: PKDrawing, reciprocal: PKDrawing) {
             guard let canvas else { return }
             loading = true
@@ -897,248 +869,93 @@ struct PencilCanvasView: UIViewRepresentable {
             onUndoManagerChanged(canvas.undoManager)
         }
 
-        /// Sets the viewport to exactly 100% logical scale while preserving valid zoom bounds and centering.
+        /// Sets the viewport to exactly 100% and top-left. This is used only for
+        /// an explicit 100% request or when a new graphic document opens.
         func setZoomTo100Percent() {
             guard let scroll = scrollView else { return }
-            if scroll.minimumZoomScale > 1.0 {
-                scroll.minimumZoomScale = 0.05
-            }
-            if scroll.maximumZoomScale < 1.0 {
-                scroll.maximumZoomScale = 10.0
-            }
+            scroll.minimumZoomScale = min(scroll.minimumZoomScale, 0.05)
+            scroll.maximumZoomScale = max(scroll.maximumZoomScale, 10.0)
             scroll.setZoomScale(1.0, animated: false)
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
-            scroll.contentInset = .zero
-            scroll.contentOffset = .zero
+            centerCanvas()
+            scroll.contentOffset = CGPoint(
+                x: -scroll.contentInset.left,
+                y: -scroll.contentInset.top
+            )
             selectionOverlay?.updateZoom(scroll.zoomScale)
+            imageObjectInteractionView?.updateZoom(scroll.zoomScale)
             reportZoom()
         }
 
-        /// Fits the logical canvas into the viewport and optionally resets pan/zoom for a new document or size.
+        /// Captures the visual center as a normalized content point before a canvas resize.
+        func captureViewport() -> ViewportSnapshot {
+            guard let scroll = scrollView,
+                  scroll.contentSize.width > 0,
+                  scroll.contentSize.height > 0 else {
+                return ViewportSnapshot(zoomScale: 1.0, normalizedCenter: CGPoint(x: 0.5, y: 0.5))
+            }
+            let centerX = scroll.contentOffset.x + scroll.bounds.width / 2
+            let centerY = scroll.contentOffset.y + scroll.bounds.height / 2
+            return ViewportSnapshot(
+                zoomScale: scroll.zoomScale,
+                normalizedCenter: CGPoint(
+                    x: min(max(centerX / scroll.contentSize.width, 0), 1),
+                    y: min(max(centerY / scroll.contentSize.height, 0), 1)
+                )
+            )
+        }
+
+        /// Preserves zoom and the same relative visual center when only canvas dimensions change.
+        /// It never performs an automatic fit or jumps the viewport to the upper-left corner.
+        func restoreViewportAfterCanvasResize(_ snapshot: ViewportSnapshot) {
+            guard let scroll = scrollView else { return }
+            let preservedZoom = min(
+                max(snapshot.zoomScale, scroll.minimumZoomScale),
+                scroll.maximumZoomScale
+            )
+            scroll.setZoomScale(preservedZoom, animated: false)
+            centerCanvas()
+
+            let targetCenter = CGPoint(
+                x: scroll.contentSize.width * snapshot.normalizedCenter.x,
+                y: scroll.contentSize.height * snapshot.normalizedCenter.y
+            )
+            let proposedOffset = CGPoint(
+                x: targetCenter.x - scroll.bounds.width / 2,
+                y: targetCenter.y - scroll.bounds.height / 2
+            )
+            scroll.contentOffset = clampedContentOffset(proposedOffset, in: scroll)
+            selectionOverlay?.updateZoom(scroll.zoomScale)
+            imageObjectInteractionView?.updateZoom(scroll.zoomScale)
+            reportZoom()
+        }
+
+        private func clampedContentOffset(_ proposed: CGPoint, in scroll: UIScrollView) -> CGPoint {
+            let minimumX = -scroll.contentInset.left
+            let minimumY = -scroll.contentInset.top
+            let maximumX = max(
+                minimumX,
+                scroll.contentSize.width - scroll.bounds.width + scroll.contentInset.right
+            )
+            let maximumY = max(
+                minimumY,
+                scroll.contentSize.height - scroll.bounds.height + scroll.contentInset.bottom
+            )
+            return CGPoint(
+                x: min(max(proposed.x, minimumX), maximumX),
+                y: min(max(proposed.y, minimumY), maximumY)
+            )
+        }
+
         func fitCanvas(reset: Bool) {
             guard let scroll = scrollView,
                   scroll.bounds.width > 1,
                   scroll.bounds.height > 1,
                   logicalCanvasSize.width > 1,
                   logicalCanvasSize.height > 1 else { return }
-            let fit = min(scroll.bounds.width / logicalCanvasSize.width, scroll.bounds.height / logicalCanvasSize.height)
+            let fit = min(
+                scroll.bounds.width / logicalCanvasSize.width,
+                scroll.bounds.height / logicalCanvasSize.height
+            )
             let safeFit = max(fit, 0.05)
             scroll.minimumZoomScale = max(safeFit * 0.5, 0.05)
             scroll.maximumZoomScale = max(safeFit * 10.0, 5.0)
@@ -1151,15 +968,18 @@ struct PencilCanvasView: UIViewRepresentable {
             reportZoom()
         }
 
-        /// Centers a canvas that is smaller than the current viewport along either axis.
         func centerCanvas() {
             guard let scroll = scrollView else { return }
             let horizontal = max((scroll.bounds.width - scroll.contentSize.width) / 2, 0)
             let vertical = max((scroll.bounds.height - scroll.contentSize.height) / 2, 0)
-            scroll.contentInset = UIEdgeInsets(top: vertical, left: horizontal, bottom: vertical, right: horizontal)
+            scroll.contentInset = UIEdgeInsets(
+                top: vertical,
+                left: horizontal,
+                bottom: vertical,
+                right: horizontal
+            )
         }
 
-        /// Sends the current absolute zoom scale to SwiftUI for the visible percentage readout.
         func reportZoom() {
             guard let scroll = scrollView else { return }
             onZoomChanged(scroll.zoomScale)

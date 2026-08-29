@@ -1,15 +1,19 @@
-"""Keep a persistent Preview toggle button in the main window's top-right menu-bar corner."""
+"""Keep Preview controls persistent and own window-scoped Preview/image interactions."""
 
 from PySide6.QtCore import QObject, Qt
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import QMainWindow, QToolButton
 
+from nd_mind_mirror.ui.window.main.graphic_source_context_controller import (
+    GraphicSourceContextController,
+)
+from nd_mind_mirror.ui.window.main.preview_detach_controller import PreviewDetachController
+
 
 class PreviewToggleButtonController(QObject):
-    """Mirror the existing checkable Preview QAction into an always-visible top-right button."""
+    """Mirror Preview QAction and keep its related window-level controllers alive."""
 
     def __init__(self, window: QMainWindow, action: QAction, parent=None) -> None:
-        """Create the persistent button and keep its checked state synchronized with the Preview action."""
         super().__init__(parent or window)
         self._window = window
         self._action = action
@@ -26,6 +30,16 @@ class PreviewToggleButtonController(QObject):
             Qt.Corner.TopRightCorner,
         )
         self._apply_checked_style(self._button.isChecked())
+
+        self._preview_detach_controller = PreviewDetachController(
+            window,
+            action,
+            self,
+        )
+        self._graphic_source_context_controller = GraphicSourceContextController(
+            window,
+            self,
+        )
 
     def _sync_from_action(self, checked: bool) -> None:
         """Update the button without recursively re-triggering the QAction."""

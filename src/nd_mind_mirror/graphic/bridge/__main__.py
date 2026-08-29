@@ -7,7 +7,7 @@ import socket
 
 import uvicorn
 
-from .server_compat import PreservingGraphicBridgeServer
+from .revision_aware_server import RevisionAwareGraphicBridgeServer
 
 
 def _port_is_available(host: str, port: int) -> bool:
@@ -59,7 +59,7 @@ def main() -> int:
     if args.tcp_port != requested_tcp_port:
         print(f"[ND Graphic] Legacy TCP port {requested_tcp_port} busy; using {args.tcp_port}", flush=True)
 
-    server = PreservingGraphicBridgeServer(
+    server = RevisionAwareGraphicBridgeServer(
         args.workspace,
         token=args.token,
         tcp_host=args.host,

@@ -15,8 +15,8 @@ enum GraphicTool: String, CaseIterable, Identifiable {
     /// Reports whether this tool exposes a selectable stroke color palette.
     var supportsColor: Bool { self == .pencil || self == .highlighter }
 
-    /// Reports whether this tool exposes a stroke-width control.
-    var supportsWidth: Bool { self == .pencil || self == .highlighter }
+    /// Reports whether this tool exposes a thickness control.
+    var supportsWidth: Bool { self == .pencil || self == .highlighter || self == .eraser }
 
     /// Returns a stable lowercase key used for per-tool persisted preferences.
     var storageKey: String { rawValue.lowercased() }

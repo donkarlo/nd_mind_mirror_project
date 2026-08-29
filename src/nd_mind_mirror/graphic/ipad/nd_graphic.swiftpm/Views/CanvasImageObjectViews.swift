@@ -21,6 +21,7 @@ final class CanvasImageObjectLayerView: UIView {
             objectViews[id]?.removeFromSuperview()
             objectViews.removeValue(forKey: id)
         }
+
         for object in objects {
             let view: UIImageView
             if let existing = objectViews[object.id] {
@@ -36,6 +37,7 @@ final class CanvasImageObjectLayerView: UIView {
             view.image = object.image
             view.frame = object.frame
         }
+
         for object in objects {
             if let view = objectViews[object.id] {
                 bringSubviewToFront(view)
@@ -94,9 +96,9 @@ final class CanvasImageObjectInteractionView: UIView, UIGestureRecognizerDelegat
             handle.addGestureRecognizer(resize)
         }
 
-        moveHandle.backgroundColor = .systemOrange
-        moveHandle.layer.borderColor = UIColor.white.cgColor
-        moveHandle.layer.borderWidth = 1.5
+        moveHandle.backgroundColor = UIColor.systemGray3.withAlphaComponent(0.68)
+        moveHandle.layer.borderColor = UIColor.systemGray5.cgColor
+        moveHandle.layer.borderWidth = 1.0
         moveHandle.isUserInteractionEnabled = true
         addSubview(moveHandle)
         let move = UIPanGestureRecognizer(target: self, action: #selector(handleMove(_:)))
@@ -153,21 +155,27 @@ final class CanvasImageObjectInteractionView: UIView, UIGestureRecognizerDelegat
         if notify { onSelectionChanged?(nil) }
     }
 
-    /// Selects the topmost image object enclosed or crossed by an Apple Pencil lasso polygon.
+    /// Selects only an image object that is substantially enclosed by the lasso.
+    /// Incidental lasso crossings must not switch the current object selection.
     func selectObject(inLasso polygon: [CGPoint]) {
         guard selectionEnabled, polygon.count >= 3 else { return }
         let hit = objects.reversed().first { object in
             let frame = object.frame
-            let probes = [
-                CGPoint(x: frame.midX, y: frame.midY),
+            let center = CGPoint(x: frame.midX, y: frame.midY)
+            guard pointInPolygon(center, polygon: polygon) else { return false }
+
+            let corners = [
                 CGPoint(x: frame.minX, y: frame.minY),
                 CGPoint(x: frame.maxX, y: frame.minY),
                 CGPoint(x: frame.minX, y: frame.maxY),
                 CGPoint(x: frame.maxX, y: frame.maxY),
             ]
-            return probes.contains(where: { pointInPolygon($0, polygon: polygon) })
-                || polygon.contains(where: { frame.contains($0) })
+            let enclosedCornerCount = corners.reduce(into: 0) { count, point in
+                if pointInPolygon(point, polygon: polygon) { count += 1 }
+            }
+            return enclosedCornerCount >= 2 || frame.width < 12 || frame.height < 12
         }?.id
+
         selectedID = hit
         updateSelectionAppearance()
         onSelectionChanged?(hit)
@@ -197,16 +205,16 @@ final class CanvasImageObjectInteractionView: UIView, UIGestureRecognizerDelegat
             handle.layer.borderWidth = max(1.6 / scale, 0.6)
         }
 
-        let moveWidth = 54.0 / scale
-        let moveHeight = 24.0 / scale
+        let moveWidth = 34.0 / scale
+        let moveHeight = 18.0 / scale
         moveHandle.isHidden = false
         moveHandle.bounds = CGRect(x: 0, y: 0, width: moveWidth, height: moveHeight)
         moveHandle.center = CGPoint(
             x: frame.midX,
-            y: max(moveHeight / 2, frame.minY - 16.0 / scale)
+            y: max(moveHeight / 2, frame.minY - 13.0 / scale)
         )
         moveHandle.layer.cornerRadius = moveHeight / 2
-        moveHandle.layer.borderWidth = max(1.5 / scale, 0.6)
+        moveHandle.layer.borderWidth = max(1.0 / scale, 0.5)
     }
 
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
@@ -220,7 +228,9 @@ final class CanvasImageObjectInteractionView: UIView, UIGestureRecognizerDelegat
             let local = handle.convert(point, from: self)
             if handle.point(inside: local, with: event) { return handle }
         }
-        if objects.reversed().contains(where: { $0.frame.insetBy(dx: -6 / zoomScale, dy: -6 / zoomScale).contains(point) }) {
+        if objects.reversed().contains(where: {
+            $0.frame.insetBy(dx: -6 / zoomScale, dy: -6 / zoomScale).contains(point)
+        }) {
             return self
         }
         return nil
@@ -258,7 +268,17 @@ final class CanvasImageObjectInteractionView: UIView, UIGestureRecognizerDelegat
         let point = recognizer.location(in: self)
         switch recognizer.state {
         case .began:
-            guard let id = selectObject(at: point),
+            let resolvedID: UUID?
+            if let selectedID,
+               let selectedFrame,
+               selectedFrame.insetBy(dx: -6 / zoomScale, dy: -6 / zoomScale).contains(point) {
+                // Never replace an explicit lasso selection merely because another
+                // overlapping object is visually above it at the drag start point.
+                resolvedID = selectedID
+            } else {
+                resolvedID = selectObject(at: point)
+            }
+            guard let id = resolvedID,
                   let frame = objects.first(where: { $0.id == id })?.frame else { return }
             gestureStartObjects = objects
             gestureStartFrame = frame

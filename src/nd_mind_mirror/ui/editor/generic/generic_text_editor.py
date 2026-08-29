@@ -8,6 +8,9 @@ from PySide6.QtGui import QKeyEvent
 
 from nd_mind_mirror.core.settings.yaml.yaml_settings import YamlSettings
 from nd_mind_mirror.ui.editor.base.text_editor import TextEditor
+from nd_mind_mirror.ui.editor.generic.large_text_document_controller import (
+    LargeTextDocumentController,
+)
 from nd_mind_mirror.ui.highlighter.generic.pygments_syntax_highlighter import (
     PygmentsSyntaxHighlighter,
 )
@@ -33,10 +36,15 @@ class GenericTextEditor(TextEditor):
         self._content_emit_timer = QTimer(self)
         self._content_emit_timer.setSingleShot(True)
         self._content_emit_timer.timeout.connect(self._flush_content)
+        self._large_document_controller: LargeTextDocumentController | None = None
         self.apply_settings(app_settings)
         self._highlighter = PygmentsSyntaxHighlighter(
             self.document(),
             self._source_path,
+        )
+        self._large_document_controller = LargeTextDocumentController(
+            self,
+            app_settings,
         )
         self.textChanged.connect(self._emit_content)
         self.document().modificationChanged.connect(
@@ -57,6 +65,8 @@ class GenericTextEditor(TextEditor):
         self._source_large_document_debounce_ms = app_settings.editor_source_large_document_debounce_ms
         if hasattr(self, "_content_emit_timer"):
             self._content_emit_timer.setInterval(self._source_update_debounce_ms)
+        if self._large_document_controller is not None:
+            self._large_document_controller.apply_settings(app_settings)
         self.apply_font_preferences(
             font_family=app_settings.editor_font_family,
             font_size=app_settings.editor_source_font_size,
@@ -108,6 +118,12 @@ class GenericTextEditor(TextEditor):
         super().keyPressEvent(event)
 
     def set_content(self, content: str) -> None:
+        controller = self._large_document_controller
+        if controller is not None and controller.set_content(content):
+            self.content_changed.emit(controller.full_source)
+            self.modification_changed.emit(False)
+            return
+
         self.blockSignals(True)
         self.setPlainText(content)
         self.apply_line_height(self._line_height_percent)
@@ -115,6 +131,55 @@ class GenericTextEditor(TextEditor):
         self.blockSignals(False)
         self.content_changed.emit(content)
         self.modification_changed.emit(False)
+
+    def toPlainText(self) -> str:
+        controller = self._large_document_controller
+        if controller is not None and controller.active:
+            return controller.full_source
+        return super().toPlainText()
+
+    def view_state(self) -> dict[str, int]:
+        controller = self._large_document_controller
+        if controller is not None and controller.active:
+            return controller.view_state()
+        return super().view_state()
+
+    def restore_view_state(self, state: dict | None) -> None:
+        controller = self._large_document_controller
+        if controller is not None and controller.restore_view_state(state):
+            return
+        super().restore_view_state(state)
+
+    def go_to_line(
+        self,
+        line_number: int,
+        align_top: bool = True,
+    ) -> None:
+        controller = self._large_document_controller
+        if controller is not None and controller.go_to_line(line_number, align_top):
+            return
+        super().go_to_line(line_number, align_top)
+
+    def first_visible_source_position(self) -> tuple[int, int]:
+        controller = self._large_document_controller
+        if controller is not None:
+            position = controller.first_visible_source_position()
+            if position is not None:
+                return position
+        return super().first_visible_source_position()
+
+    def set_search_highlights(
+        self,
+        ranges: list[tuple[int, int]],
+        current_index: int = -1,
+    ) -> None:
+        controller = self._large_document_controller
+        if controller is not None and controller.active:
+            ranges, current_index = controller.visible_search_ranges(
+                ranges,
+                current_index,
+            )
+        super().set_search_highlights(ranges, current_index)
 
     def mark_saved(self) -> None:
         self.document().setModified(False)
@@ -126,7 +191,7 @@ class GenericTextEditor(TextEditor):
     def _emit_content(self) -> None:
         interval = (
             self._source_large_document_debounce_ms
-            if self.document().characterCount() >= self._source_large_document_threshold_chars
+            if len(self.toPlainText()) >= self._source_large_document_threshold_chars
             else self._source_update_debounce_ms
         )
         self._content_emit_timer.setInterval(interval)

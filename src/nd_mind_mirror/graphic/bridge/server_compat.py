@@ -17,7 +17,7 @@ from .server import GraphicBridgeServer
 
 
 class PreservingGraphicBridgeServer(GraphicBridgeServer):
-    """Preserve PNG backgrounds, image objects, and resilient iPad transports."""
+    """Preserve image backgrounds and reject destructive blank iPad renders."""
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -107,6 +107,73 @@ class PreservingGraphicBridgeServer(GraphicBridgeServer):
         self._inferred_background_sidecars.add(sidecar.expanduser().resolve())
         return payload
 
+    @staticmethod
+    def _informative_pixel_fraction(image: QImage) -> float:
+        """Estimate how much visible non-white information a rendered image contains."""
+        if image.isNull():
+            return 0.0
+        sample = image.scaled(96, 96)
+        if sample.isNull() or sample.width() <= 0 or sample.height() <= 0:
+            return 0.0
+        informative = 0
+        total = sample.width() * sample.height()
+        for y in range(sample.height()):
+            for x in range(sample.width()):
+                color = sample.pixelColor(x, y)
+                if min(color.red(), color.green(), color.blue()) < 242:
+                    informative += 1
+        return informative / max(total, 1)
+
+    def _protect_existing_image_from_blank_render(
+        self,
+        update: dict[str, Any],
+        target_image_path: Path,
+    ) -> None:
+        """Drop only a suspicious PNG replacement while allowing sidecar metadata to save."""
+        encoded = str(update.get("png_base64", "") or "")
+        if not encoded or not target_image_path.is_file():
+            return
+
+        # An explicit background removal is a deliberate destructive operation.
+        if "background_image_base64" in update and not str(
+            update.get("background_image_base64", "") or ""
+        ):
+            return
+
+        try:
+            candidate_raw = base64.b64decode(encoded, validate=True)
+        except (ValueError, TypeError):
+            update["png_base64"] = ""
+            self._log_event(
+                f"Blocked invalid iPad image replacement for {target_image_path}"
+            )
+            return
+
+        candidate = QImage.fromData(candidate_raw)
+        existing = QImage(str(target_image_path))
+        if candidate.isNull() or existing.isNull():
+            if candidate.isNull():
+                update["png_base64"] = ""
+                self._log_event(
+                    f"Blocked undecodable iPad image replacement for {target_image_path}"
+                )
+            return
+
+        candidate_fraction = self._informative_pixel_fraction(candidate)
+        existing_fraction = self._informative_pixel_fraction(existing)
+        suspicious = (
+            existing_fraction >= 0.008
+            and candidate_fraction <= 0.002
+            and candidate_fraction <= existing_fraction * 0.12
+        )
+        if suspicious:
+            update["png_base64"] = ""
+            self._log_event(
+                "Blocked near-white iPad render; preserved existing image "
+                f"path={target_image_path} existing_info={existing_fraction:.4f} "
+                f"candidate_info={candidate_fraction:.4f}"
+            )
+
     async def _update_graphic(
         self,
         sidecar: Path,
@@ -116,14 +183,15 @@ class PreservingGraphicBridgeServer(GraphicBridgeServer):
         update = dict(payload)
         injected = False
 
-        # ND_MIGRATION4_JPEG_PRESERVE
-        # The iPad renderer sends a lossless PNG composite. If the LaTeX image
-        # being edited is .jpg/.jpeg, encode that composite back to JPEG before
-        # the base bridge atomically replaces the target file.
         try:
             _sidecar_data, target_image_path = self._read_document(sidecar)
         except (OSError, ValueError):
             target_image_path = Path()
+
+        self._protect_existing_image_from_blank_render(update, target_image_path)
+
+        # The iPad renderer sends a lossless PNG composite. JPEG targets are
+        # encoded back to JPEG before the base bridge atomically replaces them.
         if target_image_path.suffix.lower() in {".jpg", ".jpeg"}:
             encoded = str(update.get("png_base64", "") or "")
             if encoded:

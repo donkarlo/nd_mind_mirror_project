@@ -3,15 +3,38 @@ from pathlib import Path
 from PySide6.QtCore import QMimeData
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QImage, QPainter, QPixmap
+from PySide6.QtWidgets import QApplication
+
+from nd_mind_mirror.core.clipboard.file_system_clipboard_controller import (
+    FileSystemClipboardController,
+)
+from nd_mind_mirror.core.clipboard.image.image_mime_reference_resolver import (
+    ImageMimeReferenceResolver,
+)
 
 
 class ClipboardImageSaver:
+    def __init__(self) -> None:
+        self._reference_resolver = ImageMimeReferenceResolver()
+        self._file_system_clipboard_controller = (
+            FileSystemClipboardController.install_once(
+                QApplication.instance()
+            )
+        )
+
     def save(
         self,
         mime_data: QMimeData,
         tex_path: str | Path,
     ) -> Path | None:
-        image = self._extract_image(mime_data)
+        reference_path = self._reference_resolver.latex_reference_path(
+            mime_data,
+            tex_path,
+        )
+        if reference_path is not None:
+            return reference_path
+
+        image = self._extract_embedded_image(mime_data)
 
         if image is None or image.isNull():
             return None
@@ -24,7 +47,6 @@ class ClipboardImageSaver:
 
         return target_path
 
-
     def save_to_directory(
         self,
         mime_data: QMimeData,
@@ -34,6 +56,10 @@ class ClipboardImageSaver:
         extension: str = ".jpg",
     ) -> Path | None:
         """Save one clipboard image using a collision-safe conventional name."""
+        controller = self._file_system_clipboard_controller
+        if controller is not None and controller.has_active_copy:
+            return None
+
         image = self._extract_image(mime_data)
         if image is None or image.isNull():
             return None
@@ -92,39 +118,33 @@ class ClipboardImageSaver:
                 return candidate
             counter += 1
 
+    @staticmethod
+    def _extract_embedded_image(
+        mime_data: QMimeData,
+    ) -> QImage | None:
+        if not mime_data.hasImage():
+            return None
+
+        image_data = mime_data.imageData()
+        if isinstance(image_data, QImage):
+            return image_data
+        if isinstance(image_data, QPixmap):
+            return image_data.toImage()
+        return None
+
     def _extract_image(
         self,
         mime_data: QMimeData,
     ) -> QImage | None:
-        if mime_data.hasImage():
-            image_data = mime_data.imageData()
+        embedded = self._extract_embedded_image(mime_data)
+        if embedded is not None:
+            return embedded
 
-            if isinstance(image_data, QImage):
-                return image_data
+        local_image_path = self._reference_resolver.local_image_path(mime_data)
+        if local_image_path is None:
+            return None
 
-            if isinstance(image_data, QPixmap):
-                return image_data.toImage()
-
-        if mime_data.hasUrls():
-            for url in mime_data.urls():
-                if not url.isLocalFile():
-                    continue
-
-                candidate = Path(url.toLocalFile())
-
-                if candidate.suffix.lower() not in {
-                    ".png",
-                    ".jpg",
-                    ".jpeg",
-                    ".bmp",
-                    ".webp",
-                    ".gif",
-                }:
-                    continue
-
-                image = QImage(str(candidate))
-
-                if not image.isNull():
-                    return image
-
-        return None
+        image = QImage(str(local_image_path))
+        if image.isNull():
+            return None
+        return image
