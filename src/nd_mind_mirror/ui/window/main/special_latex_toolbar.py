@@ -3,6 +3,10 @@
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QHBoxLayout, QMenu, QPushButton, QToolButton, QWidget
 
+from nd_mind_mirror.ui.window.main.fix11_desktop_controller import Fix11DesktopController
+
+Fix11DesktopController.install()
+
 
 class SpecialLatexToolbar(QWidget):
     """Expose a character palette and a one-click LaTeX iffalse wrapper action."""
@@ -17,7 +21,6 @@ class SpecialLatexToolbar(QWidget):
     }
 
     def __init__(self, parent=None) -> None:
-        """Build the compact toolbar and its character popup menus."""
         super().__init__(parent)
         self._character_button = QToolButton(self)
         self._character_button.setText("é…")
@@ -39,7 +42,6 @@ class SpecialLatexToolbar(QWidget):
         layout.addStretch(1)
 
     def _build_character_menu(self) -> QMenu:
-        """Create grouped popup menus whose actions emit the chosen character."""
         menu = QMenu(self)
         for title, characters in self._CHARACTER_GROUPS.items():
             group = menu.addMenu(title)

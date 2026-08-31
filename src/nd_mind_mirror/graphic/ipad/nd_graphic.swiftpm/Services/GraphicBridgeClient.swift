@@ -55,6 +55,10 @@ final class GraphicBridgeClient: ObservableObject {
 
     func connect() {
         disconnect(keepStatus: true)
+        selectedPath = nil
+        document = nil
+        drawing = PKDrawing()
+        documentToken += 1
         UserDefaults.standard.set(token, forKey: "graphic.bridge.token")
         appendDiagnostic("START LISTENER pressed port=\(listenerPort)")
         appendEnvironmentDiagnostics()
@@ -382,12 +386,18 @@ final class GraphicBridgeClient: ObservableObject {
                 isConnected = true
                 status = "Connected — waiting for Mind Mirror"
                 appendDiagnostic("Ubuntu hello received; reverse connection is READY")
-                send(["type": "request_current"])
             case "open_graphic":
                 applyRemote(message, statusPrefix: "Live")
             case "graphic_saved":
                 status = "Saved — \(message.path ?? "graphic")"
             case "graphic_updated":
+                if message.path == selectedPath {
+                    // Same-document updates are save acknowledgements. The live
+                    // iPad canvas is authoritative until Ubuntu explicitly sends
+                    // a new open_graphic command for this path.
+                    status = "Saved — \(message.path ?? "graphic")"
+                    break
+                }
                 if let revision = message.clientRevision,
                    revision > 0,
                    revision <= latestSentRevision {

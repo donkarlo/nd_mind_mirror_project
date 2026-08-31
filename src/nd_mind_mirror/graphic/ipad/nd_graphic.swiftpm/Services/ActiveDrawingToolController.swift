@@ -2,7 +2,7 @@ import PencilKit
 import SwiftUI
 import UIKit
 
-/// Owns active tool state, applies selections immediately, and manages raster erasing.
+/// Owns the active PencilKit tool, atomic canvas history, raster erasing, and finger navigation safety.
 @MainActor
 final class ActiveDrawingToolController: NSObject, ObservableObject, UIGestureRecognizerDelegate {
     struct State: Equatable {
@@ -14,26 +14,42 @@ final class ActiveDrawingToolController: NSObject, ObservableObject, UIGestureRe
         var selectedSavedToolID: UUID?
     }
 
-    @Published private(set) var state = State(
-        kind: .pencil,
-        colorHex: "#000000",
-        width: 1.5,
-        opacity: 1.0,
-        eraserMode: .whole,
-        selectedSavedToolID: nil
-    )
+    @Published private(set) var state: State
     @Published private(set) var isRasterEditing = false
+    @Published private(set) var isPencilGestureActive = false
 
     private weak var canvas: PKCanvasView?
     private weak var backgroundView: UIImageView?
     private weak var rasterSurfaceView: UIView?
-    private var rasterGesture: PencilRasterEraserGestureRecognizer?
+    private weak var observedDrawingGesture: UIGestureRecognizer?
+    private weak var parentScrollView: UIScrollView?
+    private weak var historyUndoGesture: UITapGestureRecognizer?
+    private weak var historyController: CanvasEditHistoryController?
+    private let stateStore: ActiveDrawingToolStateStore
     private var rasterSession: RasterEraseSession?
-    private var rasterStartImage: UIImage?
-    private var ownsUndoGroup = false
+    private var pendingRasterImage: UIImage?
+    private var pendingRasterChanged = false
+    private var rasterPreviewLayer: CAShapeLayer?
     private var canvasSize = CGSize(width: 1240, height: 1754)
-    private var backgroundImageChanged: ((UIImage?) -> Void)?
-    private var undoManagerChanged: ((UndoManager?) -> Void)?
+    private var canvasStateCommitted: ((PKDrawing, UIImage?, Bool) -> Void)?
+    private var undoRequested: (() -> Void)?
+    private var pendingProgrammaticDrawingData: Data?
+
+    override init() {
+        let stateStore = ActiveDrawingToolStateStore()
+        let persisted = stateStore.load()
+        self.stateStore = stateStore
+        self.state = State(
+            kind: persisted.kind,
+            colorHex: persisted.colorHex,
+            width: persisted.width,
+            opacity: persisted.opacity,
+            eraserMode: persisted.eraserMode,
+            selectedSavedToolID: persisted.selectedSavedToolID
+        )
+        super.init()
+        state = canonicalized(state)
+    }
 
     var kind: GraphicTool { state.kind }
     var color: Color { Color(hex: state.colorHex) }
@@ -42,36 +58,69 @@ final class ActiveDrawingToolController: NSObject, ObservableObject, UIGestureRe
     var eraserMode: EraserMode { state.eraserMode }
     var selectedSavedToolID: UUID? { state.selectedSavedToolID }
     var pencilSettings: PencilSettings { PencilSettings(width: state.width, color: color) }
+    var isCanvasGestureInFlight: Bool {
+        if isPencilGestureActive { return true }
+        guard let gesture = observedDrawingGesture else { return false }
+        return gesture.state == .began || gesture.state == .changed
+    }
 
-    /// Attaches to the live PencilKit canvas and to its parent raster surface.
-    /// The raster recognizer deliberately lives outside PKCanvasView so both
-    /// systems receive the exact same Apple Pencil stream.
+    /// Attaches to one live PKCanvasView. No second Pencil recognizer is created.
     func attach(canvas: PKCanvasView, backgroundView: UIImageView) {
-        let rasterSurfaceView = canvas.superview ?? canvas
-        if self.rasterSurfaceView !== rasterSurfaceView {
-            if let oldGesture = rasterGesture, let oldView = oldGesture.view {
-                oldView.removeGestureRecognizer(oldGesture)
-            }
-            rasterGesture = nil
+        if self.canvas === canvas {
+            self.backgroundView = backgroundView
+            suppressCanvasMenus()
+            return
         }
+
+        observedDrawingGesture?.removeTarget(self, action: #selector(handleDrawingGesture(_:)))
+        if let historyUndoGesture {
+            historyUndoGesture.view?.removeGestureRecognizer(historyUndoGesture)
+        }
+        historyUndoGesture = nil
+
         self.canvas = canvas
         self.backgroundView = backgroundView
-        self.rasterSurfaceView = rasterSurfaceView
-        canvas.undoManager?.levelsOfUndo = 0
-        configureParentScrollView(for: canvas)
-        attachRasterEraserIfNeeded(to: rasterSurfaceView)
+        rasterSurfaceView = canvas.superview ?? canvas
+
+        let drawingGesture = canvas.drawingGestureRecognizer
+        drawingGesture.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.pencil.rawValue)]
+        drawingGesture.addTarget(self, action: #selector(handleDrawingGesture(_:)))
+        observedDrawingGesture = drawingGesture
+
+        configureFingerNavigation(for: canvas)
+        suppressCanvasMenus()
+        DispatchQueue.main.async { [weak self] in
+            self?.suppressCanvasMenus()
+        }
         applyImmediately()
     }
 
     func bindRuntime(
         canvasSize: CGSize,
-        backgroundImageChanged: @escaping (UIImage?) -> Void,
-        undoManagerChanged: @escaping (UndoManager?) -> Void
+        historyController: CanvasEditHistoryController,
+        canvasStateCommitted: @escaping (PKDrawing, UIImage?, Bool) -> Void,
+        undoRequested: @escaping () -> Void
     ) {
         self.canvasSize = canvasSize
-        self.backgroundImageChanged = backgroundImageChanged
-        self.undoManagerChanged = undoManagerChanged
+        self.historyController = historyController
+        self.canvasStateCommitted = canvasStateCommitted
+        self.undoRequested = undoRequested
         applyImmediately()
+    }
+
+    /// Reconnect a persisted preset UUID to the current saved-tool collection.
+    func reconcileSavedToolSelection(_ tools: [SavedDrawingTool]) {
+        guard let selectedID = state.selectedSavedToolID else {
+            persistState()
+            return
+        }
+        if let savedTool = tools.first(where: { $0.id == selectedID }) {
+            select(savedTool: savedTool)
+            return
+        }
+        var next = state
+        next.selectedSavedToolID = nil
+        setState(next)
     }
 
     func select(savedTool: SavedDrawingTool) {
@@ -121,25 +170,118 @@ final class ActiveDrawingToolController: NSObject, ObservableObject, UIGestureRe
     }
 
     private func setState(_ next: State) {
-        state = next
+        state = canonicalized(next)
+        persistState()
         applyImmediately()
     }
 
-    private func configureParentScrollView(for canvas: PKCanvasView) {
+    private func canonicalized(_ value: State) -> State {
+        State(
+            kind: value.kind,
+            colorHex: canonicalColor(value.colorHex),
+            width: value.kind == .eraser
+                ? canonicalEraserWidth(value.width)
+                : canonicalInkWidth(value.width),
+            opacity: canonicalOpacity(value.opacity),
+            eraserMode: value.eraserMode,
+            selectedSavedToolID: value.selectedSavedToolID
+        )
+    }
+
+    private func persistState() {
+        stateStore.save(
+            kind: state.kind,
+            colorHex: state.colorHex,
+            width: state.width,
+            opacity: state.opacity,
+            eraserMode: state.eraserMode,
+            selectedSavedToolID: state.selectedSavedToolID
+        )
+    }
+
+    private func configureFingerNavigation(for canvas: PKCanvasView) {
         var parent = canvas.superview
         while let view = parent {
             if let scroll = view as? UIScrollView, scroll !== canvas {
-                scroll.panGestureRecognizer.minimumNumberOfTouches = 2
+                parentScrollView = scroll
+                scroll.isMultipleTouchEnabled = true
+                scroll.panGestureRecognizer.minimumNumberOfTouches = 1
                 scroll.panGestureRecognizer.maximumNumberOfTouches = 2
-                scroll.panGestureRecognizer.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
-                break
+                scroll.panGestureRecognizer.allowedTouchTypes = [
+                    NSNumber(value: UITouch.TouchType.direct.rawValue)
+                ]
+                CanvasInteractionSanitizer.disableLegacyTwoFingerSingleTap(in: scroll)
+                installHistoryUndoGesture(on: scroll)
+                return
             }
             parent = view.superview
         }
     }
 
+    private func setFingerNavigationEnabled(_ enabled: Bool) {
+        parentScrollView?.panGestureRecognizer.isEnabled = enabled
+        parentScrollView?.pinchGestureRecognizer?.isEnabled = enabled
+    }
+
+    /// Uses a deliberate two-finger double tap so a resting palm cannot trigger history changes.
+    private func installHistoryUndoGesture(on scroll: UIScrollView) {
+        if let historyUndoGesture, historyUndoGesture.view === scroll { return }
+
+        let gesture = UITapGestureRecognizer(
+            target: self,
+            action: #selector(handleHistoryUndo(_:))
+        )
+        gesture.numberOfTouchesRequired = 2
+        gesture.numberOfTapsRequired = 2
+        gesture.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
+        gesture.cancelsTouchesInView = false
+        gesture.delaysTouchesBegan = false
+        gesture.delaysTouchesEnded = false
+        gesture.delegate = self
+        scroll.addGestureRecognizer(gesture)
+        historyUndoGesture = gesture
+    }
+
+    @objc private func handleHistoryUndo(_ gesture: UITapGestureRecognizer) {
+        guard gesture.state == .ended, !isCanvasGestureInFlight else { return }
+        undoRequested?()
+    }
+
+    /// Applies an Undo/Redo snapshot to the live PencilKit surface immediately.
+    /// SwiftUI state updates can arrive a frame later; drawing must not start from stale canvas contents.
+    func applyHistorySnapshot(_ snapshot: CanvasEditHistoryController.Snapshot) {
+        guard let canvas else { return }
+        pendingProgrammaticDrawingData = snapshot.drawing.dataRepresentation()
+        canvas.drawing = snapshot.drawing
+        backgroundView?.image = snapshot.backgroundImage
+        suppressCanvasMenus()
+    }
+
+    /// Consumes the delegate callback produced by applyHistorySnapshot so it is not recorded as a new edit.
+    func consumeProgrammaticDrawingChange(_ drawing: PKDrawing) -> Bool {
+        guard let expected = pendingProgrammaticDrawingData,
+              expected == drawing.dataRepresentation() else {
+            return false
+        }
+        pendingProgrammaticDrawingData = nil
+        return true
+    }
+
+    func gestureRecognizer(
+        _ gestureRecognizer: UIGestureRecognizer,
+        shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+    ) -> Bool {
+        gestureRecognizer === historyUndoGesture || otherGestureRecognizer === historyUndoGesture
+    }
+
+    private func suppressCanvasMenus() {
+        guard let canvas else { return }
+        CanvasInteractionSanitizer.suppressMenus(in: canvas)
+    }
+
     private func applyImmediately() {
         guard let canvas else { return }
+        suppressCanvasMenus()
         switch state.kind {
         case .pencil:
             canvas.tool = PKInkingTool(
@@ -159,138 +301,116 @@ final class ActiveDrawingToolController: NSObject, ObservableObject, UIGestureRe
         case .lasso:
             canvas.tool = PKLassoTool()
         }
-        rasterGesture?.isEnabled = state.kind == .eraser
     }
 
-    private func attachRasterEraserIfNeeded(to surface: UIView) {
-        if let rasterGesture, rasterGesture.view === surface {
-            rasterGesture.isEnabled = state.kind == .eraser
-            return
-        }
-        let gesture = PencilRasterEraserGestureRecognizer(
-            target: self,
-            action: #selector(handleRasterErase(_:))
-        )
-        gesture.delegate = self
-        gesture.isEnabled = state.kind == .eraser
-        surface.addGestureRecognizer(gesture)
-        rasterGesture = gesture
-    }
-
-    @objc private func handleRasterErase(_ gesture: PencilRasterEraserGestureRecognizer) {
-        guard state.kind == .eraser, let backgroundView else { return }
-
+    @objc private func handleDrawingGesture(_ gesture: UIGestureRecognizer) {
+        guard let canvas else { return }
         switch gesture.state {
         case .began:
-            guard let image = backgroundView.image,
-                  let session = RasterEraseSession(image: image, canvasSize: canvasSize) else { return }
-            rasterStartImage = image
-            rasterSession = session
-            isRasterEditing = true
-            beginEraseUndoGroup()
-            applyRaster(points: gesture.currentPoints)
+            beginCanvasGesture(gesture, canvas: canvas)
         case .changed:
-            applyRaster(points: gesture.currentPoints)
+            if state.kind == .eraser { applyRasterPoint(from: gesture) }
         case .ended:
-            applyRaster(points: gesture.currentPoints)
-            finishRasterErase(commit: true)
+            if state.kind == .eraser {
+                applyRasterPoint(from: gesture)
+                prepareRasterCompletion()
+            }
+            DispatchQueue.main.async { [weak self] in
+                self?.completeCanvasGesture()
+            }
         case .cancelled, .failed:
-            finishRasterErase(commit: false)
+            cancelCanvasGesture()
         default:
             break
         }
     }
 
-    private func applyRaster(points: [CGPoint]) {
-        guard let session = rasterSession, let backgroundView else { return }
-        session.erase(points: points, brushDiameter: max(2, CGFloat(state.width)))
-        if session.didChange, let preview = session.image() {
-            backgroundView.image = preview
-        }
-    }
+    private func beginCanvasGesture(_ gesture: UIGestureRecognizer, canvas: PKCanvasView) {
+        guard !isPencilGestureActive else { return }
+        isPencilGestureActive = true
+        setFingerNavigationEnabled(false)
+        historyController?.beginGesture()
+        pendingRasterImage = nil
+        pendingRasterChanged = false
 
-    private func finishRasterErase(commit: Bool) {
-        guard let backgroundView else {
-            clearRasterSession()
-            endEraseUndoGroup()
+        guard state.kind == .eraser,
+              let image = backgroundView?.image,
+              let session = RasterEraseSession(image: image, canvasSize: canvasSize) else {
             return
         }
+        rasterSession = session
+        isRasterEditing = true
+        applyRasterPoint(from: gesture)
+    }
 
-        let original = rasterStartImage
-        let final = rasterSession?.image()
-        let changed = rasterSession?.didChange == true
-
-        if commit, changed {
-            backgroundView.image = final
-            registerRasterUndo(original: original, final: final)
-            backgroundImageChanged?(final)
-        } else {
-            backgroundView.image = original
+    private func applyRasterPoint(from gesture: UIGestureRecognizer) {
+        guard state.kind == .eraser,
+              let session = rasterSession,
+              let surface = rasterSurfaceView,
+              let backgroundView else { return }
+        session.erase(
+            points: [gesture.location(in: surface)],
+            brushDiameter: max(2, CGFloat(state.width))
+        )
+        guard session.didChange else { return }
+        if rasterPreviewLayer == nil {
+            let layer = session.makePreviewLayer()
+            backgroundView.layer.addSublayer(layer)
+            rasterPreviewLayer = layer
+        } else if let layer = rasterPreviewLayer {
+            session.updatePreviewLayer(layer)
         }
-
-        clearRasterSession()
-        endEraseUndoGroup()
+        pendingRasterChanged = true
     }
 
-    private func beginEraseUndoGroup() {
-        guard let manager = canvas?.undoManager else { return }
-        manager.levelsOfUndo = 0
-        guard manager.groupingLevel == 0 else { return }
-        manager.beginUndoGrouping()
-        ownsUndoGroup = true
-    }
-
-    private func endEraseUndoGroup() {
-        guard ownsUndoGroup, let manager = canvas?.undoManager else {
-            ownsUndoGroup = false
-            return
+    private func prepareRasterCompletion() {
+        guard let session = rasterSession else { return }
+        if session.didChange, let finalImage = session.image() {
+            backgroundView?.image = finalImage
+            pendingRasterImage = finalImage
+            pendingRasterChanged = true
         }
-        ownsUndoGroup = false
-        // PencilKit may finish registering its eraser undo later in this same
-        // event turn. Closing on the next main turn keeps raster + stroke erase
-        // together as one Undo operation.
-        DispatchQueue.main.async {
-            if manager.groupingLevel > 0 {
-                manager.endUndoGrouping()
-                manager.setActionName("Erase")
-            }
-        }
-    }
-
-    private func registerRasterUndo(original: UIImage?, final: UIImage?) {
-        guard let manager = canvas?.undoManager else { return }
-        manager.levelsOfUndo = 0
-        manager.registerUndo(withTarget: self) { target in
-            target.restoreRasterImage(original, reciprocal: final)
-        }
-        undoManagerChanged?(manager)
-    }
-
-    private func restoreRasterImage(_ image: UIImage?, reciprocal: UIImage?) {
-        guard let backgroundView else { return }
-        backgroundView.image = image
-        backgroundImageChanged?(image)
-        if let manager = canvas?.undoManager {
-            manager.levelsOfUndo = 0
-            manager.registerUndo(withTarget: self) { target in
-                target.restoreRasterImage(reciprocal, reciprocal: image)
-            }
-            manager.setActionName("Erase Image")
-            undoManagerChanged?(manager)
-        }
-    }
-
-    func gestureRecognizer(
-        _ gestureRecognizer: UIGestureRecognizer,
-        shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
-    ) -> Bool {
-        gestureRecognizer === rasterGesture || otherGestureRecognizer === rasterGesture
-    }
-
-    private func clearRasterSession() {
+        rasterPreviewLayer?.removeFromSuperlayer()
+        rasterPreviewLayer = nil
         rasterSession = nil
-        rasterStartImage = nil
+    }
+
+    private func completeCanvasGesture() {
+        guard isPencilGestureActive, let canvas else { return }
+        let finalImage = pendingRasterChanged
+            ? pendingRasterImage
+            : backgroundView?.image
+        let finalDrawing = canvas.drawing
+        let changed = historyController?.commitGesture(
+            drawing: finalDrawing,
+            backgroundImage: finalImage
+        ) ?? true
+
+        if changed {
+            canvasStateCommitted?(finalDrawing, finalImage, pendingRasterChanged)
+        }
+        finishGestureState()
+    }
+
+    private func cancelCanvasGesture() {
+        guard isPencilGestureActive else { return }
+        if let snapshot = historyController?.cancelGesture(), let canvas {
+            canvas.drawing = snapshot.drawing
+            backgroundView?.image = snapshot.backgroundImage
+        }
+        finishGestureState()
+    }
+
+    private func finishGestureState() {
+        rasterPreviewLayer?.removeFromSuperlayer()
+        rasterPreviewLayer = nil
+        rasterSession = nil
+        pendingRasterImage = nil
+        pendingRasterChanged = false
         isRasterEditing = false
+        isPencilGestureActive = false
+        setFingerNavigationEnabled(true)
+        suppressCanvasMenus()
     }
 
     private func canonicalColor(_ raw: String) -> String {

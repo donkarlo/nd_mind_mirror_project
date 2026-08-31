@@ -96,13 +96,23 @@ class PreservingGraphicBridgeServer(GraphicBridgeServer):
         if not png_base64:
             return payload
 
-        drawing = str(document.get("drawing_data_base64", "") or "")
         background = str(document.get("background_image_base64", "") or "")
-        if drawing or background or image_objects:
+        if background:
             return payload
 
+        # Legacy sidecars may contain editable drawing/object metadata but no
+        # explicit source background. Their paired PNG is the authoritative
+        # flattened visual result. Use that PNG as the recovered background
+        # and do not draw the legacy layers again on top of the same pixels.
+        drawing = str(document.get("drawing_data_base64", "") or "")
         merged = dict(document)
         merged["background_image_base64"] = png_base64
+        if drawing or image_objects:
+            merged["drawing_data_base64"] = ""
+            merged["image_objects"] = []
+            self._log_event(
+                f"Recovered legacy flattened graphic background from paired PNG: {sidecar}"
+            )
         payload["document"] = merged
         self._inferred_background_sidecars.add(sidecar.expanduser().resolve())
         return payload
@@ -124,6 +134,49 @@ class PreservingGraphicBridgeServer(GraphicBridgeServer):
                     informative += 1
         return informative / max(total, 1)
 
+    @staticmethod
+    def _drop_empty_background_mutation(update: dict[str, Any]) -> None:
+        """Do not let an accidental empty render erase the stored source background."""
+        if "background_image_base64" in update and not str(
+            update.get("background_image_base64", "") or ""
+        ):
+            update.pop("background_image_base64", None)
+
+    def _clear_active_graphic_if_idle(self, transport: str) -> None:
+        """Forget the previous document after the last client disconnects."""
+        if self.tcp_clients or self.clients:
+            return
+        if self.current_sidecar is not None:
+            self._log_event(
+                f"Cleared active graphic after {transport} disconnect: {self.current_sidecar}"
+            )
+        self.current_sidecar = None
+        self.current_operation = "update"
+
+    async def _serve_reverse_ipad(
+        self,
+        host: str,
+        reader,
+        writer,
+        greeting: dict[str, Any],
+    ) -> None:
+        try:
+            await super()._serve_reverse_ipad(host, reader, writer, greeting)
+        finally:
+            self._clear_active_graphic_if_idle("reverse iPad")
+
+    async def tcp_client_connected(self, reader, writer) -> None:
+        try:
+            await super().tcp_client_connected(reader, writer)
+        finally:
+            self._clear_active_graphic_if_idle("direct TCP")
+
+    async def websocket_endpoint(self, websocket) -> None:
+        try:
+            await super().websocket_endpoint(websocket)
+        finally:
+            self._clear_active_graphic_if_idle("WebSocket")
+
     def _protect_existing_image_from_blank_render(
         self,
         update: dict[str, Any],
@@ -134,16 +187,11 @@ class PreservingGraphicBridgeServer(GraphicBridgeServer):
         if not encoded or not target_image_path.is_file():
             return
 
-        # An explicit background removal is a deliberate destructive operation.
-        if "background_image_base64" in update and not str(
-            update.get("background_image_base64", "") or ""
-        ):
-            return
-
         try:
             candidate_raw = base64.b64decode(encoded, validate=True)
         except (ValueError, TypeError):
             update["png_base64"] = ""
+            self._drop_empty_background_mutation(update)
             self._log_event(
                 f"Blocked invalid iPad image replacement for {target_image_path}"
             )
@@ -154,6 +202,7 @@ class PreservingGraphicBridgeServer(GraphicBridgeServer):
         if candidate.isNull() or existing.isNull():
             if candidate.isNull():
                 update["png_base64"] = ""
+                self._drop_empty_background_mutation(update)
                 self._log_event(
                     f"Blocked undecodable iPad image replacement for {target_image_path}"
                 )
@@ -163,11 +212,12 @@ class PreservingGraphicBridgeServer(GraphicBridgeServer):
         existing_fraction = self._informative_pixel_fraction(existing)
         suspicious = (
             existing_fraction >= 0.008
-            and candidate_fraction <= 0.002
-            and candidate_fraction <= existing_fraction * 0.12
+            and candidate_fraction < 0.002
+            and candidate_fraction < existing_fraction * 0.12
         )
         if suspicious:
             update["png_base64"] = ""
+            self._drop_empty_background_mutation(update)
             self._log_event(
                 "Blocked near-white iPad render; preserved existing image "
                 f"path={target_image_path} existing_info={existing_fraction:.4f} "
