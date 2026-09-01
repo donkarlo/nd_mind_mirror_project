@@ -257,12 +257,8 @@ struct ContentView: View {
     }
 
     private func performUndo() {
-        guard !activeTool.isPencilGestureActive else { return }
-
-        // Synchronize the visible canvas first. This makes Undo reliable even if
-        // PencilKit did not deliver the expected end-of-stroke gesture callback.
-        _ = editHistory.record(drawing: localDrawing, backgroundImage: backgroundImage)
-        guard let snapshot = editHistory.undo() else { return }
+        guard !activeTool.isPencilGestureActive,
+              let snapshot = editHistory.undo() else { return }
         restore(snapshot)
     }
 
@@ -277,6 +273,10 @@ struct ContentView: View {
         activeTool.applyHistorySnapshot(snapshot)
         localDrawing = snapshot.drawing
         backgroundImage = snapshot.backgroundImage
+        // Force SwiftUI/PencilCanvasView to reconcile with the restored snapshot.
+        // Without a new document token, a later local edit can be applied on top
+        // of an older view state and visually resurrect an undone stroke.
+        canvasToken += 1
         saveCurrentState(persistBackground: true)
     }
 

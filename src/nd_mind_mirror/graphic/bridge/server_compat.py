@@ -13,6 +13,7 @@ from PySide6.QtCore import QBuffer, QIODevice
 from PySide6.QtGui import QImage
 
 from . import __version__
+from .document import GraphicDocumentBackgroundResolver
 from .server import GraphicBridgeServer
 
 
@@ -22,6 +23,7 @@ class PreservingGraphicBridgeServer(GraphicBridgeServer):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self._inferred_background_sidecars: set[Path] = set()
+        self._background_resolver = GraphicDocumentBackgroundResolver()
 
     async def startup(self) -> None:
         """Start primary transports; a busy legacy TCP port must not abort the bridge."""
@@ -78,7 +80,6 @@ class PreservingGraphicBridgeServer(GraphicBridgeServer):
             client_revision=client_revision,
         )
         document = payload.get("document")
-        png_base64 = str(payload.get("png_base64", "") or "")
         if not isinstance(document, dict):
             return payload
 
@@ -86,53 +87,27 @@ class PreservingGraphicBridgeServer(GraphicBridgeServer):
             sidecar_data, _image_path = self._read_document(sidecar)
         except (OSError, ValueError):
             sidecar_data = {}
+
         image_objects = sidecar_data.get("image_objects")
         if isinstance(image_objects, list):
-            merged = dict(document)
-            merged["image_objects"] = image_objects
-            payload["document"] = merged
-            document = merged
+            document = dict(document)
+            document["image_objects"] = image_objects
 
-        if not png_base64:
-            return payload
+        paired_image_base64 = str(payload.get("png_base64", "") or "")
+        resolved_document, recovered = self._background_resolver.resolve_for_open(
+            document,
+            paired_image_base64,
+        )
+        payload["document"] = resolved_document
 
-        background = str(document.get("background_image_base64", "") or "")
-        if background:
-            return payload
-
-        # Legacy sidecars may contain editable drawing/object metadata but no
-        # explicit source background. Their paired PNG is the authoritative
-        # flattened visual result. Use that PNG as the recovered background
-        # and do not draw the legacy layers again on top of the same pixels.
-        drawing = str(document.get("drawing_data_base64", "") or "")
-        merged = dict(document)
-        merged["background_image_base64"] = png_base64
-        if drawing or image_objects:
-            merged["drawing_data_base64"] = ""
-            merged["image_objects"] = []
+        if recovered:
+            resolved_sidecar = sidecar.expanduser().resolve()
+            self._inferred_background_sidecars.add(resolved_sidecar)
             self._log_event(
-                f"Recovered legacy flattened graphic background from paired PNG: {sidecar}"
+                f"Recovered graphic background from authoritative paired image: {sidecar}"
             )
-        payload["document"] = merged
-        self._inferred_background_sidecars.add(sidecar.expanduser().resolve())
-        return payload
 
-    @staticmethod
-    def _informative_pixel_fraction(image: QImage) -> float:
-        """Estimate how much visible non-white information a rendered image contains."""
-        if image.isNull():
-            return 0.0
-        sample = image.scaled(96, 96)
-        if sample.isNull() or sample.width() <= 0 or sample.height() <= 0:
-            return 0.0
-        informative = 0
-        total = sample.width() * sample.height()
-        for y in range(sample.height()):
-            for x in range(sample.width()):
-                color = sample.pixelColor(x, y)
-                if min(color.red(), color.green(), color.blue()) < 242:
-                    informative += 1
-        return informative / max(total, 1)
+        return payload
 
     @staticmethod
     def _drop_empty_background_mutation(update: dict[str, Any]) -> None:
@@ -187,9 +162,8 @@ class PreservingGraphicBridgeServer(GraphicBridgeServer):
         if not encoded or not target_image_path.is_file():
             return
 
-        try:
-            candidate_raw = base64.b64decode(encoded, validate=True)
-        except (ValueError, TypeError):
+        candidate = self._background_resolver.decode_base64_image(encoded)
+        if candidate is None:
             update["png_base64"] = ""
             self._drop_empty_background_mutation(update)
             self._log_event(
@@ -197,27 +171,22 @@ class PreservingGraphicBridgeServer(GraphicBridgeServer):
             )
             return
 
-        candidate = QImage.fromData(candidate_raw)
         existing = QImage(str(target_image_path))
-        if candidate.isNull() or existing.isNull():
-            if candidate.isNull():
-                update["png_base64"] = ""
-                self._drop_empty_background_mutation(update)
-                self._log_event(
-                    f"Blocked undecodable iPad image replacement for {target_image_path}"
-                )
+        if existing.isNull():
             return
 
-        candidate_fraction = self._informative_pixel_fraction(candidate)
-        existing_fraction = self._informative_pixel_fraction(existing)
-        suspicious = (
-            existing_fraction >= 0.008
-            and candidate_fraction < 0.002
-            and candidate_fraction < existing_fraction * 0.12
-        )
-        if suspicious:
+        if self._background_resolver.is_suspicious_blank_replacement(
+            candidate,
+            existing,
+        ):
             update["png_base64"] = ""
             self._drop_empty_background_mutation(update)
+            candidate_fraction = self._background_resolver.informative_pixel_fraction(
+                candidate
+            )
+            existing_fraction = self._background_resolver.informative_pixel_fraction(
+                existing
+            )
             self._log_event(
                 "Blocked near-white iPad render; preserved existing image "
                 f"path={target_image_path} existing_info={existing_fraction:.4f} "
@@ -259,7 +228,10 @@ class PreservingGraphicBridgeServer(GraphicBridgeServer):
                 except Exception:
                     pass
 
-        if resolved in self._inferred_background_sidecars and "background_image_base64" not in update:
+        if (
+            resolved in self._inferred_background_sidecars
+            and "background_image_base64" not in update
+        ):
             try:
                 _data, image_path = self._read_document(sidecar)
                 if image_path.is_file():
@@ -276,12 +248,16 @@ class PreservingGraphicBridgeServer(GraphicBridgeServer):
             try:
                 data, _image_path = self._read_document(sidecar)
                 raw_objects = update.get("image_objects")
-                data["image_objects"] = raw_objects if isinstance(raw_objects, list) else []
+                data["image_objects"] = (
+                    raw_objects if isinstance(raw_objects, list) else []
+                )
                 temporary = sidecar.with_suffix(sidecar.suffix + ".tmp")
                 temporary.write_text(json.dumps(data, indent=2), encoding="utf-8")
                 temporary.replace(sidecar)
                 self._hashes[sidecar] = self._digest(sidecar)
-                self._suppress_broadcast_until[sidecar.resolve()] = time.monotonic() + 0.8
+                self._suppress_broadcast_until[sidecar.resolve()] = (
+                    time.monotonic() + 0.8
+                )
             except (OSError, ValueError, TypeError):
                 pass
 

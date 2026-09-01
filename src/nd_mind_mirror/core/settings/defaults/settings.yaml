@@ -82,7 +82,8 @@ search:
   default_path: "~/Dropbox/repo"
   ignore_file: "search_ignore.yaml"
   max_results: 100
-  debounce_ms: 70
+  # Wait for a short typing pause so fast typing never launches a search per key.
+  debounce_ms: 280
   fuzzy_threshold: 0.86
   window_width: 900
   window_height: 620
