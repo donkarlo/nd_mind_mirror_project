@@ -11,6 +11,8 @@ struct ContentView: View {
     @StateObject private var savedTools = SavedDrawingToolStore()
     @StateObject private var recentColors = RecentPencilColors()
     @StateObject private var editHistory = CanvasEditHistoryController(maximumDepth: 200)
+    @StateObject private var programmaticDrawingChanges = ProgrammaticDrawingChangeGuard()
+    @StateObject private var saveRetryController = GraphicSaveRetryController()
     @StateObject private var saveGate = GraphicDocumentSaveGate()
 
     @AppStorage("graphic.last.canvas.width") private var rememberedCanvasWidth: Double = 1240
@@ -58,6 +60,10 @@ struct ContentView: View {
             bindToolRuntime()
         }
         .onChange(of: bridge.documentToken) { _, token in loadRemoteDocument(token: token) }
+        .onChange(of: bridge.status) { _, status in handleBridgeStatus(status) }
+        .onChange(of: saveRetryController.didExhaustRetries) { _, exhausted in
+            if exhausted { bridge.status = "Save not confirmed — image kept open" }
+        }
         .onChange(of: activeTool.state) { _, _ in bindToolRuntime() }
         .onChange(of: savedTools.tools) { _, tools in
             activeTool.reconcileSavedToolSelection(tools)
@@ -74,6 +80,14 @@ struct ContentView: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
             Spacer()
+            if bridge.selectedPath != nil {
+                Button(action: closeCurrentImage) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.title3)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Close image")
+            }
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
@@ -84,7 +98,7 @@ struct ContentView: View {
         VStack(spacing: 16) {
             Spacer()
             if bridge.isConnected {
-                Text("No image selected").font(.largeTitle.bold())
+                Text("Waiting for image from Ubuntu").font(.largeTitle.bold())
                 Text("On Ubuntu, right-click an image and choose Edit image in iPad.")
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
@@ -181,13 +195,16 @@ struct ContentView: View {
             return
         }
         localToken = token
+        saveRetryController.reset()
         guard let path = bridge.selectedPath else {
             loadedPath = nil
+            programmaticDrawingChanges.reset()
             saveGate.reset()
             return
         }
 
         saveGate.beginLoading(path: path)
+        programmaticDrawingChanges.reset()
         let newDocument = path != loadedPath
         loadedPath = path
         localDrawing = bridge.drawing
@@ -247,9 +264,12 @@ struct ContentView: View {
     }
 
     private func handleDrawingChanged(_ drawing: PKDrawing) {
+        if programmaticDrawingChanges.matches(drawing)
+            || activeTool.consumeProgrammaticDrawingChange(drawing) {
+            return
+        }
         lastLocalEdit = Date()
         localDrawing = drawing
-        if activeTool.consumeProgrammaticDrawingChange(drawing) { return }
         guard !activeTool.isCanvasGestureInFlight else { return }
         if editHistory.record(drawing: drawing, backgroundImage: backgroundImage) {
             saveCurrentState(persistBackground: false)
@@ -270,12 +290,12 @@ struct ContentView: View {
 
     private func restore(_ snapshot: CanvasEditHistoryController.Snapshot) {
         lastLocalEdit = Date()
+        programmaticDrawingChanges.register(snapshot.drawing)
         activeTool.applyHistorySnapshot(snapshot)
         localDrawing = snapshot.drawing
         backgroundImage = snapshot.backgroundImage
         // Force SwiftUI/PencilCanvasView to reconcile with the restored snapshot.
-        // Without a new document token, a later local edit can be applied on top
-        // of an older view state and visually resurrect an undone stroke.
+        // All resulting delegate callbacks are guarded as programmatic states.
         canvasToken += 1
         saveCurrentState(persistBackground: true)
     }
@@ -307,13 +327,34 @@ struct ContentView: View {
         persistBackground: Bool
     ) {
         guard saveGate.allowsSave(path: bridge.selectedPath) else { return }
-        bridge.save(
-            drawing: drawing,
-            backgroundImage: backgroundImage,
-            logicalCanvasSize: logicalCanvasSize,
-            pencil: activeTool.pencilSettings,
-            persistBackground: persistBackground
-        )
+        let canvasSize = logicalCanvasSize
+        let pencil = activeTool.pencilSettings
+        saveRetryController.submitSave {
+            bridge.save(
+                drawing: drawing,
+                backgroundImage: backgroundImage,
+                logicalCanvasSize: canvasSize,
+                pencil: pencil,
+                persistBackground: persistBackground
+            )
+            return bridge.status == "Saving…"
+        }
+    }
+
+    private func handleBridgeStatus(_ status: String) {
+        if status.hasPrefix("Saved —") {
+            saveRetryController.acknowledgeSave()
+        }
+    }
+
+    private func closeCurrentImage() {
+        guard bridge.selectedPath != nil else { return }
+        let deferred = saveRetryController.closeWhenSettled {
+            bridge.closeCurrentDocumentKeepingListener()
+        }
+        if deferred {
+            bridge.status = "Saving before closing…"
+        }
     }
 
     private func consumePendingRemoteDocument() {

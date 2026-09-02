@@ -1,0 +1,52 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+
+\usetikzlibrary{graphs,graphdrawing}
+\usegdlibrary{layered}
+
+% for external graphviz
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/external_graphviz.tex}
+
+% for tags
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/parts/control_sequence/kind/semtag/semtag.tex}
+
+% for links
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/seehere.tex}
+
+\title{Migration 9 release history}
+\date{2 September 2026}
+\author{Mohammad Rahmani}
+
+\begin{document}
+\maketitle
+
+\section{Desktop fixes}
+\begin{itemize}
+    \item Fixed recurrent Source scroll jumping around LaTeX figures. The issue was not PDF Preview and was not the large-document threshold: the Source graphic preview repeatedly added and removed a document-wide right margin according to viewport visibility, causing soft-wrap reflow and scroll feedback. Figure previews now reserve stable vertical space immediately before \verb|\end{figure}| and scrolling only repositions visible image widgets.
+    \item Source figure previews now follow relative \verb|width=...\textwidth|, \verb|\linewidth|, and \verb|\columnwidth| values. Oversized previews can expose horizontal scrolling instead of being silently clamped to the editor width.
+    \item \verb|Ctrl+Shift+D| deletes the current line in both Source and Visual LaTeX editing modes.
+    \item Clarified that Source, Visual, and Preview large-document threshold/debounce settings control independent pipelines and are not redundant.
+\end{itemize}
+
+\section{iPad fix}
+\begin{itemize}
+    \item Fixed delayed PencilKit callbacks after rapid repeated Undo. Recent programmatic drawing states are guarded before they can mutate SwiftUI local drawing state or be recorded as new history, preventing undone strokes from reappearing on the next drawing gesture.
+\end{itemize}
+
+\bibliographystyle{plainnat}
+\bibliography{/home/donkarlo/Dropbox/repo/nd_shared_research/bibliography/bibliography.bib}
+\end{document}

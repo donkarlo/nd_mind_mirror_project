@@ -1,0 +1,53 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+
+\usetikzlibrary{graphs,graphdrawing}
+\usegdlibrary{layered}
+
+% for external graphviz
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/external_graphviz.tex}
+
+% for tags
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/parts/control_sequence/kind/semtag/semtag.tex}
+
+% for links
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/seehere.tex}
+
+\title{2026-09-02 iPad Close and Save Retry}
+\date{2026-09-02}
+\author{Mohammad Rahmani}
+
+\begin{document}
+   \maketitle
+
+   \section{iPad graphic session}
+   \begin{itemize}
+      \item Added a Close image action that closes only the active graphic and returns the iPad to the Ubuntu waiting screen while preserving the bridge listener and connection.
+      \item Closing is deferred while the current graphic save or a newer coalesced save is awaiting acknowledgement.
+   \end{itemize}
+
+   \section{Transient save reliability}
+   \begin{itemize}
+      \item Graphic saves are serialized so there is only one in-flight snapshot. While it is awaiting acknowledgement, additional edits are coalesced and only the newest replacement state is retained for the next send.
+      \item If the in-flight save is not acknowledged within two seconds, that same snapshot is retried up to two times. This keeps acknowledgements unambiguous and prevents an older acknowledgement from completing a newer save.
+      \item If acknowledgement still does not arrive, the image remains open and the app reports that the save was not confirmed instead of silently closing.
+      \item The mechanism applies uniformly to drawing, Magic Fill/raster changes, erasing, Undo/Redo, and other canvas changes that use the normal graphic save path.
+   \end{itemize}
+
+   \bibliographystyle{plainnat}
+   \bibliography{/home/donkarlo/Dropbox/repo/nd_shared_research/bibliography/bibliography.bib}
+\end{document}

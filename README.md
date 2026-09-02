@@ -214,6 +214,8 @@ There is no second root-level copy of `nd_graphic.zip` in the project. The canon
 - Autosave through the Ubuntu/iPad bridge.
 - Managed PNG graphics keep neighboring `.ndgraphic` sidecars.
 - Existing managed figures can be updated from the iPad without replacing the surrounding LaTeX workflow.
+- The iPad header has a **Close image** button that closes only the active graphic and returns to the Ubuntu-waiting screen without disconnecting the bridge listener.
+- Pending graphic saves retry only the latest canvas state after a short acknowledgement timeout; closing waits for save acknowledgement and keeps the image open if retries are exhausted.
 
 ## Running on Ubuntu
 
@@ -286,4 +288,5 @@ New and modified implementation files begin with a concise module description. N
 - Preview edit synchronization renders only the current/nearest search result as the visible highlight even when the same phrase occurs more than once.
 - `latex_shortcuts.yaml` is excluded from periodic autosave and is validated as a non-empty shortcut mapping before an explicit save can overwrite it.
 - Navigator selection, rename, drag, bookmarks, autosave, and idle memory compaction remain enabled.
+- The iPad can close the active graphic without disconnecting from Ubuntu; if a graphic save is still pending, the app waits for acknowledgement and retries only the latest state before returning to the waiting screen.
 <!-- ND_IPAD_CURRENT_FEATURES_END -->
