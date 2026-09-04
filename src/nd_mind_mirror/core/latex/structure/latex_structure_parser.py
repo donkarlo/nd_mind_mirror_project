@@ -1,3 +1,4 @@
+from bisect import bisect_right
 from dataclasses import dataclass
 from pathlib import Path
 import re
@@ -13,7 +14,13 @@ class LatexStructureItem:
 
 
 class LatexStructureParser:
-    """Extract LaTeX headings and graphics without modifying source text."""
+    """Extract LaTeX headings and graphics in linear-time source passes.
+
+    Large documents previously recomputed line numbers with ``str.count`` from
+    the beginning of the source for every heading/image. That becomes
+    quadratic as the file grows. This parser builds one line-start index and
+    reuses it for every structural item.
+    """
 
     _HEADING_ORDER = {
         "part": 0,
@@ -40,7 +47,9 @@ class LatexStructureParser:
     )
 
     def parse(self, source: str) -> list[LatexStructureItem]:
-        structural = self._mask_comments_and_literal_environments(source)
+        value = str(source)
+        structural = self._mask_comments_and_literal_environments(value)
+        line_starts = self._line_starts(structural)
         result: list[LatexStructureItem] = []
 
         for match in self._HEADING_PATTERN.finditer(structural):
@@ -73,96 +82,115 @@ class LatexStructureParser:
                 LatexStructureItem(
                     kind=kind,
                     title=display_title,
-                    line_number=structural.count("\n", 0, match.start()) + 1,
+                    line_number=self._line_number(line_starts, match.start()),
                     level=self._HEADING_ORDER[kind],
                     source_position=match.start(),
                 )
             )
 
         headings = list(result)
-        for match in self._IMAGE_PATTERN.finditer(structural):
-            previous_heading = None
-            for heading in headings:
-                if heading.source_position < match.start():
-                    previous_heading = heading
-                else:
-                    break
+        heading_positions = [item.source_position for item in headings]
+        figure_ranges = self._figure_ranges(value, structural)
+        figure_index = 0
 
+        for match in self._IMAGE_PATTERN.finditer(structural):
+            position = match.start()
+            heading_index = bisect_right(heading_positions, position) - 1
+            previous_heading = (
+                headings[heading_index]
+                if 0 <= heading_index < len(headings)
+                else None
+            )
             image_level = (
                 min(previous_heading.level + 1, 7)
                 if previous_heading is not None
                 else 7
             )
-            raw_path = source[match.start("path"):match.end("path")]
-            title = self._caption_for_image(source, structural, match.start())
-            if not title:
-                title = self._image_file_name(raw_path)
 
+            while (
+                figure_index < len(figure_ranges)
+                and figure_ranges[figure_index][1] < position
+            ):
+                figure_index += 1
+
+            caption = ""
+            if figure_index < len(figure_ranges):
+                start, end, candidate_caption = figure_ranges[figure_index]
+                if start <= position <= end:
+                    caption = candidate_caption
+
+            raw_path = value[match.start("path"):match.end("path")]
+            title = caption or self._image_file_name(raw_path)
             result.append(
                 LatexStructureItem(
                     kind="image",
                     title=title or "(image)",
-                    line_number=structural.count("\n", 0, match.start()) + 1,
+                    line_number=self._line_number(line_starts, position),
                     level=image_level,
-                    source_position=match.start(),
+                    source_position=position,
                 )
             )
 
         result.sort(key=lambda item: item.source_position)
         return result
 
-    def _caption_for_image(
+    @staticmethod
+    def _line_starts(source: str) -> list[int]:
+        starts = [0]
+        starts.extend(
+            index + 1
+            for index, character in enumerate(source)
+            if character == "\n"
+        )
+        return starts
+
+    @staticmethod
+    def _line_number(line_starts: list[int], position: int) -> int:
+        return max(bisect_right(line_starts, max(int(position), 0)), 1)
+
+    def _figure_ranges(
         self,
         source: str,
         structural: str,
-        image_position: int,
-    ) -> str:
-        last_begin = None
-        for match in self._FIGURE_BEGIN_PATTERN.finditer(
-            structural,
-            0,
-            image_position,
-        ):
-            last_begin = match
+    ) -> list[tuple[int, int, str]]:
+        """Return figure spans and captions in one forward pass."""
+        ranges: list[tuple[int, int, str]] = []
+        cursor = 0
+        while True:
+            begin = self._FIGURE_BEGIN_PATTERN.search(structural, cursor)
+            if begin is None:
+                break
+            end = self._FIGURE_END_PATTERN.search(structural, begin.end())
+            if end is None:
+                break
 
-        if last_begin is None:
-            return ""
+            caption = ""
+            caption_match = self._CAPTION_PATTERN.search(
+                structural,
+                begin.end(),
+                end.start(),
+            )
+            if caption_match is not None:
+                argument_start = self._skip_space(
+                    structural,
+                    caption_match.end(),
+                )
+                if (
+                    argument_start < len(structural)
+                    and structural[argument_start] == "{"
+                ):
+                    parsed = self._balanced_argument(
+                        source,
+                        argument_start,
+                        "{",
+                        "}",
+                    )
+                    if parsed is not None:
+                        caption = self._display_title(parsed[0])
 
-        last_end = None
-        for match in self._FIGURE_END_PATTERN.finditer(
-            structural,
-            0,
-            image_position,
-        ):
-            last_end = match
-
-        if last_end is not None and last_end.start() > last_begin.start():
-            return ""
-
-        figure_end = self._FIGURE_END_PATTERN.search(
-            structural,
-            image_position,
-        )
-        if figure_end is None:
-            return ""
-
-        caption_match = self._CAPTION_PATTERN.search(
-            structural,
-            last_begin.end(),
-            figure_end.start(),
-        )
-        if caption_match is None:
-            return ""
-
-        cursor = self._skip_space(structural, caption_match.end())
-        if cursor >= len(structural) or structural[cursor] != "{":
-            return ""
-
-        parsed = self._balanced_argument(source, cursor, "{", "}")
-        if parsed is None:
-            return ""
-
-        return self._display_title(parsed[0])
+            ranges.append((begin.start(), end.end(), caption))
+            cursor = end.end()
+        return ranges
 
     @staticmethod
     def _image_file_name(raw_path: str) -> str:
@@ -278,7 +306,8 @@ class LatexStructureParser:
 
         return "".join(output)
 
-    def _mask_comment(self, line: str) -> str:
+    @staticmethod
+    def _mask_comment(line: str) -> str:
         for index, character in enumerate(line):
             if character != "%":
                 continue

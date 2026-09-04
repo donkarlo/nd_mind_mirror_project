@@ -1,0 +1,40 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+
+\usetikzlibrary{graphs,graphdrawing}
+\usegdlibrary{layered}
+
+\title{Startup fix after Visual window refactor}
+\date{2026-09-03}
+\author{Mohammad Rahmani}
+
+\begin{document}
+   \maketitle
+
+   \section{Problem}
+   Mind Mirror failed during startup with \texttt{ModuleNotFoundError} because the legacy large-document performance controller still imported \texttt{visual\_window\_controller} after Visual windowing had moved into the Visual editor architecture.
+
+   \section{Fix}
+   The obsolete \texttt{VisualWindowController} import and the unused Visual virtualization-threshold installer were removed from the startup performance-controller chain. Dead Source/Visual virtualization code that was not used by the safe startup controller was also removed from \texttt{LargeDocumentPerformanceController}. Visual windowing remains owned by \texttt{WindowedLatexVisualEditor} and \texttt{VisualSourceWindow}.
+
+   \section{Structure behavior}
+   This fix does not window or truncate the Structure model. The Structure panel continues to retain and parse the complete canonical source, including large LaTeX documents.
+
+   \section{Regression coverage}
+   A startup regression test verifies that the launcher still uses \texttt{SafeLargeDocumentPerformanceController}, that no active startup performance-controller file references the removed \texttt{visual\_window\_controller}, and that Visual windowing remains owned by the Visual editor classes.
+
+\end{document}

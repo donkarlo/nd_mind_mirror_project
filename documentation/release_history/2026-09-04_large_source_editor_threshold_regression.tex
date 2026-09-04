@@ -1,0 +1,68 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+
+\usetikzlibrary{graphs,graphdrawing}
+\usegdlibrary{layered}
+
+% for external graphviz
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/external_graphviz.tex}
+
+% for tags
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/parts/control_sequence/kind/semtag/semtag.tex}
+
+% for links
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/seehere.tex}
+
+\title{Large Source editor threshold regression fix}
+\date{2026-09-04}
+\author{Mohammad Rahmani}
+
+\begin{document}
+   \maketitle
+
+   \section{Problem}
+
+   A previous latency change introduced a separate hard-coded
+   \texttt{1,000,000}-character cutoff in \texttt{EditorPanel}. This overrode
+   the configured large-source threshold of \texttt{120,000} characters.
+   Documents such as the reconstructed Persian \texttt{evil} source therefore
+   opened in the regular full-document \texttt{LatexEditor} instead of the
+   bounded \texttt{LargeLatexEditor}, making Source typing substantially slower.
+
+   \section{Fix}
+
+   \begin{itemize}
+      \item \texttt{EditorPanel} now uses
+      \texttt{editor\_source\_large\_document\_threshold\_chars} from the shared
+      settings as the single threshold for choosing the LaTeX editor.
+      \item Files below that threshold use the regular \texttt{LatexEditor}.
+      \item Files at or above that threshold use \texttt{LargeLatexEditor}, so
+      only the bounded Source window is materialized in \texttt{QTextEdit}.
+      \item The hard-coded \texttt{1,000,000}-character cutoff was removed.
+      \item Regression coverage verifies that the configured threshold is used
+      and that the default remains \texttt{120,000}.
+   \end{itemize}
+
+   \section{Result}
+
+   Large LaTeX files no longer load the entire source into the ordinary editor
+   merely because they are smaller than one million characters. Small files
+   also avoid the chunked editor when virtualization is unnecessary.
+
+   \bibliographystyle{plainnat}
+   \bibliography{/home/donkarlo/Dropbox/repo/nd_shared_research/bibliography/bibliography.bib}
+\end{document}

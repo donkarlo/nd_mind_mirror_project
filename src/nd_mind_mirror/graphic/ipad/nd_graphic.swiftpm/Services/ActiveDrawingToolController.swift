@@ -26,6 +26,7 @@ final class ActiveDrawingToolController: NSObject, ObservableObject, UIGestureRe
     private weak var historyUndoGesture: UITapGestureRecognizer?
     private weak var historyController: CanvasEditHistoryController?
     private let stateStore: ActiveDrawingToolStateStore
+    private let lassoSelectionFeedbackController = LassoSelectionFeedbackController()
     private var rasterSession: RasterEraseSession?
     private var pendingRasterImage: UIImage?
     private var pendingRasterChanged = false
@@ -64,15 +65,18 @@ final class ActiveDrawingToolController: NSObject, ObservableObject, UIGestureRe
         return gesture.state == .began || gesture.state == .changed
     }
 
-    /// Attaches to one live PKCanvasView. No second Pencil recognizer is created.
+    /// Attaches tool handling plus a non-mutating visual observer for custom lasso feedback.
     func attach(canvas: PKCanvasView, backgroundView: UIImageView) {
         if self.canvas === canvas {
             self.backgroundView = backgroundView
+            lassoSelectionFeedbackController.attach(to: canvas)
+            lassoSelectionFeedbackController.setEnabled(state.kind == .lasso)
             suppressCanvasMenus()
             return
         }
 
         observedDrawingGesture?.removeTarget(self, action: #selector(handleDrawingGesture(_:)))
+        lassoSelectionFeedbackController.detach()
         if let historyUndoGesture {
             historyUndoGesture.view?.removeGestureRecognizer(historyUndoGesture)
         }
@@ -86,6 +90,7 @@ final class ActiveDrawingToolController: NSObject, ObservableObject, UIGestureRe
         drawingGesture.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.pencil.rawValue)]
         drawingGesture.addTarget(self, action: #selector(handleDrawingGesture(_:)))
         observedDrawingGesture = drawingGesture
+        lassoSelectionFeedbackController.attach(to: canvas)
 
         configureFingerNavigation(for: canvas)
         suppressCanvasMenus()
@@ -279,9 +284,20 @@ final class ActiveDrawingToolController: NSObject, ObservableObject, UIGestureRe
         CanvasInteractionSanitizer.suppressMenus(in: canvas)
     }
 
+    /// The app owns lasso selection itself. Native PencilKit lasso must never run at the same time,
+    /// otherwise PencilKit can mutate the same strokes while the custom lasso is also tracking them.
+    private func configureNativeDrawingGesture(for kind: GraphicTool, on canvas: PKCanvasView) {
+        let shouldEnableNativeDrawing = kind != .lasso
+        if canvas.drawingGestureRecognizer.isEnabled != shouldEnableNativeDrawing {
+            canvas.drawingGestureRecognizer.isEnabled = shouldEnableNativeDrawing
+        }
+    }
+
     private func applyImmediately() {
         guard let canvas else { return }
         suppressCanvasMenus()
+        configureNativeDrawingGesture(for: state.kind, on: canvas)
+        lassoSelectionFeedbackController.setEnabled(state.kind == .lasso)
         switch state.kind {
         case .pencil:
             canvas.tool = PKInkingTool(
@@ -299,7 +315,10 @@ final class ActiveDrawingToolController: NSObject, ObservableObject, UIGestureRe
             let type: PKEraserTool.EraserType = state.eraserMode == .partial ? .bitmap : .vector
             canvas.tool = PKEraserTool(type, width: CGFloat(state.width))
         case .lasso:
-            canvas.tool = PKLassoTool()
+            // The custom lasso recognizer in PencilCanvasView owns selection and movement.
+            // Do not install PKLassoTool here: two lasso engines mutating one drawing caused
+            // partial moves and apparent duplicated strokes.
+            break
         }
     }
 

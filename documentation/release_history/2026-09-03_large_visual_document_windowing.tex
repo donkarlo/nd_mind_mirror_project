@@ -1,0 +1,53 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+
+\usetikzlibrary{graphs,graphdrawing}
+\usegdlibrary{layered}
+
+% for external graphviz
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/external_graphviz.tex}
+
+% for tags
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/parts/control_sequence/kind/semtag/semtag.tex}
+
+% for links
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/seehere.tex}
+
+\title{Large Visual Document Windowing Fix}
+\date{2026-09-03}
+\author{Mohammad Rahmani}
+
+\begin{document}
+   \maketitle
+
+   \section{Problem}
+   Multi-megabyte LaTeX documents could freeze the Qt GUI when Visual mode was restored or opened. The previous large-document implementation attached virtualization after the main window had already restored its session and replaced methods on individual Visual editor instances at runtime. It also used hard-coded window sizes instead of the configured values.
+
+   \section{Fix}
+   Large-document virtualization is now owned by a real \texttt{WindowedLatexVisualEditor} subclass and a pure \texttt{VisualSourceWindow} model. Windowing is active from the moment each LaTeX editor is constructed, including during session restoration. No \texttt{MethodType} runtime replacement is required.
+
+   The Visual projection honors the configured page window and has a hard \texttt{visual\_window\_max\_chars} limit so long prose blocks cannot expand a Visual projection back to several megabytes. The user's existing two-page-above/two-page-below configuration is now used instead of the former hard-coded twenty-page values.
+
+   \section{Structure preservation}
+   Only Visual mode is virtualized. The canonical Source document remains complete, and the Structure panel continues to parse \texttt{self.\_source}, which contains the full LaTeX file. Therefore every section, subsection and subsubsection remains available in Structure even when the Visual projection displays only a small window around the active location. Selecting a distant Structure item causes Visual mode to load the corresponding source window.
+
+   \section{Large Visual edits}
+   Visual edits in large documents are spliced back into the untouched full source. Whole-document auto-formatting is skipped for the large-document Visual edit path to avoid blocking the GUI on every edit; explicit document formatting remains available separately.
+
+   \bibliographystyle{plainnat}
+   \bibliography{/home/donkarlo/Dropbox/repo/nd_shared_research/bibliography/bibliography.bib}
+\end{document}

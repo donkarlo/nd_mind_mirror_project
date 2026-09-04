@@ -1,0 +1,67 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+
+\usetikzlibrary{graphs,graphdrawing}
+\usegdlibrary{layered}
+
+\title{Mind Mirror Release History: iPad Lasso Visual Feedback}
+\date{2026-09-04}
+\author{Mohammad Rahmani}
+
+\begin{document}
+   \maketitle
+
+   \section{Bug}
+   The iPad Lasso continued to select strokes, but the gray dashed selection path
+   that had previously provided visual feedback while drawing the lasso and after
+   lifting Apple Pencil was no longer visible.
+
+   The old feedback had been supplied by PencilKit's native \texttt{PKLassoTool}.
+   Native lasso handling was intentionally disabled when Mind Mirror introduced
+   its own lasso selection, move, and proportional-resize implementation because
+   running the native and custom lasso engines together could mutate the same
+   strokes twice and produce partial moves or apparent duplicated strokes.
+
+   \section{Resolution}
+   \begin{itemize}
+      \item Added a dedicated \texttt{LassoSelectionFeedbackController} for visual
+      feedback only. It never edits \texttt{PKDrawing} and does not re-enable
+      \texttt{PKLassoTool}.
+      \item While Apple Pencil draws a custom lasso, the controller renders the
+      actual lasso trajectory as a gray dashed line above the canvas.
+      \item After Apple Pencil is lifted, the dashed path remains associated with
+      the current stroke selection.
+      \item When the selected strokes are moved or proportionally resized, the
+      stored lasso path is transformed with the current selection bounds so the
+      visual contour follows the selection rather than remaining at its old
+      position.
+      \item Leaving Lasso mode, cancelling the gesture, or clearing the selection
+      removes the visual path.
+      \item The existing custom selection engine and its resize/move handles remain
+      authoritative; native PencilKit lasso mutation remains disabled.
+   \end{itemize}
+
+   \section{Regression coverage}
+   A source-level regression test verifies that the iPad package contains the
+   gray dashed lasso-feedback controller, that it tracks Apple Pencil input and a
+   completed selection path, that it is wired to the active drawing-tool
+   controller, and that \texttt{PKLassoTool} remains disabled so the historical
+   duplicate-stroke regression cannot be reintroduced by this visual fix.
+
+   \bibliographystyle{plainnat}
+   \bibliography{/home/donkarlo/Dropbox/repo/nd_shared_research/bibliography/bibliography.bib}
+\end{document}

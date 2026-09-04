@@ -1,0 +1,71 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+
+\usetikzlibrary{graphs,graphdrawing}
+\usegdlibrary{layered}
+
+\title{Mind Mirror Release History: Native Source Layout Crash}
+\date{2026-09-04}
+\author{Mohammad Rahmani}
+
+\begin{document}
+   \maketitle
+
+   \section{Bug}
+   Mind Mirror exited with native process code \texttt{-11} immediately after
+   startup. The control-panel log contained only the launch header and no Python
+   traceback because the process terminated inside Qt before Python exception
+   handling could report an error.
+
+   The regression was introduced by installing a Python subclass of
+   \texttt{QPlainTextDocumentLayout}. Its overridden block-layout path modified
+   \texttt{QTextLayout} while Qt was already performing native plain-text layout,
+   creating an unsafe re-entrant layout path.
+
+   \section{Resolution}
+   \begin{itemize}
+      \item Removed the custom Python \texttt{QPlainTextDocumentLayout} from the
+      active Source editor architecture.
+      \item Restored Qt's native \texttt{QTextEdit}/\texttt{QTextDocumentLayout}
+      path for Source presentation. This again honors block direction, alignment,
+      proportional line height, and the block top margins used by inline Source
+      graphic previews.
+      \item Persian and Arabic Source prose therefore uses native right-to-left
+      block direction and right alignment, while LaTeX control lines remain
+      left-to-right according to the existing direction resolver.
+      \item Large LaTeX sources continue to use the chunked canonical
+      \texttt{LatexSourceBuffer}. Once the configured large-document threshold is
+      reached, only an approximately \texttt{40,000}-character Source window is
+      materialized in \texttt{QTextEdit}.
+      \item The incremental \texttt{QTextDocument.contentsChange} path is retained:
+      normal typing updates only the edited source range in the chunk buffer and
+      does not serialize the complete Source window on every key press.
+      \item Large mode omits decorative hanging-indent calculation, indent-guide
+      painting, and soft-wrap-marker painting while preserving native RTL and
+      figure reservation geometry.
+   \end{itemize}
+
+   \section{Regression coverage}
+   Source-level regression tests verify that the public Source editor no longer
+   installs a custom plain-text document layout, that the native rich editor
+   retains RTL block formatting, that Source figures reserve block top margins,
+   and that the large Source editor keeps the incremental chunk-edit path while
+   materializing a bounded rich-text Source window.
+
+   \bibliographystyle{plainnat}
+   \bibliography{/home/donkarlo/Dropbox/repo/nd_shared_research/bibliography/bibliography.bib}
+\end{document}

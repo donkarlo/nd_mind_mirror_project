@@ -1,0 +1,49 @@
+\documentclass[a4paper]{article}
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+
+\title{Large Source document virtualization}
+\date{2026-09-03}
+\author{Mohammad Rahmani}
+
+\begin{document}
+\maketitle
+
+\section{Bug}
+Opening a multi-megabyte LaTeX document could freeze the Qt GUI and eventually
+terminate Mind Mirror with exit code $-9$. Visual projection virtualization and
+asynchronous Structure parsing were insufficient because the complete Source
+was still materialized in a \texttt{QTextEdit}/\texttt{QTextDocument}.
+
+\section{Fix}
+A canonical \texttt{LatexSourceBuffer} now owns the complete LaTeX source and
+exposes a bounded, line-aligned Source window. \texttt{LargeLatexEditor}
+subclasses the normal \texttt{LatexEditor}; small documents retain the normal
+behavior, while large documents place only the bounded Source window in Qt.
+Edits are spliced exactly once into the canonical source and the line index is
+updated incrementally.
+
+Save, autosave, Preview, Visual, and Structure continue receiving the complete
+canonical source. Structure navigation maps full-document line numbers back to
+the correct Source window, so the complete Structure remains available even for
+large documents.
+
+\section{Regression protection}
+Tests verify that the canonical source remains complete, an edited Source
+window is spliced only once without duplicating the untouched suffix, global
+line mapping survives window edits, and the editor-panel path uses the OOP
+large-document editor specialization without runtime method patching.
+
+\end{document}

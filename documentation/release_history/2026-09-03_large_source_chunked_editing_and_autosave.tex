@@ -1,0 +1,67 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+
+\title{Large Source chunked editing and non-blocking autosave}
+\date{2026-09-03}
+\author{Mohammad Rahmani}
+
+\begin{document}
+\maketitle
+
+\section{Bug}
+Multi-megabyte LaTeX Source documents could remain nearly unusable even with
+PDF Preview disabled. Typing rebuilt the complete canonical source string on
+every keystroke, Source scrolling could scan the complete source for
+\verb|\includegraphics|, and the one-second periodic autosave materialized and
+wrote the complete document on the GUI thread.
+
+\section{Fix}
+Large LaTeX Source storage now uses line-aligned chunks plus one bounded
+editable Source window. Editing replaces only the chunks represented by that
+window. The complete source is materialized lazily only for consumers that
+explicitly need it, such as Structure, Preview, and manual save. Source window
+transitions allow continued scrolling through the complete document without
+placing the complete source in \texttt{QTextEdit}.
+
+The inline Source graphic preview now performs its scroll-time source check
+inside the visible-window scope, preventing a complete-source scan on each
+scroll event.
+
+Periodic autosave now captures immutable chunk snapshots and stages file I/O in
+a background worker. The staged snapshot is atomically committed only when the
+editor revision still matches the captured revision, preventing a stale
+autosave from overwriting newer typing. External-file synchronization pauses
+while an autosave write is pending.
+
+\section{Structure behavior}
+The Structure panel remains full-document. Large LaTeX structure parsing still
+receives the complete canonical source and runs through the asynchronous
+\texttt{LatexStructureParseWorker}; Source windowing does not truncate the
+Structure tree.
+
+\section{Regression coverage}
+Regression tests cover chunk-edit integrity, canonical line/position mapping,
+window shifting without eager complete-source materialization, visible-window
+Source graphic scanning, background autosave ownership, revision guarding, and
+full-document asynchronous Structure parsing.
+
+\section{Data safety}
+The performance migration does not rewrite the user's
+\texttt{evil\_farsi\_reconstructed.tex} document. Session state was separately
+cleaned so that the large file is not reopened automatically during startup.
+
+\end{document}

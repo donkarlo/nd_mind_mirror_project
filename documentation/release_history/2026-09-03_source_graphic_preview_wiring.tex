@@ -1,0 +1,50 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+
+\usetikzlibrary{graphs,graphdrawing}
+\usegdlibrary{layered}
+
+% for external graphviz
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/external_graphviz.tex}
+
+% for tags
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/parts/control_sequence/kind/semtag/semtag.tex}
+
+% for links
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/seehere.tex}
+
+\title{2026-09-03 Source Graphic Preview Wiring}
+\date{2026-09-03}
+\author{Mohammad Rahmani}
+
+\begin{document}
+   \maketitle
+
+   \section{Bug fix and architecture cleanup}
+   \begin{itemize}
+      \item LaTeX Source figure images disappeared even though the image files and \verb|\includegraphics| paths were valid because \texttt{SourceGraphicPreviewController} was not owned by the active main window.
+      \item The canonical \texttt{EnhancedMainWindow} now directly owns one persistent \texttt{SourceGraphicPreviewController}; no wrapper or alternate base-window class is used.
+      \item The temporary wrapper/base-class workaround used during diagnosis was removed so the repository again contains one canonical \texttt{EnhancedMainWindow} implementation.
+      \item An older runtime render workaround in \texttt{EnhancedMainWindow} was also removed. The window no longer assigns replacements to \texttt{renderer.render} or \texttt{renderer.\_compile\_pending\_source}.
+      \item Render policy is now encapsulated in the OOP \texttt{PreviewRenderPolicyController}. It listens to editor signals and uses the renderer public API for immediate first-open rendering and fast missing absolute-input reporting.
+      \item The stable Source image layout logic remains unchanged, so images are displayed immediately before \verb|\end{figure}| without restoring the older document-wide margin behavior that caused Source scroll jumping.
+      \item Regression tests verify direct controller ownership, absence of runtime renderer method replacement, preservation of existing enhanced-window features, and the Source preview signal wiring.
+   \end{itemize}
+
+   \bibliographystyle{plainnat}
+   \bibliography{/home/donkarlo/Dropbox/repo/nd_shared_research/bibliography/bibliography.bib}
+\end{document}

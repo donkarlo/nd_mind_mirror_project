@@ -1,0 +1,64 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+
+\usetikzlibrary{graphs,graphdrawing}
+\usegdlibrary{layered}
+
+% for external graphviz
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/external_graphviz.tex}
+
+% for tags
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/parts/control_sequence/kind/semtag/semtag.tex}
+
+% for links
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/seehere.tex}
+
+\title{2026-09-03 iPad Live Graphic Synchronization Settings}
+\date{2026-09-03}
+\author{Mohammad Rahmani}
+
+\begin{document}
+   \maketitle
+
+   \section{iPad live graphic synchronization}
+   \begin{itemize}
+      \item PencilKit drawing changes now stream the newest intermediate canvas state to Ubuntu while an Apple Pencil gesture is still in progress instead of waiting until the gesture ends.
+      \item The live stream is rate-limited and coalesced so only the newest pending drawing state is retained; it does not build an unbounded queue of stale PNG renders.
+      \item The normal reliable final-save path remains in place when a gesture is committed. Closing an image explicitly queues the latest complete canvas state before the iPad returns to the waiting screen.
+   \end{itemize}
+
+   \section{Adjustable synchronization settings}
+   \begin{itemize}
+      \item Added a gear button to the iPad header that opens a dedicated synchronization-settings sheet.
+      \item Added an Update Rate slider from 1 to 20 Ubuntu updates per second, with a default of 10 updates per second.
+      \item The selected value is persisted when the user presses Close and is restored the next time the app is opened.
+      \item Live-sync settings and scheduling are implemented as separate classes under dedicated Service and View hierarchies so additional synchronization settings can be added without expanding the main drawing view.
+   \end{itemize}
+
+   \section{Ubuntu refresh behavior}
+   \begin{itemize}
+      \item Source inline graphics are refreshed directly when the atomic iPad graphic-update event arrives instead of waiting for the slower fallback image poll.
+      \item Visual continues to invalidate its image resource immediately from the same update event.
+      \item PDF Preview now uses a periodic 300 ms live-graphic refresh cadence that is not indefinitely postponed by continuous Pencil strokes.
+   \end{itemize}
+
+   \section{Version}
+   ND Graphic is advanced to version 0.31.36, build 66.
+
+   \bibliographystyle{plainnat}
+   \bibliography{/home/donkarlo/Dropbox/repo/nd_shared_research/bibliography/bibliography.bib}
+\end{document}

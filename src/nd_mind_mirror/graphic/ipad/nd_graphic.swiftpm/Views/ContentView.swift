@@ -1,10 +1,11 @@
+// Main iPad drawing screen with live Ubuntu synchronization and one atomic drawing+raster history.
+
 import Foundation
 import PencilKit
 import PhotosUI
 import SwiftUI
 import UIKit
 
-/// Main iPad drawing screen with one atomic drawing+raster history.
 struct ContentView: View {
     @StateObject private var bridge = GraphicBridgeClient()
     @StateObject private var activeTool = ActiveDrawingToolController()
@@ -14,6 +15,8 @@ struct ContentView: View {
     @StateObject private var programmaticDrawingChanges = ProgrammaticDrawingChangeGuard()
     @StateObject private var saveRetryController = GraphicSaveRetryController()
     @StateObject private var saveGate = GraphicDocumentSaveGate()
+    @StateObject private var liveSyncSettings = LiveGraphicSyncSettingsStore()
+    @StateObject private var liveSaveScheduler = LiveGraphicSaveScheduler()
 
     @AppStorage("graphic.last.canvas.width") private var rememberedCanvasWidth: Double = 1240
     @AppStorage("graphic.last.canvas.height") private var rememberedCanvasHeight: Double = 1754
@@ -32,6 +35,7 @@ struct ContentView: View {
     @State private var zoom100RequestToken = 0
     @State private var selectedPhotoItem: PhotosPickerItem?
     @State private var showCanvasEditor = false
+    @State private var showLiveSyncSettings = false
     @State private var canvasWidthText = "1240"
     @State private var canvasHeightText = "1754"
     @State private var loadedPath: String?
@@ -51,6 +55,9 @@ struct ContentView: View {
                 onApply: applyCanvasDraft,
                 onCancel: { showCanvasEditor = false }
             )
+        }
+        .sheet(isPresented: $showLiveSyncSettings) {
+            LiveGraphicSyncSettingsView(settingsStore: liveSyncSettings)
         }
         .onAppear {
             if !initializedTool {
@@ -80,6 +87,15 @@ struct ContentView: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
             Spacer()
+            Button {
+                showLiveSyncSettings = true
+            } label: {
+                Image(systemName: "gearshape.fill")
+                    .font(.title3)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Live sync settings")
+
             if bridge.selectedPath != nil {
                 Button(action: closeCurrentImage) {
                     Image(systemName: "xmark.circle.fill")
@@ -177,6 +193,9 @@ struct ContentView: View {
                 .font(.caption2.monospacedDigit())
             Text("\(Int(canvasWidth)) × \(Int(canvasHeight))")
                 .font(.caption2.monospacedDigit())
+            Text("Ubuntu \(Int(liveSyncSettings.updateRateHz.rounded()))/s")
+                .font(.caption2.monospacedDigit())
+                .foregroundStyle(.secondary)
             Spacer()
             if activeTool.kind == .eraser {
                 Text("\(activeTool.eraserMode.title) • \(Int(activeTool.width)) px")
@@ -195,6 +214,7 @@ struct ContentView: View {
             return
         }
         localToken = token
+        liveSaveScheduler.cancelPending()
         saveRetryController.reset()
         guard let path = bridge.selectedPath else {
             loadedPath = nil
@@ -250,6 +270,7 @@ struct ContentView: View {
             canvasSize: logicalCanvasSize,
             historyController: editHistory,
             canvasStateCommitted: { drawing, image, rasterChanged in
+                liveSaveScheduler.cancelPending()
                 lastLocalEdit = Date()
                 localDrawing = drawing
                 backgroundImage = image
@@ -270,9 +291,31 @@ struct ContentView: View {
         }
         lastLocalEdit = Date()
         localDrawing = drawing
-        guard !activeTool.isCanvasGestureInFlight else { return }
+
+        if activeTool.isCanvasGestureInFlight {
+            scheduleLiveSave(drawing)
+            return
+        }
+
         if editHistory.record(drawing: drawing, backgroundImage: backgroundImage) {
             saveCurrentState(persistBackground: false)
+        }
+    }
+
+    private func scheduleLiveSave(_ drawing: PKDrawing) {
+        guard saveGate.allowsSave(path: bridge.selectedPath) else { return }
+        let canvasSize = logicalCanvasSize
+        let pencil = activeTool.pencilSettings
+        let image = backgroundImage
+
+        liveSaveScheduler.submit(updateRateHz: liveSyncSettings.updateRateHz) {
+            bridge.save(
+                drawing: drawing,
+                backgroundImage: image,
+                logicalCanvasSize: canvasSize,
+                pencil: pencil,
+                persistBackground: false
+            )
         }
     }
 
@@ -290,12 +333,11 @@ struct ContentView: View {
 
     private func restore(_ snapshot: CanvasEditHistoryController.Snapshot) {
         lastLocalEdit = Date()
+        liveSaveScheduler.cancelPending()
         programmaticDrawingChanges.register(snapshot.drawing)
         activeTool.applyHistorySnapshot(snapshot)
         localDrawing = snapshot.drawing
         backgroundImage = snapshot.backgroundImage
-        // Force SwiftUI/PencilCanvasView to reconcile with the restored snapshot.
-        // All resulting delegate callbacks are guarded as programmatic states.
         canvasToken += 1
         saveCurrentState(persistBackground: true)
     }
@@ -308,6 +350,7 @@ struct ContentView: View {
             backgroundImage: backgroundImage
         ) else { return }
         lastLocalEdit = Date()
+        liveSaveScheduler.cancelPending()
         localDrawing = cleared
         canvasToken += 1
         saveCurrentState(persistBackground: false)
@@ -349,6 +392,8 @@ struct ContentView: View {
 
     private func closeCurrentImage() {
         guard bridge.selectedPath != nil else { return }
+        liveSaveScheduler.cancelPending()
+        saveCurrentState(persistBackground: false)
         let deferred = saveRetryController.closeWhenSettled {
             bridge.closeCurrentDocumentKeepingListener()
         }
@@ -408,6 +453,7 @@ struct ContentView: View {
                 ) else { return }
                 backgroundImage = merged
                 lastLocalEdit = Date()
+                liveSaveScheduler.cancelPending()
                 saveCurrentState(persistBackground: true)
             }
         }

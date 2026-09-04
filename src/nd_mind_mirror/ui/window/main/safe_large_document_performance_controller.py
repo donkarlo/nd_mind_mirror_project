@@ -16,7 +16,6 @@ class SafeLargeDocumentPerformanceController(LargeDocumentPerformanceController)
         if cls._runtime_installed:
             return
 
-        cls._install_visual_virtualization_threshold()
         cls._install_structure_idle_fast_path()
         cls._install_preview_fast_path()
         cls._install_preview_disable_cleanup()

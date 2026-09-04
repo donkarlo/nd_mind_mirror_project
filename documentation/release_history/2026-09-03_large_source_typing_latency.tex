@@ -1,0 +1,64 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+
+\usetikzlibrary{graphs,graphdrawing}
+\usegdlibrary{layered}
+
+% for external graphviz
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/external_graphviz.tex}
+
+% for tags
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/parts/control_sequence/kind/semtag/semtag.tex}
+
+% for links
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/seehere.tex}
+
+\title{Large Source Typing Latency Fix}
+\date{2026-09-03}
+\author{Mohammad Rahmani}
+
+\begin{document}
+   \maketitle
+
+   \section{Problem}
+   Large LaTeX sources were windowed inside the Source editor, but the inherited
+   content propagation logic still classified the document by the size of the
+   visible \texttt{QTextEdit} window. Because the window was below the normal
+   large-document threshold, every edit scheduled a full canonical-source
+   update after the small-document debounce interval. This caused Structure,
+   Preview, and other full-document consumers to process a multi-megabyte
+   source while the user was typing.
+
+   \section{Fix}
+   \begin{itemize}
+      \item The visible Source window was reduced from 80,000 to 40,000 characters.
+      \item \texttt{LargeLatexEditor} now decides propagation from its canonical
+      windowed state instead of \texttt{QTextDocument.characterCount()}.
+      \item Full-document content propagation waits for 1.2 seconds of typing idle time.
+      \item Bookmark relocation uses the same idle policy for large sources.
+      \item Structure still receives the complete canonical source after the idle period.
+      \item The user document itself is not rewritten by this fix.
+   \end{itemize}
+
+   \section{Regression coverage}
+   \texttt{tests/test\_large\_latex\_editor\_idle\_propagation.py} verifies the
+   bounded Source window, the large-document idle delay, and that the debounce
+   decision no longer depends on the visible Qt document size.
+
+   \bibliographystyle{plainnat}
+   \bibliography{/home/donkarlo/Dropbox/repo/nd_shared_research/bibliography/bibliography.bib}
+\end{document}

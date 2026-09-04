@@ -1,0 +1,51 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+
+\title{Session invalid string-list startup crash fix}
+\date{2026-09-04}
+\author{Mohammad Rahmani}
+
+\begin{document}
+\maketitle
+
+\section{Problem}
+Mind Mirror could terminate during startup while restoring the File System state.
+When no navigator directories were expanded, Qt could persist the Python empty
+list in \texttt{session.ini} as \texttt{@Invalid()}. Reading that value through
+\texttt{QSettings} returned \texttt{None}; the restore path then called
+\texttt{list(expanded)} and raised \texttt{TypeError}. The exception occurred
+after Qt worker objects had already been created, which also produced the
+secondary \texttt{QThread: Destroyed while thread is still running} message.
+
+\section{Fix}
+\begin{itemize}
+   \item Added \texttt{SessionStringListSanitizer} under the settings-storage hierarchy.
+   \item \texttt{EnhancedMainWindow} sanitizes persistent string-list values before the base session restore runs.
+   \item The same sanitizer runs after session saving so an empty Python list is rewritten as a safe empty string rather than being left as a Qt invalid value.
+   \item The existing enhanced-window feature implementation was moved to \texttt{enhanced\_main\_window\_features.py}; the public \texttt{EnhancedMainWindow} import path remains unchanged.
+\end{itemize}
+
+\section{Regression coverage}
+Tests cover \texttt{None}, empty-list, and non-empty-list normalization and verify
+that session sanitization occurs before restore and after save.
+
+\section{Data safety}
+No document, story, bookmark, recent-file entry, or open-tab list is deleted.
+The existing \texttt{session.ini} is repaired in memory when the application
+starts and is normalized on the next session save.
+
+\end{document}

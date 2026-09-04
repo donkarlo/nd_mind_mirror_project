@@ -1,0 +1,56 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+
+\usetikzlibrary{graphs,graphdrawing}
+\usegdlibrary{layered}
+
+% for external graphviz
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/external_graphviz.tex}
+
+% for tags
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/parts/control_sequence/kind/semtag/semtag.tex}
+
+% for links
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/seehere.tex}
+
+\title{Large Visual Document Virtualization Fix}
+\date{2026-09-03}
+\author{Mohammad Rahmani}
+
+\begin{document}
+   \maketitle
+
+   \section{Problem}
+   Multi-megabyte LaTeX documents could make Mind Mirror unresponsive when Visual mode was opened. The previous Visual-window implementation also replaced several \texttt{LatexVisualEditor} methods at runtime and used hard-coded page counts instead of the configured values.
+
+   \section{Fix}
+   \begin{itemize}
+      \item Large-document virtualization is restricted to the Visual projection. The canonical Source document remains complete.
+      \item The Structure panel continues to receive and parse the complete canonical source, including long documents.
+      \item Visual windows use the configured \texttt{visual\_window\_*} settings rather than hard-coded page counts.
+      \item A bounded character cap prevents a very long paragraph or LaTeX environment from expanding the Visual projection back to a multi-megabyte document.
+      \item Visual edits replace only the active source window in the complete canonical document instead of formatting and replacing the whole file.
+      \item Runtime method replacement with \texttt{MethodType} was removed from the Visual-window controller.
+      \item Clicking a Structure item outside the active Visual window recenters the Visual projection around that source location while Structure itself remains complete.
+   \end{itemize}
+
+   \section{Regression coverage}
+   Tests cover a synthetic document larger than 3 MB, bounded Visual-window size, preservation of source outside an edited Visual window, configured page counts, absence of runtime method replacement, and the full-source Structure path.
+
+   \bibliographystyle{plainnat}
+   \bibliography{/home/donkarlo/Dropbox/repo/nd_shared_research/bibliography/bibliography.bib}
+\end{document}

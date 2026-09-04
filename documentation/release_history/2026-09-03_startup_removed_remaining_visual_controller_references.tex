@@ -1,0 +1,48 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+
+\title{Startup cleanup after Visual windowing refactor}
+\date{2026-09-03}
+\author{Mohammad Rahmani}
+
+\begin{document}
+\maketitle
+
+\section{Bug}
+After replacing the old Visual window controller with the OOP-owned
+\texttt{WindowedLatexVisualEditor}, startup still failed because two legacy
+startup modules referenced the removed
+\texttt{visual\_window\_controller} module.
+
+\section{Cause}
+\texttt{editor\_runtime\_extensions.py} still imported and configured the
+removed controller, while \texttt{persistent\_editor\_visuals.py} still
+installed a large-document Visual performance hook around that same class.
+These references belonged to the previous runtime-patched architecture and
+were no longer compatible with the canonical Visual editor implementation.
+
+\section{Fix}
+The obsolete Visual-controller import, configuration hook, and performance
+hook were removed. Large-document Visual windowing remains owned by
+\texttt{WindowedLatexVisualEditor}. The Structure panel remains independent
+and continues parsing the complete canonical Source document.
+
+The startup regression test now checks all startup modules involved in this
+chain and fails if \texttt{VisualWindowController} or
+\texttt{visual\_window\_controller} is reintroduced.
+
+\end{document}

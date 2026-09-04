@@ -17,10 +17,17 @@ from nd_mind_mirror.core.yaml.structure.yaml_structure_parser import (
     YamlStructureParser,
 )
 from nd_mind_mirror.ui.panel.base.panel import Panel
+from nd_mind_mirror.ui.panel.structure.latex_structure_parse_worker import (
+    LatexStructureParseWorker,
+)
 
 
 class LatexStructurePanel(Panel):
+    """Show the complete document structure without blocking large-file UI load."""
+
     line_activated = Signal(int)
+    _LARGE_DOCUMENT_THRESHOLD_CHARS = 120_000
+    _LARGE_DOCUMENT_DEBOUNCE_MS = 650
 
     def __init__(self, parent=None) -> None:
         super().__init__("Structure", parent)
@@ -34,6 +41,9 @@ class LatexStructurePanel(Panel):
         self._structure_signature: tuple[tuple[int, str], ...] | None = None
         self._highlight_brush = QBrush(QColor("#fff6bf"))
         self._clear_brush = QBrush()
+        self._parse_generation = 0
+        self._latex_worker: LatexStructureParseWorker | None = None
+        self._pending_async_rebuild = False
 
         self.setMinimumWidth(90)
         self.setSizePolicy(
@@ -50,9 +60,7 @@ class LatexStructurePanel(Panel):
         self._tree.setEditTriggers(
             QAbstractItemView.EditTrigger.NoEditTriggers
         )
-        self._tree.itemClicked.connect(
-            self._on_item_clicked
-        )
+        self._tree.itemClicked.connect(self._on_item_clicked)
 
         self._refresh_timer = QTimer(self)
         self._refresh_timer.setSingleShot(True)
@@ -84,16 +92,30 @@ class LatexStructurePanel(Panel):
         file_path = Path(path).expanduser().resolve()
         path_changed = file_path != self._path
         self._path = file_path
-        self._source = source
+        self._source = str(source)
+        self._parse_generation += 1
 
         if file_path.suffix.lower() not in {".tex", ".yaml", ".yml"}:
             self.clear()
             return
 
         self._label.setText(f"Structure — {file_path.name}")
-        signature = self._signature_for(file_path, source)
+
+        if self._is_large_latex_document():
+            # The full source is retained above. Parsing is merely moved off
+            # the GUI thread so startup and tab switching can paint promptly.
+            self._structure_signature = None
+            self._refresh_timer.stop()
+            self._refresh_timer.setInterval(
+                0 if immediate or path_changed else self._LARGE_DOCUMENT_DEBOUNCE_MS
+            )
+            self._refresh_timer.start()
+            return
+
+        signature = self._signature_for(file_path, self._source)
         structure_changed = signature != self._structure_signature
         self._structure_signature = signature
+        self._refresh_timer.setInterval(260)
         if immediate or path_changed:
             self._refresh_timer.stop()
             self._rebuild()
@@ -102,6 +124,8 @@ class LatexStructurePanel(Panel):
 
     def clear(self) -> None:
         self._refresh_timer.stop()
+        self._parse_generation += 1
+        self._pending_async_rebuild = False
         self._path = None
         self._source = ""
         self._structure_signature = None
@@ -152,6 +176,13 @@ class LatexStructurePanel(Panel):
             )
         return ()
 
+    def _is_large_latex_document(self) -> bool:
+        return bool(
+            self._path is not None
+            and self._path.suffix.lower() == ".tex"
+            and len(self._source) >= self._LARGE_DOCUMENT_THRESHOLD_CHARS
+        )
+
     def _rebuild(self) -> None:
         if (
             self._path is None
@@ -160,12 +191,74 @@ class LatexStructurePanel(Panel):
             self.clear()
             return
 
+        if self._is_large_latex_document():
+            self._start_async_latex_rebuild()
+            return
+
         suffix = self._path.suffix.lower()
         structure = (
             self._latex_parser.parse(self._source)
             if suffix == ".tex"
             else self._yaml_parser.parse(self._source)
         )
+        self._apply_structure(structure)
+
+    def _start_async_latex_rebuild(self) -> None:
+        worker = self._latex_worker
+        if worker is not None and worker.isRunning():
+            self._pending_async_rebuild = True
+            return
+
+        generation = self._parse_generation
+        worker = LatexStructureParseWorker(
+            generation,
+            self._source,
+            self,
+        )
+        self._latex_worker = worker
+        self._pending_async_rebuild = False
+        worker.parsed.connect(self._on_async_structure_parsed)
+        worker.failed.connect(self._on_async_structure_failed)
+        worker.finished.connect(
+            lambda item=worker: self._on_async_worker_finished(item)
+        )
+        worker.start()
+
+    def _on_async_structure_parsed(
+        self,
+        generation: int,
+        structure: object,
+    ) -> None:
+        if generation != self._parse_generation:
+            return
+        if not isinstance(structure, list):
+            return
+        self._apply_structure(structure)
+
+    def _on_async_structure_failed(
+        self,
+        generation: int,
+        message: str,
+    ) -> None:
+        if generation != self._parse_generation:
+            return
+        name = self._path.name if self._path is not None else "document"
+        self._label.setText(f"Structure — {name} (parse failed: {message})")
+
+    def _on_async_worker_finished(
+        self,
+        worker: LatexStructureParseWorker,
+    ) -> None:
+        if self._latex_worker is worker:
+            self._latex_worker = None
+        worker.deleteLater()
+
+        if self._pending_async_rebuild and self._is_large_latex_document():
+            self._pending_async_rebuild = False
+            QTimer.singleShot(0, self._start_async_latex_rebuild)
+
+    def _apply_structure(self, structure: list) -> None:
+        """Replace the tree from a complete parsed structure on the GUI thread."""
         self._tree.setUpdatesEnabled(False)
         try:
             self._tree.clear()

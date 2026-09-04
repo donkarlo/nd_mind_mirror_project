@@ -1,0 +1,48 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+
+\usetikzlibrary{graphs,graphdrawing}
+\usegdlibrary{layered}
+
+% for external graphviz
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/external_graphviz.tex}
+
+% for tags
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/parts/control_sequence/kind/semtag/semtag.tex}
+
+% for links
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/seehere.tex}
+
+\title{Preview Direction Detection for Stray Arabic Marks}
+\date{2026-09-03}
+\author{Mohammad Rahmani}
+
+\begin{document}
+   \maketitle
+
+   \section{Bug fix}
+   \begin{itemize}
+      \item Fixed a live Preview regression where a single Arabic combining mark, such as Unicode U+0651 SHADDA, could incorrectly classify an otherwise English LaTeX document as Persian and make the generated PDF right-to-left.
+      \item Persian Preview support now relies on the existing \texttt{LatexTextDirectionResolver} and requires at least one strong Arabic-script alphabetic character. Combining marks, punctuation, joiners, and other non-letter code points no longer enable Persian as the Babel main language.
+      \item Existing Persian documents remain supported because real Persian/Arabic letters still enable the same Preview-only Babel and font setup.
+      \item Added regression tests for the exact English-plus-SHADDA case and for genuine Persian text.
+      \item The user's source document is not rewritten as part of this fix.
+   \end{itemize}
+
+   \bibliographystyle{plainnat}
+   \bibliography{/home/donkarlo/Dropbox/repo/nd_shared_research/bibliography/bibliography.bib}
+\end{document}

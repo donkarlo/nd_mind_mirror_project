@@ -6,7 +6,7 @@ import PencilKit
 import SwiftUI
 import UIKit
 
-/// Draws a touch-through selection frame with four finger-draggable proportional resize handles.
+/// Draws the selection frame, proportional resize handles, and an interactive move surface.
 final class SelectionResizeOverlay: UIView {
     enum Corner: Int, CaseIterable {
         case topLeft = 0
@@ -18,6 +18,7 @@ final class SelectionResizeOverlay: UIView {
     private let borderLayer = CAShapeLayer()
     let handles: [UIView]
     let moveHandle: UIView
+    let moveSurface: UIView
     private var selectionBounds: CGRect?
     private var zoomScale: CGFloat = 1.0
 
@@ -31,6 +32,7 @@ final class SelectionResizeOverlay: UIView {
             return handle
         }
         moveHandle = UIView()
+        moveSurface = UIView()
         super.init(frame: frame)
         backgroundColor = .clear
         isOpaque = false
@@ -38,6 +40,11 @@ final class SelectionResizeOverlay: UIView {
         borderLayer.fillColor = UIColor.clear.cgColor
         borderLayer.strokeColor = UIColor.systemBlue.cgColor
         layer.addSublayer(borderLayer)
+
+        moveSurface.backgroundColor = .clear
+        moveSurface.isUserInteractionEnabled = true
+        addSubview(moveSurface)
+
         for handle in handles {
             addSubview(handle)
         }
@@ -104,6 +111,7 @@ final class SelectionResizeOverlay: UIView {
         borderLayer.frame = self.bounds
         borderLayer.lineWidth = lineWidth
         borderLayer.path = UIBezierPath(rect: bounds).cgPath
+        moveSurface.frame = bounds
 
         let moveWidth = 30.0 / scale
         let moveHeight = 16.0 / scale
@@ -126,7 +134,7 @@ final class SelectionResizeOverlay: UIView {
     }
 
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
-        guard !isHidden else { return nil }
+        guard !isHidden, let selectionBounds else { return nil }
         let movePoint = moveHandle.convert(point, from: self)
         if moveHandle.point(inside: movePoint, with: event) {
             return moveHandle
@@ -136,6 +144,9 @@ final class SelectionResizeOverlay: UIView {
             if handle.point(inside: localPoint, with: event) {
                 return handle
             }
+        }
+        if selectionBounds.contains(point) {
+            return moveSurface
         }
         return nil
     }
@@ -286,6 +297,18 @@ struct PencilCanvasView: UIViewRepresentable {
         selectionOverlay.moveHandle.addGestureRecognizer(moveSelection)
         scroll.panGestureRecognizer.require(toFail: moveSelection)
 
+        let moveSelectionFromBody = UIPanGestureRecognizer(
+            target: context.coordinator,
+            action: #selector(Coordinator.handleMoveSelection(_:))
+        )
+        moveSelectionFromBody.maximumNumberOfTouches = 1
+        moveSelectionFromBody.allowedTouchTypes = [
+            NSNumber(value: UITouch.TouchType.direct.rawValue),
+            NSNumber(value: UITouch.TouchType.pencil.rawValue),
+        ]
+        moveSelectionFromBody.delegate = context.coordinator
+        selectionOverlay.moveSurface.addGestureRecognizer(moveSelectionFromBody)
+
         let twoFingerUndo = UITapGestureRecognizer(
             target: context.coordinator,
             action: #selector(Coordinator.handleTwoFingerUndo(_:))
@@ -410,7 +433,6 @@ struct PencilCanvasView: UIViewRepresentable {
                 coordinator.setZoomTo100Percent()
             }
         }
-
     }
 
     final class Coordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, UIGestureRecognizerDelegate {

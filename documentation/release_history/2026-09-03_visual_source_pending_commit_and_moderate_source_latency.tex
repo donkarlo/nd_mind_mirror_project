@@ -1,0 +1,58 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+
+\usetikzlibrary{graphs,graphdrawing}
+\usegdlibrary{layered}
+
+% for external graphviz
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/external_graphviz.tex}
+
+% for tags
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/parts/control_sequence/kind/semtag/semtag.tex}
+
+% for links
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/seehere.tex}
+
+\title{Visual-to-Source pending commit and moderate Source latency fix}
+\date{2026-09-03}
+\author{Mohammad Rahmani}
+
+\begin{document}
+   \maketitle
+
+   \section{Problem}
+
+   A Visual edit could still be waiting in the Visual editor debounce timer when the user switched immediately back to Source. Hiding the Visual projection before synchronously committing that pending edit could expose an older canonical source and lose the final Visual keystrokes.
+
+   Moderate LaTeX documents were also always instantiated as \texttt{LargeLatexEditor}, even when they did not need Source virtualization. The chunked canonical Source buffer added unnecessary work to typing in documents that comfortably fit in the regular \texttt{LatexEditor}.
+
+   \section{Fix}
+
+   \begin{itemize}
+      \item \texttt{WindowedLatexVisualEditor} now synchronously flushes a pending Visual source change before the projection is hidden. A Visual-to-Source mode transition is therefore a commit boundary rather than a debounce race.
+      \item \texttt{EditorPanel} now uses the regular \texttt{LatexEditor} for LaTeX documents below 1,000,000 characters and reserves \texttt{LargeLatexEditor} for genuinely large sources.
+      \item Visual virtualization remains independent and can still window moderate or large Visual projections according to its own settings.
+      \item Regression coverage checks both the Visual pending-commit boundary and editor selection by document size.
+   \end{itemize}
+
+   \section{Data safety}
+
+   No story/document content is restored or rewritten as part of this code fix. Forensic copies used to inspect prior Dropbox revisions are temporary and are removed after inspection.
+
+   \bibliographystyle{plainnat}
+   \bibliography{/home/donkarlo/Dropbox/repo/nd_shared_research/bibliography/bibliography.bib}
+\end{document}

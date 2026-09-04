@@ -1,6 +1,6 @@
 """Centralize the remaining runtime extensions for editor performance and selection bookmarks.
 
-The application is class/controller based.  This module is the single compatibility
+The application is class/controller based. This module is the single compatibility
 layer for behaviors that still need to adapt legacy classes at startup; keeping
 those adaptations here prevents migration-specific and one-off patch modules from
 stacking independently.
@@ -24,11 +24,9 @@ from nd_mind_mirror.ui.panel.editor.editor_panel import EditorPanel
 from nd_mind_mirror.ui.panel.preview.preview_panel import PreviewPanel
 from nd_mind_mirror.ui.preview.latex.latex_preview import LatexPreview
 from nd_mind_mirror.ui.preview.pdf.selectable_pdf_view import SelectablePdfView
-from nd_mind_mirror.ui.window.main.enhanced_main_window import EnhancedMainWindow
 from nd_mind_mirror.ui.window.main.main_window import MainWindow
 from nd_mind_mirror.ui.window.main.runtime_fixes import _BookmarkManagerController
 from nd_mind_mirror.ui.window.main.visual_persian_font_core import VisualPersianFontController
-from nd_mind_mirror.ui.window.main.visual_window_controller import VisualWindowController
 
 
 def _int_setting(
@@ -46,21 +44,6 @@ def _int_setting(
     return max(minimum, min(value, maximum))
 
 
-def _float_setting(
-    settings: YamlSettings,
-    section: str,
-    key: str,
-    default: float,
-    minimum: float,
-    maximum: float,
-) -> float:
-    try:
-        value = float(settings._get(section, key, default=default))
-    except (TypeError, ValueError):
-        value = default
-    return max(minimum, min(value, maximum))
-
-
 class EditorRuntimeExtensions:
     """Install the one remaining legacy adaptation layer exactly once."""
 
@@ -72,7 +55,6 @@ class EditorRuntimeExtensions:
             return
         cls._configure_persian_font_defaults()
         cls._install_source_layout_settings()
-        cls._install_visual_window_settings()
         cls._install_preview_render_settings()
         cls._install_bookmark_relocation()
         cls._install_selection_bookmarks()
@@ -111,101 +93,6 @@ class EditorRuntimeExtensions:
                     )
 
             editor_class.apply_settings = apply_settings
-
-    @staticmethod
-    def _apply_visual_window_settings(
-        controller: VisualWindowController,
-        settings: YamlSettings,
-    ) -> None:
-        """Keep Visual projection bounded around the active source location."""
-        controller_type = type(controller)
-        controller_type._PAGES_ABOVE = _int_setting(
-            settings, "editor", "visual_window_pages_above", 4, 0, 100
-        )
-        controller_type._PAGES_BELOW = _int_setting(
-            settings, "editor", "visual_window_pages_below", 4, 0, 100
-        )
-        controller_type._ESTIMATED_CHARS_PER_PAGE = _int_setting(
-            settings,
-            "editor",
-            "visual_window_estimated_chars_per_page",
-            2400,
-            200,
-            20000,
-        )
-        controller_type._MIN_LINES_PER_PAGE = _int_setting(
-            settings, "editor", "visual_window_min_lines_per_page", 12, 1, 500
-        )
-        controller_type._MAX_LINES_PER_PAGE = max(
-            controller_type._MIN_LINES_PER_PAGE,
-            _int_setting(
-                settings,
-                "editor",
-                "visual_window_max_lines_per_page",
-                45,
-                1,
-                2000,
-            ),
-        )
-        controller_type._SCROLL_REWINDOW_DELAY_MS = _int_setting(
-            settings,
-            "editor",
-            "visual_window_rewindow_delay_ms",
-            90,
-            10,
-            2000,
-        )
-        controller_type._SCROLL_EDGE_RATIO = _float_setting(
-            settings,
-            "editor",
-            "visual_window_scroll_edge_ratio",
-            0.14,
-            0.02,
-            0.45,
-        )
-        # The previous bounded subclass existed only to lower these thresholds.
-        # Keep the behavior on the canonical controller and remove that duplicate.
-        controller_type._MIN_VIRTUAL_SOURCE_CHARS = 24_000
-        controller_type._MIN_VIRTUAL_BODY_LINES = 220
-
-        for state in getattr(controller, "_states", {}).values():
-            timer = state.get("scroll_timer") if isinstance(state, dict) else None
-            if timer is not None:
-                timer.setInterval(controller_type._SCROLL_REWINDOW_DELAY_MS)
-
-    @classmethod
-    def _install_visual_window_settings(cls) -> None:
-        """Apply Visual settings at construction and after Settings reload."""
-        original_init: Callable = VisualWindowController.__init__
-
-        def init(controller, editor_panel, parent=None) -> None:
-            settings = getattr(editor_panel, "_app_settings", None)
-            if isinstance(settings, YamlSettings):
-                cls._apply_visual_window_settings(controller, settings)
-            original_init(controller, editor_panel, parent)
-            if isinstance(settings, YamlSettings):
-                cls._apply_visual_window_settings(controller, settings)
-
-        def reload(controller, settings=None) -> None:
-            app_settings = settings or getattr(
-                controller._editor_panel, "_app_settings", None
-            )
-            if isinstance(app_settings, YamlSettings):
-                cls._apply_visual_window_settings(controller, app_settings)
-
-        VisualWindowController.__init__ = init
-        VisualWindowController.reload = reload
-
-        original_reload: Callable = EnhancedMainWindow._reload_yaml_settings
-
-        def reload_window(window) -> bool:
-            reloaded = bool(original_reload(window))
-            controller = getattr(window, "_visual_window_controller", None)
-            if reloaded and controller is not None:
-                controller.reload(window._app_settings)
-            return reloaded
-
-        EnhancedMainWindow._reload_yaml_settings = reload_window
 
     @classmethod
     def _configure_pdf_view(

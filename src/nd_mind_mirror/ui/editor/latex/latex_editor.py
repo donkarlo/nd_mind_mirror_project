@@ -31,7 +31,9 @@ from nd_mind_mirror.ui.editor.bookmark.bookmark_gutter import BookmarkGutter
 from nd_mind_mirror.ui.editor.latex.latex_shortcut_popup import (
     LatexShortcutPopup,
 )
-from nd_mind_mirror.ui.editor.latex.latex_visual_editor import LatexVisualEditor
+from nd_mind_mirror.ui.editor.latex.windowed_latex_visual_editor import (
+    WindowedLatexVisualEditor,
+)
 from nd_mind_mirror.ui.highlighter.latex.latex_syntax_highlighter import (
     LatexSyntaxHighlighter,
 )
@@ -101,15 +103,16 @@ class LatexEditor(TextEditor):
             self.document()
         )
 
-        # The source QTextEdit remains the canonical document.  Visual mode is
-        # an overlay which serializes supported rich edits back into this same
-        # source document, so file saving, preview rendering, structure parsing
-        # and external-file synchronization all continue to use one source of
-        # truth.
+        # The source QTextEdit remains the canonical document. Visual mode is
+        # only a projection; large Visual documents are windowed by the Visual
+        # editor itself while this complete Source remains untouched.
         self._edit_mode = "source"
         self._visual_dirty = True
         self._syncing_from_visual = False
-        self._visual_editor = LatexVisualEditor(self)
+        self._visual_editor = WindowedLatexVisualEditor(
+            app_settings.settings_path,
+            self,
+        )
         self._visual_editor.apply_text_preferences(
             font_family=app_settings.editor_font_family,
             font_size=app_settings.editor_visual_font_size,
@@ -499,11 +502,6 @@ class LatexEditor(TextEditor):
         cursor.setPosition(position)
         self.setTextCursor(cursor)
 
-        # Insert the exact source form used by Mind Mirror for iPad images:
-        # \begin{figure}[H]
-        #     \centering
-        #     \includegraphics[width=0.9\textwidth]{graphic.png}
-        # \end{figure}
         self._insert_figure(document.tex_reference)
         self.document().setModified(True)
         self._visual_dirty = True
@@ -520,8 +518,6 @@ class LatexEditor(TextEditor):
         try:
             self._graphic_notifier.request_open(sidecar_path, operation=operation)
         except (OSError, ValueError):
-            # The graphic may live outside the configured workspace. The PNG
-            # remains valid LaTeX; only the live iPad open request is skipped.
             return
 
     def refresh_visual_graphics(self) -> None:
@@ -551,11 +547,14 @@ class LatexEditor(TextEditor):
         self._visual_dirty = False
 
     def _apply_visual_source(self, source: str) -> None:
-        # Visual serialization is semantic rather than indentation-preserving.
-        # Format it before replacing the canonical source so switching back to
-        # Source never leaves every line at column zero and never requires a
-        # manual Ctrl+Shift+F repair.
-        formatted_source = self._formatter.format(source)
+        # Formatting a multi-megabyte canonical source on every Visual keystroke
+        # blocks the GUI. The windowed Visual editor already preserves untouched
+        # source outside its projection, so large files can be applied directly.
+        formatted_source = (
+            source
+            if len(source) >= self._source_large_document_threshold_chars
+            else self._formatter.format(source)
+        )
         if self._syncing_from_visual or formatted_source == self.toPlainText():
             return
         visual_anchor, visual_position = self._visual_editor.source_selection_locations()
@@ -610,13 +609,7 @@ class LatexEditor(TextEditor):
         return self._source_location_for_position(self.textCursor().position())
 
     def active_preview_highlight_text(self) -> str:
-        """Return the exact visible edit target for Preview highlighting.
-
-        A selection always wins over the caret. Without a selection the word
-        touching the caret is returned. In whitespace/punctuation, a compact
-        four-character neighborhood (two logical characters on either side
-        when available) is used so Preview still has a local target.
-        """
+        """Return the exact visible edit target for Preview highlighting."""
         if self._edit_mode == "visual":
             cursor = self._visual_editor.textCursor()
             return self._preview_target_for_cursor(cursor, visual=True)
@@ -632,13 +625,7 @@ class LatexEditor(TextEditor):
 
         text = cursor.block().text()
         offset = max(0, min(cursor.positionInBlock(), len(text)))
-        if not visual:
-            # Plain prose in Source maps directly. For LaTeX-heavy lines the
-            # cleanup below removes control syntax before PDF text search.
-            raw_text = text
-        else:
-            raw_text = text
-
+        raw_text = text
         word_re = re.compile(r"[^\W_]+(?:[’'‌-][^\W_]+)*", re.UNICODE)
         for match in word_re.finditer(raw_text):
             if match.start() <= offset <= match.end():
@@ -647,9 +634,6 @@ class LatexEditor(TextEditor):
                     target = cls._preview_visible_source_text(target)
                 return cls._normalize_preview_target(target)
 
-        # Empty place: keep at least two logical characters before and after
-        # the caret whenever the line has enough text. Expand around whitespace
-        # only as needed; do not jump to an unrelated word elsewhere.
         start = max(0, offset - 2)
         end = min(len(raw_text), offset + 2)
         if end - start < 4:
@@ -673,8 +657,6 @@ class LatexEditor(TextEditor):
     @staticmethod
     def _normalize_preview_target(text: str) -> str:
         value = re.sub(r"\s+", " ", str(text)).strip()
-        # Huge selections make Qt PDF search unnecessarily expensive. The
-        # selected beginning is still a stable exact target in the Preview.
         return value[:240]
 
     def first_visible_source_position(self) -> tuple[int, int]:
@@ -686,7 +668,6 @@ class LatexEditor(TextEditor):
         if self._syncing_cursor_views:
             return
         if self._edit_mode == "source":
-            # Mirror source selection into an already-current Visual projection.
             if not self._visual_dirty and self._visual_editor.document().blockCount() > 0:
                 cursor = self.textCursor()
                 anchor = self._source_location_for_position(cursor.anchor())
@@ -761,9 +742,6 @@ class LatexEditor(TextEditor):
                 line = max(int(raw.get("line", 1)), 1)
             except (TypeError, ValueError):
                 line = 1
-            # Bookmarks are line anchors. Older sessions may contain a
-            # cursor column, but gutter clicks and relocation should not
-            # depend on a horizontal position within the line.
             column = 1
             normalized.append({
                 "line": line,
@@ -1213,9 +1191,6 @@ class LatexEditor(TextEditor):
             original_position,
         )
 
-        # Ordinary Enter preserves only source indentation. Inside an existing
-        # itemize/enumerate/description item, Enter continues the list with a
-        # sibling \item at exactly the same indentation level.
         indentation = self._indentation.leading_whitespace(current_line)
         next_prefix = (
             list_continuation
@@ -1301,9 +1276,6 @@ class LatexEditor(TextEditor):
             self._shortcut_popup.hide()
             return
 
-        # Remember exactly what the user typed (for example ``lis``).
-        # The selected trigger may be longer (``list``), but only the typed
-        # prefix must be replaced.
         self._active_shortcut_prefix = prefix
         self._shortcut_popup.set_matches(matches)
         self._shortcut_popup.show_under_cursor()
@@ -1321,9 +1293,6 @@ class LatexEditor(TextEditor):
         line_text = cursor.block().text()
         offset = cursor.position() - cursor.block().position()
 
-        # Delete the exact logical characters typed immediately before the
-        # caret. Do not use QTextCursor.Left here: in an RTL paragraph Left
-        # is a visual movement and can select the wrong characters.
         logical_start_offset = max(offset - len(prefix), 0)
         if line_text[logical_start_offset:offset] != prefix:
             prefix = self._shortcut_prefix()

@@ -1,0 +1,62 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+
+\usetikzlibrary{graphs,graphdrawing}
+\usegdlibrary{layered}
+
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/external_graphviz.tex}
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/parts/control_sequence/kind/semtag/semtag.tex}
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/seehere.tex}
+
+\title{Large Source Typing Performance}
+\date{2026-09-04}
+\author{Mohammad Rahmani}
+
+\begin{document}
+   \maketitle
+
+   \section{Problem}
+   Large Persian LaTeX sources, including \texttt{evil\_farsi\_reconstructed.tex},
+   could become visibly slow while typing. The large-source editor still copied
+   and re-split the complete visible Source window after every key press, and the
+   Source widget used the rich-text \texttt{QTextEdit} document layout.
+
+   \section{Fix}
+   \begin{itemize}
+      \item The common Source editor now uses \texttt{QPlainTextEdit} and its
+      simplified plain-text document layout.
+      \item \texttt{LargeLatexEditor} consumes
+      \texttt{QTextDocument.contentsChange} and applies only the changed range
+      to the canonical chunk buffer.
+      \item Moderate large sources remain fully materialized. Source-window
+      virtualization is reserved for files of at least 5,000,000 characters.
+      \item Large-source syntax highlighting has an explicit low-cost mode, so
+      a 40k window is not incorrectly treated as a small document.
+      \item Decorative wrap markers, indentation-guide painting, and hanging
+      indentation are disabled in large-document mode while editing semantics,
+      RTL direction, bookmarks, Preview, and Visual synchronization remain.
+   \end{itemize}
+
+   \section{Regression coverage}
+   The regression tests verify the \texttt{QPlainTextEdit} base, incremental
+   \texttt{contentsChange} synchronization, large highlighter mode, the 5 MB
+   virtualization boundary, and randomized incremental buffer edits against a
+   canonical Python string.
+
+   \bibliographystyle{plainnat}
+   \bibliography{/home/donkarlo/Dropbox/repo/nd_shared_research/bibliography/bibliography.bib}
+\end{document}

@@ -18,13 +18,7 @@ class DirectionDecision:
 
 
 class LatexTextDirectionResolver:
-    """Resolve visual direction for one line of LaTeX source text.
-
-    The source is never changed. LaTeX structural/setup lines stay LTR, while
-    ordinary prose can be laid out RTL when Persian/Arabic-script text
-    dominates. Qt then handles Latin runs inside the RTL block with its normal
-    Unicode bidirectional text layout.
-    """
+    """Resolve visual direction for LaTeX prose and detect strong Arabic-script letters."""
 
     _COMMAND_RE = re.compile(r"\\[A-Za-z@]+\*?")
     _LEADING_COMMAND_RE = re.compile(r"^\\([A-Za-z@]+)\*?")
@@ -157,6 +151,14 @@ class LatexTextDirectionResolver:
             f"rtl-ratio={rtl_ratio:.3f}",
         )
 
+    @classmethod
+    def contains_arabic_script_letters(cls, text: str) -> bool:
+        """Return True only for strong Arabic-script letters, not combining marks."""
+        return any(
+            cls._is_arabic_script_letter(character)
+            for character in str(text or "")
+        )
+
     def _is_structural_or_setup_command_line(self, stripped: str) -> bool:
         match = self._LEADING_COMMAND_RE.match(stripped)
         if match is None:
@@ -199,7 +201,8 @@ class LatexTextDirectionResolver:
 
         return rtl_count, ltr_count
 
-    def _is_arabic_script_letter(self, character: str) -> bool:
+    @staticmethod
+    def _is_arabic_script_letter(character: str) -> bool:
         if not character.isalpha():
             return False
 

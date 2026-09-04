@@ -38,6 +38,9 @@ editor:
   visual_window_estimated_chars_per_page: 2400
   visual_window_min_lines_per_page: 12
   visual_window_max_lines_per_page: 45
+  # Hard upper bound for one large Visual projection. This prevents long prose
+  # paragraphs or environments from expanding the projection back to megabytes.
+  visual_window_max_chars: 40000
   visual_window_rewindow_delay_ms: 90
   visual_window_scroll_edge_ratio: 0.14
   # auto: LaTeX control/setup lines stay LTR; Persian prose becomes RTL.

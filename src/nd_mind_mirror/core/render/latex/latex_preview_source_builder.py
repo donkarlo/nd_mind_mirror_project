@@ -1,6 +1,10 @@
 from pathlib import Path
 import re
 
+from nd_mind_mirror.core.latex.direction.latex_text_direction_resolver import (
+    LatexTextDirectionResolver,
+)
+
 
 class LatexPreviewSourceBuilder:
     _HEADING_ORDER = {
@@ -39,10 +43,6 @@ class LatexPreviewSourceBuilder:
     )
     _ARTICLE_CLASS_PATTERN = re.compile(
         r"\\documentclass(?P<options>\[[^\]]*\])?\{article\}"
-    )
-    _PERSIAN_SCRIPT_PATTERN = re.compile(
-        "[\u0600-\u06ff\u0750-\u077f\u0870-\u089f"
-        "\u08a0-\u08ff\ufb50-\ufdff\ufe70-\ufeff]"
     )
     _BABEL_PACKAGE_PATTERN = re.compile(
         r"\\usepackage(?:\[[^\]]*\])?\{babel\}"
@@ -148,8 +148,6 @@ class LatexPreviewSourceBuilder:
         prepared = self._add_preview_package_support(prepared)
         return self._add_persian_preview_support(prepared)
 
-
-
     def _select_standalone_document_for_preview(self, source: str) -> str:
         """Choose one complete standalone document when a file contains several.
 
@@ -190,8 +188,6 @@ class LatexPreviewSourceBuilder:
         if not candidates:
             return source
 
-        # Prefer the document with the most real body content; if two are
-        # equally substantial, the later one is usually the intended version.
         _score, _index, chosen_start = max(candidates, key=lambda item: (item[0], item[1]))
         if chosen_start <= 0:
             return source
@@ -199,20 +195,14 @@ class LatexPreviewSourceBuilder:
         prefix = "\n" * source[:chosen_start].count("\n")
         return prefix + source[chosen_start:]
 
-
     def _repair_preview_wrappers(self, source: str) -> str:
         """Repair incomplete one-line editor helper wrappers for preview only.
 
         The formatting toolbar writes ``\\colorbox`` and ``\\textbf`` wrappers.
         While a user is editing a very large document, a wrapper can temporarily
-        be incomplete (or a TeX comment can hide its closing brace).  LuaLaTeX
-        then reports errors such as ``File ended while scanning use of\n        \\color@b@x`` and the whole live preview stops.  The source file is never
-        modified here; only the generated temporary preview is made tolerant.
-
-        The repair is intentionally conservative: only a ``\\colorbox`` that
-        starts and fails to finish on the *same source line* is closed.  This is
-        exactly the shape produced by the editor toolbar and keeps line numbers
-        unchanged for SyncTeX.
+        be incomplete (or a TeX comment can hide its closing brace). LuaLaTeX
+        then reports errors and the whole live preview stops. The source file is
+        never modified here; only the generated temporary preview is made tolerant.
         """
         repaired: list[str] = []
         for line in source.splitlines(keepends=True):
@@ -281,9 +271,6 @@ class LatexPreviewSourceBuilder:
             if complete:
                 continue
 
-            # A toolbar colorbox has two mandatory braced arguments.  Close a
-            # partially typed/partially commented invocation before the comment
-            # so the preview remains compilable.
             if top_groups >= 2 and depth > 0:
                 code += "}" * depth
             elif top_groups == 1:
@@ -295,13 +282,7 @@ class LatexPreviewSourceBuilder:
         return code + comment + newline
 
     def _add_preview_package_support(self, source: str) -> str:
-        """Inject preview-only packages required by editor helpers.
-
-        This never modifies the user's source file. It only makes the generated
-        preview tolerant of fragment/full-document sources that use the toolbar
-        highlight command or algorithm environments without spelling out the
-        corresponding package in that particular file.
-        """
+        """Inject preview-only packages required by editor helpers."""
         cleaned = self._strip_comments(source)
         packages: list[str] = []
 
@@ -368,7 +349,7 @@ class LatexPreviewSourceBuilder:
 
     def _add_persian_preview_support(self, source: str) -> str:
         cleaned = self._strip_comments(source)
-        if self._PERSIAN_SCRIPT_PATTERN.search(cleaned) is None:
+        if not LatexTextDirectionResolver.contains_arabic_script_letters(cleaned):
             return source
 
         if self._PERSIAN_SUPPORT_PATTERN.search(cleaned) is not None:
@@ -454,15 +435,7 @@ class LatexPreviewSourceBuilder:
         template: str,
         fragment: str,
     ) -> str:
-        """Use a chapter-capable class for chapter fragments in preview only.
-
-        The normal standalone preview template intentionally uses ``article``.
-        ``article`` does not define ``\\chapter``, though, and many project
-        fragments are meant to be included in a ``report``/``book`` parent.
-        When such a fragment is previewed by itself, switch only the temporary
-        preview document from ``article`` to ``report``.  The user's source and
-        their configured template file remain untouched.
-        """
+        """Use a chapter-capable class for chapter fragments in preview only."""
         cleaned = self._strip_comments(fragment)
         if self._BEAMER_FRAGMENT_PATTERN.search(cleaned) is not None:
             return template

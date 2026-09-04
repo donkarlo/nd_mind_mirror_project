@@ -1,0 +1,53 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+
+\title{Large-document startup and Structure responsiveness}
+\date{2026-09-03}
+\author{Mohammad Rahmani}
+
+\begin{document}
+\maketitle
+
+\section{Bug}
+A multi-megabyte LaTeX file restored as the active tab could leave the Mind
+Mirror window black and unresponsive until it was force-quit. The same file
+could also make an explicit open operation expensive even though Visual mode
+was already windowed.
+
+\section{Cause}
+Three independent full-document costs occurred during Source opening:
+\begin{itemize}
+    \item LaTeX syntax highlighting evaluated every regular-expression rule on every prose block.
+    \item Structure parsing repeatedly counted newlines from the beginning of the source for each structural item, producing quadratic growth.
+    \item The initial complete Structure parse ran on the GUI thread.
+\end{itemize}
+
+\section{Fix}
+The LaTeX highlighter now uses cheap literal triggers and skips regular
+expressions for large plain-prose blocks. The Structure parser builds one
+line-start index and reuses it for all headings and images. Large LaTeX
+Structure parsing is executed by \texttt{LatexStructureParseWorker} outside
+the GUI thread.
+
+The complete Source string remains canonical. The Structure worker receives
+the complete Source and returns the complete hierarchy; only the timing of the
+parse changed. Visual mode continues to use its separate bounded projection.
+
+The stuck session was also recovered by removing the problematic document
+from the restored open/active tab state without modifying the document itself.
+
+\end{document}

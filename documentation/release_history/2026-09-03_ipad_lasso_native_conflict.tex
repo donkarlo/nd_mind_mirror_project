@@ -1,0 +1,50 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+
+\usetikzlibrary{graphs,graphdrawing}
+\usegdlibrary{layered}
+
+% for external graphviz
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/external_graphviz.tex}
+
+% for tags
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/parts/control_sequence/kind/semtag/semtag.tex}
+
+% for links
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/seehere.tex}
+
+\title{2026-09-03 iPad Lasso Native Conflict Fix}
+\date{2026-09-03}
+\author{Mohammad Rahmani}
+
+\begin{document}
+   \maketitle
+
+   \section{Bug fix}
+   \begin{itemize}
+      \item Fixed a conflict between the custom lasso implementation in \texttt{PencilCanvasView} and PencilKit's native \texttt{PKLassoTool}.
+      \item While the custom lasso was observing the Pencil gesture, PencilKit was simultaneously running its own lasso engine on the same drawing. This could mutate the same strokes twice, producing partial moves, strokes left at the original position, and apparent duplication.
+      \item Lasso mode now disables the native PencilKit drawing gesture and no longer installs \texttt{PKLassoTool}. Selection and movement are owned exclusively by the custom lasso implementation.
+      \item Switching back to Pencil, Highlighter, or Eraser re-enables the normal PencilKit drawing gesture.
+   \end{itemize}
+
+   \section{Version}
+   ND Graphic is advanced to version 0.31.37, build 67.
+
+   \bibliographystyle{plainnat}
+   \bibliography{/home/donkarlo/Dropbox/repo/nd_shared_research/bibliography/bibliography.bib}
+\end{document}
