@@ -1,0 +1,64 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+
+\usetikzlibrary{graphs,graphdrawing}
+\usegdlibrary{layered}
+
+% for external graphviz
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/external_graphviz.tex}
+
+% for tags
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/parts/control_sequence/kind/semtag/semtag.tex}
+
+% for links
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/seehere.tex}
+
+% for nested lists and sections
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/deep_structure.tex}
+
+\title{iPad Live Update Retry and Ubuntu Editor Refresh}
+\date{2026-09-06}
+\author{Mohammad Rahmani}
+
+\begin{document}
+   \maketitle
+
+   \section{Observed failure}
+   The durable Ubuntu open request was newer than the last
+   \texttt{graphic\_update\_event.json} entry, showing that the current graphic
+   could be opened on the iPad while later canvas saves were not reaching the
+   Ubuntu-side update event path.
+
+   \section{Fix}
+   \begin{itemize}
+      \item The final iPad save is no longer discarded after a small fixed retry
+      count. The newest state remains the only in-flight retry and is retried
+      until Ubuntu acknowledges it, or until document close/reset terminates
+      the session.
+      \item The retry interval is short enough to recover quickly after a
+      transient reverse-TCP disconnect while still coalescing newer canvas
+      states.
+      \item Every newly accepted Ubuntu graphic update event explicitly rebuilds
+      Source graphic preview layout and refreshes Visual graphic resources, so
+      editor-side image caches cannot remain stale after the PNG was replaced.
+      \item Existing live update-rate settings, Undo/Redo, rename remapping,
+      and bounded close behavior remain unchanged.
+   \end{itemize}
+
+   \bibliographystyle{plainnat}
+   \bibliography{/home/donkarlo/Dropbox/repo/nd_shared_research/bibliography/bibliography.bib}
+\end{document}

@@ -1,4 +1,4 @@
-"""Extend workspace moves so managed raster graphics keep their sidecars."""
+"""Keep managed raster graphics and their sidecars consistent across workspace mutations."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from nd_mind_mirror.ui.window.main.workspace.responsive_filesystem_operation_con
 class ManagedGraphicWorkspaceFilesystemOperationController(
     ResponsiveWorkspaceFilesystemOperationController
 ):
-    """Move a raster image and its .ndgraphic sidecar as one managed document."""
+    """Move/delete a raster image and its .ndgraphic sidecar as one managed document."""
 
     _IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg"}
 
@@ -43,6 +43,7 @@ class ManagedGraphicWorkspaceFilesystemOperationController(
             sidecar = source_path.with_suffix(".ndgraphic")
             if not sidecar.is_file() or sidecar in source_paths:
                 continue
+
             sidecar_destination = destination_path.with_suffix(".ndgraphic")
             if sidecar_destination in destination_paths:
                 QMessageBox.warning(
@@ -51,6 +52,7 @@ class ManagedGraphicWorkspaceFilesystemOperationController(
                     f"{sidecar_destination.name} is already a destination in this move.",
                 )
                 return False
+
             if sidecar_destination.exists() or sidecar_destination.is_symlink():
                 if not ManagedGraphicSidecarReplacementPolicy.can_replace(
                     sidecar,
@@ -63,8 +65,27 @@ class ManagedGraphicWorkspaceFilesystemOperationController(
                         f"{sidecar_destination.parent}.",
                     )
                     return False
+
             companions.append((sidecar, sidecar_destination))
             source_paths.add(sidecar)
             destination_paths.add(sidecar_destination)
 
         return super().request_moves(normalized + companions)
+
+    def request_deletions(self, paths: list[Path]) -> bool:
+        """Delete a managed raster's sidecar in the same background request."""
+        normalized = self._top_level_paths(paths)
+        if not normalized:
+            return False
+
+        expanded = list(normalized)
+        included = set(normalized)
+        for path in normalized:
+            if path.suffix.lower() not in self._IMAGE_SUFFIXES or not path.is_file():
+                continue
+            sidecar = path.with_suffix(".ndgraphic")
+            if sidecar.is_file() and sidecar not in included:
+                expanded.append(sidecar)
+                included.add(sidecar)
+
+        return super().request_deletions(expanded)

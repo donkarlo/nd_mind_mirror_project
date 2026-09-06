@@ -4,21 +4,31 @@
 
 The file on disk is always the canonical source. Visual editing, Preview wrappers, search indexes, rendered PDFs, UI state, and iPad drawing sidecars are derived from that source and must not silently rewrite a document merely to display it.
 
+This README describes the active functional project: desktop Python/PySide6 source, the canonical Swift Playgrounds iPad package, settings/templates, launchers, tests, tools, and release documentation. Generated `.git` objects, `__pycache__`, compiled PDFs/images/ZIP payloads, and archived migration copies are artifacts rather than independent runtime features.
+
 ## Current desktop features
 
 ### Workspace and Navigator
 
 - Configurable workspace/search root.
 - Navigator follows the active tab and reveals/highlights the corresponding file.
-- Navigator selection/reveal is single-pass and non-recentering so create, rename, drag/move, and active-tab reveals do not repeatedly jump the tree.
+- Every normal left-click in Source or Visual recenters the represented file vertically and horizontally in Navigator with the persistent blue/white selection. Clicking an `\includegraphics`/`\includepdf` reference in Source, or a rendered graphic in Visual, selects and centers that referenced image/PDF file instead of the surrounding `.tex` file.
+- Create, rename, drag/move, and active-tab reveals remain deterministic; Source/Visual clicks intentionally force a centered reveal even when the same Navigator row is already selected.
 - Double-click opens editable files in Mind Mirror; PDFs/images can open in the system application.
 - Navigator sort order is folders A–Z first, then files A–Z.
 - Navigator right-click commands are grouped into **Open**, **Copy / Share**, **Create**, and **Manage** submenus.
 - **Copy Absolute Path**, **Copy Dropbox Path**, file-name copy, GitHub URL copy/open, file-manager reveal, pinning, create, rename, delete, clipboard-image paste, and iPad graphic editing are supported.
-- Ctrl/Shift multi-selection, multi-delete, and drag/move are supported.
+- Ctrl-click cherry-picks Navigator rows and Shift-click selects a contiguous range; file/folder Copy, Cut, Delete, and grouped operations use the complete top-level selected set.
+- Navigator file/folder **Copy / Cut / Paste** are available both from the right-click menu and from `Ctrl+C` / `Ctrl+X` / `Ctrl+V`.
+- Navigator clipboard keyboard handling is owned directly by a tree key-event filter rather than competing `QShortcut` objects: `Ctrl+C` stores the current selected set, `Ctrl+X` stores it for move, and `Ctrl+V` pastes it into the selected folder (or the selected file's parent). If there is no internal file/folder clipboard, `Ctrl+V` is deliberately left available to the existing clipboard-image paste workflow.
+- A copy preserves files/folders recursively; a cut/paste uses the background workspace move/reference-maintenance pipeline.
+- If a destination already contains the same file/folder name, Paste proposes collision-safe names such as `name_0`, `name_1`, ... while preserving file extensions and allows an explicit alternate name.
+- Multi-delete and drag/move remain available independently of the clipboard workflow.
 - **F2** renames the selected Navigator file/folder.
 - File/folder rename and drag/move remap open editor tabs and renderer paths; stale queued/running Preview work against the old path is stopped before the filesystem move.
 - Managed PNG/JPG/JPEG graphics move or rename together with their neighboring `.ndgraphic` sidecar. If that graphic is active in the iPad bridge, the bridge remaps its live identity to the new path/name without reloading the active iPad canvas or resetting Undo/Redo history.
+- Deleting a managed raster through the Navigator also deletes its neighboring `.ndgraphic` companion so the project does not leave a stale editable sidecar behind.
+- Rename/move detects a stale orphan destination sidecar: when the destination raster no longer exists but its old `.ndgraphic` remains and belongs to that managed graphic workflow, the new raster/sidecar pair can safely replace the orphan instead of failing with an `already exists` collision.
 - Existing occurrence/preflight checks and delete-reference dialogs remain synchronous before a confirmed operation. After confirmation, repository-wide rename/move/delete reference maintenance runs in a separate child process so the editor stays responsive; consecutive operations are batched, open editor buffers are excluded from worker writes, and search-index refreshes are coalesced after the batch.
 - Rename reference updating is semantic rather than a global text replacement. Ordinary prose that merely contains the old filename/path is left unchanged.
 - Reference rewriting recognizes actual file-reference contexts such as LaTeX `\input`, `\include`, `\subfile`, `\includegraphics`, `\includepdf`, bibliography resources, listings/verbatim input, `\inputminted`, local `\href`/`\url`, and supported document-link forms.
@@ -44,6 +54,8 @@ The file on disk is always the canonical source. Visual editing, Preview wrapper
 - Double Shift opens file search.
 - Previous query is preserved and selected on reopen.
 - Exact, prefix, substring, fuzzy, and hierarchical-path matching are supported.
+- `parent > child` queries explicitly search an ordered ancestor/descendant hierarchy rather than treating the whole query as one filename.
+- Folder search hits close the Search window and reveal/scroll/highlight the folder in the main Navigator; file hits open the file.
 - Up/Down and Enter support keyboard-only navigation.
 - Search rebuilds against the current workspace so external Dropbox/git/terminal changes appear without restarting.
 - Search and rename-reference scanning both use the configured `search_ignore.yaml` rules.
@@ -53,11 +65,18 @@ The file on disk is always the canonical source. Visual editing, Preview wrapper
 - Multiple editor tabs with a configurable maximum count.
 - Tabs are shown in two rows: persistent pinned files above ordinary open files.
 - Pinned and ordinary tabs can be drag-reordered and their order is persisted.
-- `Ctrl+W` closes the current ordinary tab.
+- `Ctrl+W` closes the current editor tab from either Source or Visual. An explicitly closed pinned tab is temporarily unpinned, goes through the normal unsaved-changes Save/Discard/Cancel workflow, and is re-pinned if closing is cancelled; automatic tab eviction still protects pinned files.
 - `Ctrl+Tab` switches recent tabs.
 - `Ctrl+Tab` and the Pinned/Open row dropdowns show the filename first, followed by smaller gray compact path context from the first folder under `repo` to the file's direct parent.
 - Pinned paths follow renames and are removed when their targets are deleted.
 - Open files, active file, cursor/scroll positions, bookmarks, splitter sizes, window layout, Preview state, and tab order are persisted.
+
+## Supported editor types
+
+- `.tex` and `.tikz` open in the LaTeX editor with **Source** and **Visual** modes.
+- `.yaml` and `.yml` open in the YAML editor with YAML syntax highlighting, smart indentation, Structure parsing, and Auto Format.
+- Other text/code files open in the generic text editor with the shared text-editor behaviors and Pygments-based highlighting where applicable.
+- Large LaTeX documents automatically use the large-source architecture at the configured threshold while preserving the complete canonical file on disk.
 
 ## LaTeX editing
 
@@ -69,12 +88,17 @@ The file on disk is always the canonical source. Visual editing, Preview wrapper
 - Automatic Persian RTL/LTR line handling while keeping LaTeX command/setup lines usable.
 - Persian/Arabic text uses the configured shared Persian font; the current default is `Noto Sans Arabic` so combining marks such as kasra remain visually separated from the base glyph.
 - Smart Enter/list continuation.
+- `Tab` / `Shift+Tab` use the shared configured indentation size; logical line numbers number real source lines rather than soft-wrap continuation rows.
+- `Ctrl+Shift+D` deletes the complete current canonical line in Source; in Visual it deletes the corresponding canonical Source line.
 - `Ctrl+Shift+F` formats LaTeX using the configured indentation hierarchy.
 - `Ctrl+B` applies bold to the current selection.
 - LaTeX completion and user snippets from `latex_shortcuts.yaml`.
 - Clipboard and iPad image insertion use one collision-safe `img_N.png` sequence per folder.
 - Image insertion keeps the complete LaTeX `figure`/`\includegraphics` source visible.
-- Special-character insertion and `\iffalse … \fi` helpers are available.
+- The LaTeX toolbar provides grouped Unicode character insertion, an `\iffalse … \fi` helper, and a `_ → \_` action that escapes unescaped underscores in the current Source selection.
+- Standard Source context-menu editing remains available; when text is selected, **Bookmark Here** is added and records the selected source range/text.
+- Dragging an image from Navigator into Source inserts the exact image path into a LaTeX figure rather than substituting a different clipboard image.
+- Source graphic references can show the managed graphic preview/edit workflow without replacing the canonical `\includegraphics` source.
 
 ### Visual mode
 
@@ -87,12 +111,19 @@ Visual is an editable projection of the same canonical LaTeX source; it is not a
 - Large documents use a cursor-centered virtual Visual render window while preserving source mapping and untouched source outside that window.
 - Visual render-window size, estimated characters/lines per page, edge threshold, and re-window delay are configurable in `settings.yaml` so projection cost can be tuned for speed.
 - Unsupported/raw LaTeX regions are preserved rather than silently discarded.
+- Visual normal prose/list blocks use LaTeX-like full justification while preserving the Source as canonical.
+- Visual edits are committed back with a minimal Source diff; a pending Visual edit is flushed before returning to Source, where full formatting can run.
+- Clipboard images pasted in Visual are routed through the same managed-image insertion workflow as Source.
+- Selected Visual text exposes **Bookmark Here** and maps the bookmark back to the represented Source range.
+- Graphic context actions in Visual can target the represented image for the iPad editing workflow.
 
 ### Render-performance settings
 
 Render-related limits that materially affect Source, Visual, or Preview work are exposed in `settings.yaml` rather than being fixed only in implementation code.
 
 - Source: `source_layout_update_debounce_ms`, existing source update debounce values, and large-document thresholds control how aggressively source relayout/update work is coalesced.
+- Source presentation/layout work is bounded around the visible/cursor region so long files do not continuously reformat every block while typing or scrolling.
+- Large-document source buffering/autosave is chunk/snapshot based so autosave does not have to join or rewrite the whole visible editor synchronously on every interval.
 - Visual: `visual_window_pages_above`, `visual_window_pages_below`, `visual_window_estimated_chars_per_page`, `visual_window_min_lines_per_page`, `visual_window_max_lines_per_page`, `visual_window_rewindow_delay_ms`, and `visual_window_scroll_edge_ratio` control the bounded Visual projection window.
 - Preview: `min_zoom_percent` and `max_zoom_percent` bound PDF render scale. `fit_raster_width_px` and `fit_raster_sample_step_px` control the low-resolution content probe used by the explicit **Fit** command; Auto Fit keeps its separate settled-width behavior.
 
@@ -123,7 +154,8 @@ The controller handles Qt standard-key matching and German/Swiss QWERTZ layouts.
 - PDF text remains selectable/copyable.
 - Ctrl+mouse-wheel zoom and panning are supported.
 - Zoom percentage and page information are displayed.
-- PDF export is available.
+- PDF export is available. Full LaTeX documents are compiled from the canonical source with LuaLaTeX plus Biber/BibTeX when required; fragment-style documents can be exported through the Preview wrapper.
+- Preview can be detached into its own window and reattached without permanently stretching the editor layout.
 - **Fit Once** performs content-aware fit.
 - **Auto Fit** fits the page to the settled Preview width without continuously changing zoom while typing.
 - Normal left-click on the PDF performs reverse SyncTeX and moves Source/Visual to the corresponding source location.
@@ -135,6 +167,8 @@ The controller handles Qt standard-key matching and German/Swiss QWERTZ layouts.
 
 - Preview has an always-visible toggle in the top-right menu-bar area.
 - Preview visibility, window geometry, and splitter/pane sizes are persisted.
+- **Preview Lock** prevents Source/Visual synchronization from moving the PDF and preserves the current zoom/scroll viewport through live reloads.
+- **Preview Extend** hides Navigator and Source/Visual panes so Preview fills the main window, then restores the previous pane visibility when disabled.
 - Re-enabling Preview restores the last valid visible pane widths instead of persisting a collapsed width.
 
 ## Keyboard shortcut settings
@@ -154,6 +188,8 @@ Persistent user copy:
 ```
 
 **Settings → Keyboard Shortcuts…** validates and applies shortcut changes at runtime.
+
+Shipped configurable actions include Open (`Ctrl+O`), Save (`Ctrl+S`), Close tab (`Ctrl+W`), Auto Format (`Ctrl+Shift+F`), Find (`Ctrl+F`), Replace (`Ctrl+R`), Toggle bookmark (`Ctrl+Shift+B`), Preview toggle (`Ctrl+Alt+P`), Bold (`Ctrl+B`), editor zoom reset (`Ctrl+0`), close Find/Replace (`Escape`), and Navigator Delete (`Delete`). Navigator file clipboard keys are handled by the dedicated Navigator key-event controller because they must coexist with clipboard-image paste.
 
 `latex_shortcuts.yaml` remains dedicated to LaTeX snippet/completion expansion.
 
@@ -184,6 +220,8 @@ Important files include:
 
 Existing user values win when shipped defaults/schema are merged.
 
+Runtime defaults currently include 1-second autosave, 350 ms external-file synchronization, configurable Source/Visual/Preview debounce thresholds, a 20-tab default maximum, 3-space indentation, Persian text-direction detection, and an automatically started graphic bridge. Autosave uses local cache staging so temporary autosave files are not created inside Dropbox.
+
 ## Native iPad drawing workflow
 
 The iPad companion remains part of this repository. Editable Swift source is stored at:
@@ -203,6 +241,7 @@ There is no second root-level copy of `nd_graphic.zip` in the project. The canon
 ### iPad drawing controls
 
 - Pencil, Highlighter, Eraser, and Lasso.
+- Saved drawing-tool presets can be added, edited, reordered by placement, or deleted; Pencil/Highlighter presets carry color, thickness, and opacity, while Eraser presets carry eraser mode and width.
 - Independent recent-color history for Pencil and Highlighter.
 - Persistent last stroke color and thickness.
 - Thickness range 1–24.
@@ -213,13 +252,18 @@ There is no second root-level copy of `nd_graphic.zip` in the project. The canon
 - PencilKit lasso movement plus proportional corner-handle resizing.
 - Finger pan/pinch with Pencil drawing.
 - Background photo import/removal.
-- Editable canvas sizes/presets.
-- Autosave through the Ubuntu/iPad bridge.
+- Editable canvas sizes/presets, including A4 portrait, A4 landscape, square, and custom numeric dimensions; resizing is checked against existing drawing bounds so the requested canvas does not silently clip content.
+- Independent measurement **Grid** and centimeter **Rulers** overlays are view-only and can be toggled from the toolbar.
+- Autosave/live-save through the Ubuntu/iPad bridge with a configurable Ubuntu update rate shown in the iPad status area.
+- The native iPad side listens on TCP port `8768`; Ubuntu connects to it, performs the bridge handshake, opens graphics, receives `update_graphic` payloads, and acknowledges saved revisions.
 - Managed PNG graphics keep neighboring `.ndgraphic` sidecars.
 - Existing managed figures can be updated from the iPad without replacing the surrounding LaTeX workflow.
 - New `Insert image in iPad` documents take their logical canvas size from Ubuntu `graphic.canvas_width` and `graphic.canvas_height`; the shipped/current default is **760 × 980**. `Edit image in iPad` continues to use the existing image's native dimensions.
 - The iPad header has a **Close image** button that closes only the active graphic and returns to the Ubuntu-waiting screen without disconnecting the bridge listener.
-- Pending graphic saves retry only the latest canvas state after a short acknowledgement timeout; closing waits for save acknowledgement and keeps the image open if retries are exhausted.
+- Save serialization keeps one save in flight and coalesces newer changes to the latest state. Unacknowledged state is retried every 0.8 s until acknowledgement or document reset; closing waits for the final state for a bounded interval before returning to the waiting screen.
+- During a desktop rename/move of the active managed graphic, the iPad remaps the document identity without reloading the canvas or losing the current viewport/Undo/Redo state.
+- Repeated same-path open messages do not replace the iPad-authoritative in-progress canvas.
+- Existing-image update saves are blocked from replacing a valid desktop image with an accidental empty white bitmap when the required background is unavailable.
 
 ## Running on Ubuntu
 
@@ -236,7 +280,9 @@ or:
 ./nd_mind_mirror_project
 ```
 
-The startup path refreshes the iPad transfer package before constructing the Qt window. `Ctrl+C` in the launching terminal requests a clean application shutdown.
+The startup path refreshes the canonical iPad transfer package before constructing the Qt window. The launcher prefers `ND_MIND_MIRROR_PYTHON` when configured, otherwise `~/phd-venv/bin/python` when available. Python bytecode is redirected to `~/.local/state/nd_mind_mirror_project/pycache` so Dropbox is not filled with generated `__pycache__` files. Startup/crash diagnostics are written under `~/.local/state/nd_mind_mirror_project/`. `Ctrl+C` in the launching terminal requests a clean application shutdown.
+
+Each desktop application session starts a bridge process from the current project source; bridge startup can select collision-safe ports when an older process still occupies the default desktop bridge port.
 
 ## Project layout
 
@@ -245,9 +291,21 @@ The startup path refreshes the iPad transfer package before constructing the Qt 
 - `src/nd_mind_mirror/ui/` — Qt editors, panels, Preview, search UI, and main-window controllers.
 - `src/nd_mind_mirror/graphic/` — desktop/iPad graphic workflow and bridge.
 - `src/nd_mind_mirror/graphic/ipad/` — editable Swift package and canonical transfer ZIP.
-- `tests/` — automated tests.
+- `tests/` — automated/regression tests covering LaTeX/YAML parsing and formatting, large-document architecture, Preview safety/synchronization, Navigator selection/clipboard/reference operations, bookmarks/Undo, and Ubuntu↔iPad graphic transport/lifecycle behavior.
 - `tools/` — development/maintenance utilities.
 - `/repo/data/nd_mind_mirror_project/` — persistent user settings and session/UI state.
+
+## Runtime architecture and safety guarantees
+
+- The desktop is composed from focused controllers rather than a second independent editor state: the canonical editor buffer/file remains authoritative.
+- Workspace reference scans and confirmed rename/move/delete maintenance have separate service/worker entry points so expensive repository-wide work can run out of the GUI thread/process.
+- Open editor buffers are protected from background reference-worker writes and filesystem/external-change reconciliation is deferred while workspace operations are pending.
+- Preview compilation uses generation tracking so an obsolete in-flight compile can be stopped after the typing debounce in favor of the newest generation.
+- The Preview keeps the last valid PDF visible when a newer transient compile fails.
+- Session list values are sanitized before restore/save to avoid invalid Qt settings values causing startup crashes.
+- Idle memory compaction periodically runs garbage collection and, when available, returns unused glibc heap pages without disabling editor features.
+- The iPad transfer package is rebuilt from the canonical Swift package; numbered/conflict package copies are not treated as editable source.
+- A legacy browser graphic client remains under `graphic/web/` as an older/alternate artifact, but the canonical current iPad workflow is the native SwiftUI/PencilKit package under `graphic/ipad/nd_graphic.swiftpm/`.
 
 ## Repository hygiene
 
@@ -255,6 +313,27 @@ The startup path refreshes the iPad transfer package before constructing the Qt 
 - Generated Python `__pycache__` directories are not kept in the Dropbox project tree.
 - Temporary files created by atomic/runtime operations must be cleaned up after use.
 - `search_ignore.yaml` is the shared ignore policy for workspace searching and rename-reference scanning.
+
+## Complete current feature index
+
+The active source/tests/settings currently cover these functional areas:
+
+1. Workspace root configuration, ignored-path policy, deterministic Navigator reveal/centering, horizontal scrolling, multi-selection, grouped context menus, copy/cut/paste, collision naming, create/rename/delete/drag/move, path copying/sharing, and iPad image actions.
+2. Semantic repository reference discovery/rewrite across relative, workspace-relative, absolute, `/repo/...`, extensionless LaTeX, graphics, bibliography, listing/verbatim, minted, URL/href, and supported document-link contexts.
+3. Background reference scanning/maintenance and responsive filesystem workers, including managed raster + `.ndgraphic` lifecycle rules.
+4. LaTeX Source editing, completion/snippets, indentation/formatting, RTL/LTR direction, logical line numbers, wrapping, bookmarks, image insertion, special-character helpers, line deletion, and selection-aware context actions.
+5. LaTeX Visual projection/editing, source mapping, graphics, nested fractions, justified prose/lists, Persian typography, image paste, bookmarks, and bounded large-document windowing.
+6. YAML editing, syntax highlighting, hierarchical Structure parsing, smart/shared indentation, and formatting that preserves YAML content structure.
+7. Generic text/code editing with the shared source editor infrastructure.
+8. Structure parsing/navigation/highlighting for LaTeX and YAML, including `\includegraphics` entries and caption-aware graphic labels.
+9. Double-Shift file search with exact/prefix/substring/fuzzy matching, ordered `>` hierarchy queries, keyboard navigation, live workspace indexing, and folder reveal.
+10. Pinned/Open two-row tab management, drag ordering, persisted order, max-tab/LRU behavior, recent-file switching, `Ctrl+Tab`, `Ctrl+W`, path remapping, and session restoration.
+11. Undo/Redo, current-line deletion, Find/Replace, bold, bookmarks, editor zoom reset, configurable application shortcuts, and user-editable LaTeX shorthand expansion.
+12. LuaLaTeX live Preview, recursive input resolution, graphic dependencies, bibliography passes, generation cancellation, selectable PDF text, zoom/pan, Fit/Auto Fit, reverse SyncTeX, selection highlight/caret mapping, Lock, Extend, Detach/Attach, toggle, and PDF export.
+13. Autosave, external-file synchronization, local autosave staging, persisted UI/editor state, settings reload, and per-feature performance/debounce controls.
+14. Native iPad PencilKit drawing with saved Pencil/Highlighter/Eraser tools, colors/thickness/opacity, lasso feedback/move/resize, Undo/Redo, two-finger Undo, photo/image objects, raster editing, canvas resize/presets, zoom/pan, grid/rulers, recent graphics, Close image, and live-sync settings.
+15. Ubuntu↔iPad bridge transport, open/update/save acknowledgements, revision tracking, managed sidecars, background preservation, stale-path rename aliases, current-session bridge process ownership, and Source/Visual/Preview refresh after accepted graphic updates.
+16. Startup/package tooling, canonical iPad ZIP generation, crash/startup diagnostics, preferred virtual environment selection, Python cache relocation, regression tests, examples, templates, icons, and release-history documentation.
 
 ## Code documentation rule
 
@@ -295,4 +374,6 @@ New and modified implementation files begin with a concise module description. N
 - `latex_shortcuts.yaml` is excluded from periodic autosave and is validated as a non-empty shortcut mapping before an explicit save can overwrite it.
 - Navigator selection, rename, drag, bookmarks, autosave, and idle memory compaction remain enabled.
 - The iPad can close the active graphic without disconnecting from Ubuntu; if a graphic save is still pending, the app waits for acknowledgement and retries only the latest state before returning to the waiting screen.
+- Navigator keyboard file Copy/Cut/Paste uses direct tree key-event routing so `Ctrl+C`/`Ctrl+X`/`Ctrl+V` follows the same multi-path operations as the right-click menu; clipboard-image paste remains the fallback when no file/folder clipboard is active.
+- Managed raster deletion removes its `.ndgraphic` companion, and rename/move can replace a valid stale orphan sidecar when the destination raster itself no longer exists.
 <!-- ND_IPAD_CURRENT_FEATURES_END -->

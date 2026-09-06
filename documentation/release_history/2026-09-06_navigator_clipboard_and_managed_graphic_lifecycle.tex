@@ -1,0 +1,63 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+
+\usetikzlibrary{graphs,graphdrawing}
+\usegdlibrary{layered}
+
+% for external graphviz
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/external_graphviz.tex}
+
+% for tags
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/parts/control_sequence/kind/semtag/semtag.tex}
+
+% for links
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/seehere.tex}
+
+% for nested lists and sections
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/deep_structure.tex}
+
+\title{Navigator Clipboard and Managed Graphic Lifecycle Fix}
+\date{2026-09-06}
+\author{Mohammad Rahmani}
+
+\begin{document}
+   \maketitle
+
+   \section{Navigator Copy, Cut, and Paste}
+   The later workspace interaction layer was replacing the canonical multi-path
+   Navigator menu, while additional shortcut controllers introduced duplicate
+   ownership of Ctrl+C, Ctrl+X, and Ctrl+V.  The workspace interaction layer now
+   preserves the existing \texttt{NavigatorMultiPathContextController} as the
+   sole context-menu/clipboard owner, and the redundant shortcut ownership
+   controllers are removed from the runtime path.
+
+   \section{Managed graphic deletion}
+   Deleting a managed PNG/JPG/JPEG now submits its existing
+   \texttt{.ndgraphic} companion in the same background deletion request.  This
+   prevents stale orphan sidecars from being left behind when the raster is
+   intentionally deleted from the Navigator.
+
+   \section{Rename into an orphan sidecar}
+   A stale destination sidecar is replaceable only when its referenced raster
+   no longer exists, its image name matches its own stem, and its source owner
+   is compatible with the source sidecar.  Replaceability is evaluated before
+   the move batch begins, so moving the raster first cannot invalidate the
+   orphan-sidecar decision before the sidecar move executes.
+
+   \bibliographystyle{plainnat}
+   \bibliography{/home/donkarlo/Dropbox/repo/nd_shared_research/bibliography/bibliography.bib}
+\end{document}

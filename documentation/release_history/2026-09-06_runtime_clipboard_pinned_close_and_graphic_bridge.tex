@@ -1,0 +1,60 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+
+\usetikzlibrary{graphs,graphdrawing}
+\usegdlibrary{layered}
+
+% for external graphviz
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/external_graphviz.tex}
+
+% for tags
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/parts/control_sequence/kind/semtag/semtag.tex}
+
+% for links
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/seehere.tex}
+
+\title{Navigator Clipboard, Pinned Ctrl+W, and Fresh Graphic Bridge Ownership}
+\date{2026-09-06}
+\author{Mohammad Rahmani}
+
+\begin{document}
+   \maketitle
+
+   \section{Bugs}
+   Three previously reported behaviors were still not effective at runtime:
+   the later WorkspaceInteractionController replaced the multi-path Navigator
+   menu, pinned tabs rejected explicit Ctrl+W close requests, and a stale
+   graphic bridge on the default port could prevent a newly launched Mind
+   Mirror process from running the current bridge code.
+
+   \section{Fix}
+   \begin{itemize}
+      \item A dedicated NavigatorMultiPathOwnershipController becomes the final
+      runtime owner of Ctrl+C, Ctrl+X, Ctrl+V, ExtendedSelection, and the
+      multi-path right-click menu after all startup controllers are installed.
+      \item Explicit Ctrl+W temporarily removes pin protection, uses the normal
+      unsaved-changes close workflow, and restores the pin if the close is
+      cancelled.
+      \item Each Mind Mirror application session now starts one bridge process
+      from the current project source. The bridge entry point already selects
+      collision-safe ports, so a stale process on port 8766 no longer prevents
+      current bridge code from taking over the iPad reverse connection.
+   \end{itemize}
+
+   \bibliographystyle{plainnat}
+   \bibliography{/home/donkarlo/Dropbox/repo/nd_shared_research/bibliography/bibliography.bib}
+\end{document}

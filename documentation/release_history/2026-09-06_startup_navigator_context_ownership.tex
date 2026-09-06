@@ -1,0 +1,63 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+
+\usetikzlibrary{graphs,graphdrawing}
+\usegdlibrary{layered}
+
+% for external graphviz
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/external_graphviz.tex}
+
+% for tags
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/parts/control_sequence/kind/semtag/semtag.tex}
+
+% for links
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/seehere.tex}
+
+% for nested lists and sections
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/deep_structure.tex}
+
+\title{Startup Regression after Navigator Context-Menu Consolidation}
+\date{2026-09-06}
+\author{Mohammad Rahmani}
+
+\begin{document}
+   \maketitle
+
+   \section{Failure}
+   Mind Mirror exited during import because the legacy
+   \texttt{Fix11DesktopController} tried to capture
+   \texttt{WorkspaceInteractionController.\_show\_navigator\_menu}, while the
+   newer Navigator consolidation intentionally removed that secondary menu
+   implementation.
+
+   \section{Correction}
+   The legacy controller no longer patches the Workspace interaction menu.
+   Hierarchical search, exact image drag/drop, and generic iPad image editing
+   remain installed there.  The canonical
+   \texttt{NavigatorMultiPathContextController} now exposes
+   \texttt{Edit image in iPad} for all supported raster formats as well as
+   managed \texttt{.ndgraphic} files, while retaining Ctrl/Shift
+   multi-selection and Copy/Cut/Paste.
+
+   \section{Regression coverage}
+   A regression test verifies that startup code contains no dependency on the
+   removed Workspace menu method, and that the canonical multi-path menu owns
+   both file clipboard actions and iPad image editing.
+
+   \bibliographystyle{plainnat}
+   \bibliography{/home/donkarlo/Dropbox/repo/nd_shared_research/bibliography/bibliography.bib}
+\end{document}

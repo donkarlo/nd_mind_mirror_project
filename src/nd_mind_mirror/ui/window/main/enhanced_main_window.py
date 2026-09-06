@@ -18,6 +18,9 @@ from nd_mind_mirror.ui.window.main.enhanced_main_window_features import (
 from nd_mind_mirror.ui.window.main.navigator_multi_path_context_controller import (
     NavigatorMultiPathContextController,
 )
+from nd_mind_mirror.ui.window.main.current_editor_tab_close_controller import (
+    CurrentEditorTabCloseController,
+)
 from nd_mind_mirror.ui.window.main.navigator_strict_active_selection_controller import (
     NavigatorStrictActiveSelectionController,
 )
@@ -29,6 +32,9 @@ from nd_mind_mirror.ui.window.main.graphic_open_session_path_controller import (
 )
 from nd_mind_mirror.ui.window.main.workspace.managed_graphic_filesystem_operation_controller import (
     ManagedGraphicWorkspaceFilesystemOperationController,
+)
+from nd_mind_mirror.graphic.core.bridge_session_process_controller import (
+    GraphicBridgeSessionProcessController,
 )
 
 
@@ -45,6 +51,22 @@ class EnhancedMainWindow(FeatureEnhancedMainWindow):
         super().__init__(parent)
         self._replace_document_autosave_controller()
         self._replace_navigator_context_controller()
+        self._current_editor_tab_close_controller = (
+            CurrentEditorTabCloseController(
+                self,
+                self._editor_panel,
+                self._close_tab_action,
+                self,
+            )
+        )
+        self._graphic_bridge_session_process_controller = (
+            GraphicBridgeSessionProcessController(
+                workspace_root=self._app_settings.search_default_path,
+                project_root=self._app_settings.project_root,
+                parent=self,
+            )
+        )
+        self._graphic_bridge_session_process_controller.start()
         self._configure_workspace_input_resolver()
         self._refresh_current_preview(immediate=True)
         self._workspace_reference_maintenance_controller = (
@@ -98,6 +120,29 @@ class EnhancedMainWindow(FeatureEnhancedMainWindow):
         renderer._graphic_dependency_resolver = WorkspaceGraphicDependencyResolver(
             settings.search_default_path
         )
+
+    def _sync_graphic_update_event(self) -> None:
+        """Force Source and Visual image caches to follow every accepted iPad save event."""
+        previous_signature = getattr(self, "_graphic_update_event_signature", None)
+        super()._sync_graphic_update_event()
+        if getattr(self, "_graphic_update_event_signature", None) == previous_signature:
+            return
+
+        source_controller = getattr(
+            self,
+            "_source_graphic_preview_controller",
+            None,
+        )
+        if source_controller is not None:
+            source_controller.schedule_layout_refresh()
+
+        refresh_visual = getattr(
+            self._editor_panel,
+            "refresh_current_visual_graphics",
+            None,
+        )
+        if callable(refresh_visual):
+            refresh_visual()
 
     def _reload_yaml_settings(self) -> bool:
         """Keep Preview path semantics synchronized with search.default_path."""

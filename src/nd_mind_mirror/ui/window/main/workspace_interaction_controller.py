@@ -5,9 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from types import MethodType
 
-from PySide6.QtCore import QItemSelectionModel, QTimer, QUrl
-from PySide6.QtGui import QDesktopServices
-from PySide6.QtWidgets import QAbstractItemView, QApplication, QMenu
+from PySide6.QtCore import QItemSelectionModel, QTimer
+from PySide6.QtWidgets import QAbstractItemView
 
 
 class WorkspaceInteractionController:
@@ -111,132 +110,22 @@ class WorkspaceInteractionController:
         self._panel._pending_reveal = None
 
     def _install_context_menu(self) -> None:
+        """Keep the canonical Navigator context controller as the sole menu owner."""
         if self._context_controller is None:
             return
+
+        # The multi-path controller is created before this interaction layer.
+        # Reconnect it explicitly so this later controller never replaces its
+        # Copy/Cut/Paste actions or its Ctrl/Shift multi-selection semantics.
         try:
             self._tree.customContextMenuRequested.disconnect(
                 self._context_controller.show_menu
             )
         except (RuntimeError, TypeError):
             pass
-        self._tree.customContextMenuRequested.connect(self._show_navigator_menu)
-
-    def _show_navigator_menu(self, position) -> None:
-        index = self._tree.indexAt(position)
-        if not index.isValid():
-            return
-
-        self._tree.setCurrentIndex(index)
-        path = Path(self._panel._path_for_view_index(index))
-        menu = QMenu(self._panel)
-        open_menu = menu.addMenu("Open")
-        copy_menu = menu.addMenu("Copy / Share")
-        create_menu = menu.addMenu("Create")
-        manage_menu = menu.addMenu("Manage")
-
-        open_files = open_menu.addAction("Open in Files")
-        open_files.triggered.connect(
-            lambda _checked=False: self._panel._open_in_file_manager(path)
+        self._tree.customContextMenuRequested.connect(
+            self._context_controller.show_menu
         )
-
-        managed_graphic = (
-            path.suffix.lower() == ".ndgraphic"
-            or (
-                path.suffix.lower() == ".png"
-                and path.with_suffix(".ndgraphic").is_file()
-            )
-        )
-        if managed_graphic:
-            edit_ipad = open_menu.addAction("Edit image in iPad…")
-            edit_ipad.triggered.connect(
-                lambda _checked=False: self._panel.graphic_edit_requested.emit(
-                    str(path.expanduser().resolve())
-                )
-            )
-
-        pin_callback = getattr(self._context_controller, "_pin_callback", None)
-        if path.is_file() and pin_callback is not None:
-            pin_action = open_menu.addAction("Pin File in Tabs")
-            pin_action.triggered.connect(
-                lambda _checked=False: pin_callback(path)
-            )
-
-        copy_absolute = copy_menu.addAction("Copy Absolute Path")
-        copy_absolute.triggered.connect(
-            lambda _checked=False: QApplication.clipboard().setText(
-                str(path.expanduser().resolve())
-            )
-        )
-
-        dropbox_path = self._dropbox_path(path)
-        copy_dropbox = copy_menu.addAction("Copy Dropbox Path")
-        copy_dropbox.setEnabled(bool(dropbox_path))
-        copy_dropbox.triggered.connect(
-            lambda _checked=False, value=dropbox_path:
-            QApplication.clipboard().setText(value)
-        )
-
-        copy_name = copy_menu.addAction("Copy File Name")
-        copy_name.triggered.connect(
-            lambda _checked=False: QApplication.clipboard().setText(path.name)
-        )
-
-        github_url = self._context_controller._github_url(path)
-        copy_github = copy_menu.addAction("Copy GitHub URL")
-        open_github = copy_menu.addAction("Open GitHub URL")
-        copy_github.setEnabled(bool(github_url))
-        open_github.setEnabled(bool(github_url))
-        copy_github.triggered.connect(
-            lambda _checked=False, value=github_url:
-            QApplication.clipboard().setText(value)
-        )
-        open_github.triggered.connect(
-            lambda _checked=False, value=github_url:
-            QDesktopServices.openUrl(QUrl(value))
-        )
-
-        paste_image = create_menu.addAction("Paste Clipboard Image Here")
-        paste_image.triggered.connect(
-            lambda _checked=False: self._panel._save_current_clipboard_image(
-                self._panel._target_directory(path),
-                one_shot=False,
-            )
-        )
-        new_latex = create_menu.addAction("New LaTeX File…")
-        new_latex.triggered.connect(
-            lambda _checked=False: self._panel._create_file(path, latex=True)
-        )
-        new_file = create_menu.addAction("New File…")
-        new_file.triggered.connect(
-            lambda _checked=False: self._panel._create_file(path, latex=False)
-        )
-        new_folder = create_menu.addAction("New Folder…")
-        new_folder.triggered.connect(
-            lambda _checked=False: self._panel._create_folder(path)
-        )
-
-        rename = manage_menu.addAction("Rename…")
-        delete = manage_menu.addAction("Delete…")
-        rename.setEnabled(path != self._panel._root_path)
-        delete.setEnabled(path != self._panel._root_path)
-        rename.triggered.connect(
-            lambda _checked=False: self._panel._rename_path(path)
-        )
-        delete.triggered.connect(
-            lambda _checked=False: self._panel._delete_path(path)
-        )
-
-        menu.exec(self._tree.viewport().mapToGlobal(position))
-
-    @staticmethod
-    def _dropbox_path(path: Path) -> str:
-        try:
-            relative = path.expanduser().resolve().relative_to(
-                (Path.home() / "Dropbox").resolve()
-            )
-        except (OSError, ValueError):
-            return ""
-        return "/" + relative.as_posix()
 
     def _install_path_remap_guard(self) -> None:
         self._panel.path_about_to_move.connect(self._before_path_move)

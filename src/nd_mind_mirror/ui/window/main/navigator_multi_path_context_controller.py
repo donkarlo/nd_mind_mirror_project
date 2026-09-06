@@ -1,12 +1,12 @@
-"""Provide multi-path Copy/Cut/Paste semantics for the Navigator."""
+"""Provide one multi-path Copy/Cut/Paste and context-menu owner for Navigator."""
 
 from __future__ import annotations
 
 from pathlib import Path
 import shutil
 
-from PySide6.QtCore import QItemSelectionModel, Qt, QUrl
-from PySide6.QtGui import QDesktopServices, QKeySequence, QShortcut
+from PySide6.QtCore import QItemSelectionModel, QUrl
+from PySide6.QtGui import QDesktopServices, QKeySequence
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -18,10 +18,23 @@ from PySide6.QtWidgets import (
 from nd_mind_mirror.ui.window.main.navigator_context_controller import (
     NavigatorContextController,
 )
+from nd_mind_mirror.ui.input.navigator_clipboard_key_event_filter import (
+    NavigatorClipboardKeyEventFilter,
+)
 
 
 class NavigatorMultiPathContextController(NavigatorContextController):
-    """Extend Navigator context actions to multi-selection Copy, Cut, and Paste."""
+    """Own Navigator multi-selection, file clipboard, and grouped context actions."""
+
+    _IMAGE_SUFFIXES = {
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".webp",
+        ".bmp",
+        ".tif",
+        ".tiff",
+    }
 
     def __init__(self, file_system_panel, pin_callback=None) -> None:
         """Install multi-selection and Navigator-only clipboard shortcuts."""
@@ -36,11 +49,22 @@ class NavigatorMultiPathContextController(NavigatorContextController):
             QAbstractItemView.SelectionBehavior.SelectRows
         )
 
-        self._cut_shortcut = QShortcut(QKeySequence("Ctrl+X"), self._tree)
-        self._cut_shortcut.setContext(
-            Qt.ShortcutContext.WidgetWithChildrenShortcut
+        # The base controller creates Ctrl+C/Ctrl+V QShortcuts.  They are
+        # deliberately disabled here because QShortcut resolution competes
+        # with QTreeView/FileSystemPanel input handling.  A tree event filter
+        # below becomes the single deterministic keyboard owner instead.
+        for name in ("_copy_shortcut", "_paste_shortcut"):
+            shortcut = getattr(self, name, None)
+            if shortcut is None:
+                continue
+            shortcut.setEnabled(False)
+            shortcut.deleteLater()
+
+        self._clipboard_key_event_filter = NavigatorClipboardKeyEventFilter(
+            self,
+            self._tree,
+            parent=self._tree,
         )
-        self._cut_shortcut.activated.connect(self.cut_selected_paths)
 
     @classmethod
     def replace(
@@ -49,7 +73,7 @@ class NavigatorMultiPathContextController(NavigatorContextController):
         file_system_panel,
         pin_callback=None,
     ) -> "NavigatorMultiPathContextController":
-        """Replace the previous single-path controller without leaving duplicate shortcuts."""
+        """Replace an older context controller without duplicate shortcuts."""
         if existing is not None:
             try:
                 file_system_panel._tree.customContextMenuRequested.disconnect(
@@ -57,7 +81,12 @@ class NavigatorMultiPathContextController(NavigatorContextController):
                 )
             except (RuntimeError, TypeError):
                 pass
-            for name in ("_copy_shortcut", "_paste_shortcut"):
+
+            for name in (
+                "_copy_shortcut",
+                "_cut_shortcut",
+                "_paste_shortcut",
+            ):
                 shortcut = getattr(existing, name, None)
                 if shortcut is None:
                     continue
@@ -66,14 +95,22 @@ class NavigatorMultiPathContextController(NavigatorContextController):
                     shortcut.deleteLater()
                 except RuntimeError:
                     pass
-        return cls(file_system_panel, pin_callback)
+
+        return cls(
+            file_system_panel,
+            pin_callback,
+        )
 
     def show_menu(self, position) -> None:
-        """Show Copy/Cut/Paste for the clicked row while preserving a multi-selection."""
+        """Show one complete menu while preserving Ctrl/Shift multi-selection."""
         index = self._tree.indexAt(position)
         if not index.isValid():
             return
-        path = Path(self._panel._path_for_view_index(index))
+
+        raw_path = self._panel._path_for_view_index(index)
+        if not raw_path:
+            return
+        path = Path(raw_path).expanduser()
         self._prepare_context_selection(index)
         selected_paths = self.selected_paths()
 
@@ -92,7 +129,9 @@ class NavigatorMultiPathContextController(NavigatorContextController):
         paste_item = menu.addAction("Paste")
         paste_item.setShortcut(QKeySequence("Ctrl+V"))
         paste_item.setEnabled(self.can_paste())
-        paste_item.triggered.connect(lambda: self.paste_into_path(path))
+        paste_item.triggered.connect(
+            lambda: self.paste_into_path(path)
+        )
         menu.addSeparator()
 
         open_menu = menu.addMenu("Open")
@@ -105,28 +144,28 @@ class NavigatorMultiPathContextController(NavigatorContextController):
             lambda: self._panel._open_in_file_manager(path)
         )
 
-        managed_graphic = (
-            path.suffix.lower() == ".ndgraphic"
-            or (
-                path.suffix.lower() == ".png"
-                and path.with_suffix(".ndgraphic").is_file()
-            )
-        )
-        if managed_graphic:
+        if self._is_ipad_editable(path):
             edit_ipad = open_menu.addAction("Edit image in iPad…")
             edit_ipad.triggered.connect(
                 lambda: self._panel.graphic_edit_requested.emit(
                     str(path.expanduser().resolve())
                 )
             )
+
         if path.is_file() and self._pin_callback is not None:
             pin_action = open_menu.addAction("Pin File in Tabs")
-            pin_action.triggered.connect(lambda: self._pin_callback(path))
+            pin_action.triggered.connect(
+                lambda: self._pin_callback(path)
+            )
 
         copy_path = copy_menu.addAction("Copy Absolute Path")
-        copy_path.triggered.connect(self._copy_selected_absolute_paths)
+        copy_path.triggered.connect(
+            self._copy_selected_absolute_paths
+        )
         copy_name = copy_menu.addAction("Copy File Name")
-        copy_name.triggered.connect(self._copy_selected_names)
+        copy_name.triggered.connect(
+            self._copy_selected_names
+        )
 
         github_url = self._github_url(path)
         copy_github = copy_menu.addAction("Copy GitHub URL")
@@ -140,7 +179,9 @@ class NavigatorMultiPathContextController(NavigatorContextController):
             lambda: QDesktopServices.openUrl(QUrl(github_url))
         )
 
-        paste_image = create_menu.addAction("Paste Clipboard Image Here")
+        paste_image = create_menu.addAction(
+            "Paste Clipboard Image Here"
+        )
         paste_image.triggered.connect(
             lambda: self._panel._save_current_clipboard_image(
                 self._panel._target_directory(path),
@@ -156,22 +197,33 @@ class NavigatorMultiPathContextController(NavigatorContextController):
             lambda: self._panel._create_file(path, latex=False)
         )
         new_folder = create_menu.addAction("New Folder…")
-        new_folder.triggered.connect(lambda: self._panel._create_folder(path))
+        new_folder.triggered.connect(
+            lambda: self._panel._create_folder(path)
+        )
 
         rename = manage_menu.addAction("Rename…")
         delete = manage_menu.addAction("Delete…")
         single_selection = len(selected_paths) == 1
         rename.setEnabled(
-            single_selection and path != self._panel._root_path
+            single_selection
+            and path != self._panel._root_path
         )
         delete.setEnabled(bool(selected_paths))
-        rename.triggered.connect(lambda: self._panel._rename_path(path))
+        rename.triggered.connect(
+            lambda: self._panel._rename_path(path)
+        )
         if len(selected_paths) > 1:
-            delete.triggered.connect(self._panel._delete_selected_path)
+            delete.triggered.connect(
+                self._panel._delete_selected_path
+            )
         else:
-            delete.triggered.connect(lambda: self._panel._delete_path(path))
+            delete.triggered.connect(
+                lambda: self._panel._delete_path(path)
+            )
 
-        menu.exec(self._tree.viewport().mapToGlobal(position))
+        menu.exec(
+            self._tree.viewport().mapToGlobal(position)
+        )
 
     def copy_selected_path(self) -> None:
         """Store every Ctrl/Shift-selected top-level path for copying."""
@@ -182,30 +234,44 @@ class NavigatorMultiPathContextController(NavigatorContextController):
         self._store_selection("cut")
 
     def paste_into_selected_path(self) -> None:
-        """Paste the internal file clipboard into the current Navigator destination."""
+        """Paste file/folder clipboard, otherwise preserve image-paste fallback."""
         selected = self._panel.selected_path()
         if not selected:
             return
+
         if self.can_paste():
             self.paste_into_path(Path(selected))
             return
-        directory = self._panel._target_directory(Path(selected))
+
+        directory = self._panel._target_directory(
+            Path(selected)
+        )
         self._panel._save_current_clipboard_image(
             directory,
             one_shot=False,
         )
 
     def paste_into_path(self, path: Path) -> None:
-        """Paste all stored paths into a folder or the selected file's parent."""
+        """Paste every stored item into a folder or selected file's parent."""
         sources = self._existing_clipboard_paths()
         if not sources:
             return
 
         try:
-            destination = self._panel._target_directory(path).expanduser().resolve()
+            destination = (
+                self._panel
+                ._target_directory(path)
+                .expanduser()
+                .resolve()
+            )
         except OSError as exc:
-            QMessageBox.warning(self._panel, "Paste", str(exc))
+            QMessageBox.warning(
+                self._panel,
+                "Paste",
+                str(exc),
+            )
             return
+
         if not destination.is_dir():
             QMessageBox.warning(
                 self._panel,
@@ -214,7 +280,10 @@ class NavigatorMultiPathContextController(NavigatorContextController):
             )
             return
 
-        mappings = self._destination_mappings(sources, destination)
+        mappings = self._destination_mappings(
+            sources,
+            destination,
+        )
         if mappings is None:
             return
 
@@ -224,13 +293,17 @@ class NavigatorMultiPathContextController(NavigatorContextController):
         self._paste_copy(mappings)
 
     def can_paste(self) -> bool:
-        """Return whether the internal Navigator clipboard still has live sources."""
+        """Return whether the internal Navigator clipboard has live sources."""
         return bool(self._existing_clipboard_paths())
 
     def selected_paths(self) -> list[Path]:
-        """Return selected existing paths, collapsed so selected parents own descendants."""
+        """Return selected existing paths with descendants collapsed under parents."""
         selection = self._tree.selectionModel()
-        indexes = selection.selectedRows(0) if selection is not None else []
+        indexes = (
+            selection.selectedRows(0)
+            if selection is not None
+            else []
+        )
         paths: list[Path] = []
         for index in indexes:
             raw_path = self._panel._path_for_view_index(index)
@@ -240,22 +313,27 @@ class NavigatorMultiPathContextController(NavigatorContextController):
                 candidate = Path(raw_path).expanduser().resolve()
             except OSError:
                 continue
-            if candidate == self._panel._root_path or not candidate.exists():
+            if (
+                candidate == self._panel._root_path
+                or not candidate.exists()
+            ):
                 continue
             paths.append(candidate)
         return self._top_level_paths(paths)
 
     def _prepare_context_selection(self, index) -> None:
-        """Keep a right-clicked selected row in its group; otherwise select it alone."""
+        """Keep an already-selected right-click row in its group."""
         selection = self._tree.selectionModel()
         if selection is None:
             return
+
         if selection.isSelected(index):
             selection.setCurrentIndex(
                 index,
                 QItemSelectionModel.SelectionFlag.NoUpdate,
             )
             return
+
         selection.select(
             index,
             QItemSelectionModel.SelectionFlag.ClearAndSelect
@@ -296,20 +374,31 @@ class NavigatorMultiPathContextController(NavigatorContextController):
         sources: list[Path],
         destination: Path,
     ) -> list[tuple[Path, Path]] | None:
-        """Resolve every destination, prompting with name_0/name_1 on collisions."""
+        """Resolve destinations and prompt with name_0/name_1 on collisions."""
         mappings: list[tuple[Path, Path]] = []
         reserved: set[Path] = set()
+
         for source in sources:
-            if source.is_dir() and self._is_same_or_child(destination, source):
+            if (
+                source.is_dir()
+                and self._is_same_or_child(destination, source)
+            ):
                 QMessageBox.warning(
                     self._panel,
                     "Paste",
-                    f"{source.name} cannot be pasted into itself or one of its descendants.",
+                    f"{source.name} cannot be pasted into itself "
+                    "or one of its descendants.",
                 )
                 return None
 
-            target = (destination / source.name).resolve(strict=False)
-            if target.exists() or target.is_symlink() or target in reserved:
+            target = (
+                destination / source.name
+            ).resolve(strict=False)
+            if (
+                target.exists()
+                or target.is_symlink()
+                or target in reserved
+            ):
                 target = self._prompt_collision_target(
                     source,
                     destination,
@@ -317,46 +406,64 @@ class NavigatorMultiPathContextController(NavigatorContextController):
                 )
                 if target is None:
                     return None
+
             reserved.add(target)
             mappings.append((source, target))
+
         return mappings
 
-    def _paste_cut(self, mappings: list[tuple[Path, Path]]) -> None:
-        """Queue Cut/Paste through the existing background move/reference pipeline."""
+    def _paste_cut(
+        self,
+        mappings: list[tuple[Path, Path]],
+    ) -> None:
+        """Queue Cut/Paste through the background move/reference pipeline."""
         window = self._panel.window()
         controller = getattr(
             window,
             "_workspace_filesystem_operation_controller",
             None,
         )
-        request_moves = getattr(controller, "request_moves", None)
+        request_moves = getattr(
+            controller,
+            "request_moves",
+            None,
+        )
         if not callable(request_moves):
             QMessageBox.warning(
                 self._panel,
                 "Paste",
-                "The background workspace move controller is not available.",
+                "The background workspace move controller "
+                "is not available.",
             )
             return
 
         for source, _target in mappings:
             self._panel.path_about_to_move.emit(str(source))
+
         if request_moves(mappings):
             window.statusBar().showMessage(
-                f"Moving {len(mappings)} cut item(s) in the background…",
+                f"Moving {len(mappings)} cut item(s) "
+                "in the background…",
                 3000,
             )
 
-    def _paste_copy(self, mappings: list[tuple[Path, Path]]) -> None:
-        """Copy every selected source and publish the created paths to Navigator."""
+    def _paste_copy(
+        self,
+        mappings: list[tuple[Path, Path]],
+    ) -> None:
+        """Copy every selected source and publish created paths to Navigator."""
         created: list[Path] = []
         errors: list[str] = []
+
         for source, target in mappings:
             try:
                 if source.is_dir():
                     shutil.copytree(source, target)
                 else:
                     shutil.copy2(source, target)
-                created.append(target.resolve(strict=False))
+                created.append(
+                    target.resolve(strict=False)
+                )
             except OSError as exc:
                 errors.append(f"{source}: {exc}")
 
@@ -364,7 +471,10 @@ class NavigatorMultiPathContextController(NavigatorContextController):
             self._panel._proxy_model.invalidateFilter()
             for target in created:
                 self._panel.path_created.emit(str(target))
-            self._panel.select_path(created[-1], force_reveal=True)
+            self._panel.select_path(
+                created[-1],
+                force_reveal=True,
+            )
             self._panel.state_changed.emit()
 
         if errors:
@@ -380,12 +490,13 @@ class NavigatorMultiPathContextController(NavigatorContextController):
         destination: Path,
         reserved: set[Path],
     ) -> Path | None:
-        """Offer the first source_0/source_1 name and validate a user override."""
+        """Offer source_0/source_1 and validate a user override."""
         suggested = self._next_available_target(
             source,
             destination,
             reserved,
         )
+
         while True:
             name, accepted = QInputDialog.getText(
                 self._panel,
@@ -395,6 +506,7 @@ class NavigatorMultiPathContextController(NavigatorContextController):
             )
             if not accepted:
                 return None
+
             normalized = name.strip()
             if (
                 not normalized
@@ -408,8 +520,15 @@ class NavigatorMultiPathContextController(NavigatorContextController):
                     "Enter a valid file or folder name.",
                 )
                 continue
-            target = (destination / normalized).resolve(strict=False)
-            if target.exists() or target.is_symlink() or target in reserved:
+
+            target = (
+                destination / normalized
+            ).resolve(strict=False)
+            if (
+                target.exists()
+                or target.is_symlink()
+                or target in reserved
+            ):
                 QMessageBox.warning(
                     self._panel,
                     "Paste",
@@ -429,7 +548,7 @@ class NavigatorMultiPathContextController(NavigatorContextController):
         destination: Path,
         reserved: set[Path],
     ) -> Path:
-        """Return source_0, source_1, ... while preserving a file extension."""
+        """Return source_0, source_1, ... preserving file extension."""
         if source.is_dir():
             base_name = source.name
             extension = ""
@@ -440,10 +559,12 @@ class NavigatorMultiPathContextController(NavigatorContextController):
                 if extension
                 else source.name
             )
+
         counter = 0
         while True:
             candidate = (
-                destination / f"{base_name}_{counter}{extension}"
+                destination
+                / f"{base_name}_{counter}{extension}"
             ).resolve(strict=False)
             if (
                 not candidate.exists()
@@ -470,12 +591,34 @@ class NavigatorMultiPathContextController(NavigatorContextController):
             )
 
     @classmethod
-    def _top_level_paths(cls, paths: list[Path]) -> list[Path]:
-        """Deduplicate selections and remove children whose parent is selected."""
-        unique = sorted(set(paths), key=lambda item: len(item.parts))
+    def _is_ipad_editable(cls, path: Path) -> bool:
+        """Return whether Navigator should expose the iPad image editor action."""
+        if path.suffix.lower() == ".ndgraphic":
+            return path.is_file()
+        return (
+            path.is_file()
+            and path.suffix.lower() in cls._IMAGE_SUFFIXES
+        )
+
+    @staticmethod
+    def _top_level_paths(paths: list[Path]) -> list[Path]:
+        """Remove duplicates and descendants of selected parent folders."""
+        unique = sorted(
+            set(paths),
+            key=lambda value: (
+                len(value.parts),
+                str(value).casefold(),
+            ),
+        )
         result: list[Path] = []
         for path in unique:
-            if any(cls._is_same_or_child(path, parent) for parent in result):
+            if any(
+                NavigatorMultiPathContextController._is_same_or_child(
+                    path,
+                    parent,
+                )
+                for parent in result
+            ):
                 continue
             result.append(path)
         return result

@@ -25,6 +25,12 @@ class WorkspaceFilesystemOperationService:
         results: list[dict[str, object]] = []
         if not isinstance(raw_moves, list):
             return results
+
+        # Capture replaceability before the first move mutates sibling paths.
+        # This matters for an orphan destination sidecar: the raster move may
+        # create its new sibling before the sidecar move executes.
+        replaceable_destinations = self._replaceable_move_destinations(raw_moves)
+
         for item in raw_moves:
             if not isinstance(item, dict):
                 continue
@@ -44,7 +50,7 @@ class WorkspaceFilesystemOperationService:
                 destination.parent.mkdir(parents=True, exist_ok=True)
 
                 if destination.exists() or destination.is_symlink():
-                    if not self._can_replace_destination(source, destination):
+                    if destination not in replaceable_destinations:
                         raise FileExistsError(
                             f"Destination already exists: {destination}"
                         )
@@ -63,9 +69,24 @@ class WorkspaceFilesystemOperationService:
             results.append(result)
         return results
 
+    @classmethod
+    def _replaceable_move_destinations(cls, raw_moves: list[object]) -> set[Path]:
+        """Evaluate managed-sidecar replacement against the untouched batch state."""
+        replaceable: set[Path] = set()
+        for item in raw_moves:
+            if not isinstance(item, dict):
+                continue
+            source = Path(str(item.get("source", ""))).expanduser().resolve(strict=False)
+            destination = Path(str(item.get("destination", ""))).expanduser().resolve(strict=False)
+            if not destination.exists() and not destination.is_symlink():
+                continue
+            if cls._can_replace_destination(source, destination):
+                replaceable.add(destination)
+        return replaceable
+
     @staticmethod
     def _can_replace_destination(source: Path, destination: Path) -> bool:
-        """Allow only a stale managed sidecar alias to be atomically replaced."""
+        """Allow only a safe managed-sidecar destination to be atomically replaced."""
         if (
             source.suffix.lower() != ".ndgraphic"
             or destination.suffix.lower() != ".ndgraphic"

@@ -1,0 +1,66 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+
+\usetikzlibrary{graphs,graphdrawing}
+\usegdlibrary{layered}
+
+% for external graphviz
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/external_graphviz.tex}
+
+% for tags
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/parts/control_sequence/kind/semtag/semtag.tex}
+
+% for links
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/seehere.tex}
+
+% for nested lists and sections
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/deep_structure.tex}
+
+\title{Reliable Ctrl+W and Navigator Multi-Path Clipboard Shortcuts}
+\date{2026-09-06}
+\author{Mohammad Rahmani}
+
+\begin{document}
+   \maketitle
+
+   \section{Ctrl+W}
+   Ctrl+W is now intercepted only while keyboard focus belongs to the current
+   editor subtree. This makes the existing close-tab workflow reliable from
+   both Source and Visual views while retaining the normal unsaved-changes
+   confirmation.
+
+   \section{Navigator clipboard}
+   The Navigator already exposed multi-selection Copy, Cut, Paste, and
+   collision-aware naming, but Ctrl+V could still be handled first by the
+   FileSystemPanel clipboard-image fallback. A dedicated shortcut controller
+   now receives Navigator Ctrl+C, Ctrl+X, and Ctrl+V first. When an internal
+   file/folder clipboard exists, file operations win; otherwise Ctrl+V falls
+   through so clipboard-image paste continues to work unchanged.
+
+   \section{Selection and collision behavior}
+   \begin{itemize}
+      \item Ctrl+click cherry-picks files and folders.
+      \item Shift+click selects a contiguous row range.
+      \item Copy and Cut work for the complete selected set.
+      \item The right-click menu exposes Copy, Cut, and Paste for the selected set.
+      \item Existing destination names suggest \texttt{name\_0},
+      \texttt{name\_1}, and later suffixes while preserving file extensions.
+   \end{itemize}
+
+   \bibliographystyle{plainnat}
+   \bibliography{/home/donkarlo/Dropbox/repo/nd_shared_research/bibliography/bibliography.bib}
+\end{document}

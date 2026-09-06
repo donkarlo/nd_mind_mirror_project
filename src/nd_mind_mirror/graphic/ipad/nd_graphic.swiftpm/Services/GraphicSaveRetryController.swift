@@ -1,4 +1,4 @@
-// Serializes iPad graphic saves, coalesces newer states, and retries one in-flight save.
+// Serializes iPad graphic saves, coalesces newer states, and retries until acknowledgement or document close/reset.
 
 import Foundation
 import SwiftUI
@@ -10,9 +10,7 @@ final class GraphicSaveRetryController: ObservableObject {
     @Published private(set) var didExhaustRetries = false
 
     private let retryDelayNanoseconds: UInt64
-    private let maximumRetryCount: Int
     private let closeMaximumWaitNanoseconds: UInt64
-    private var retryCount = 0
     private var retryTask: Task<Void, Never>?
     private var closeDeadlineTask: Task<Void, Never>?
     private var inFlightSendAction: (() -> Bool)?
@@ -20,12 +18,10 @@ final class GraphicSaveRetryController: ObservableObject {
     private var deferredCloseAction: (() -> Void)?
 
     init(
-        retryDelayNanoseconds: UInt64 = 2_000_000_000,
-        maximumRetryCount: Int = 2,
+        retryDelayNanoseconds: UInt64 = 800_000_000,
         closeMaximumWaitNanoseconds: UInt64 = 2_000_000_000
     ) {
         self.retryDelayNanoseconds = retryDelayNanoseconds
-        self.maximumRetryCount = max(maximumRetryCount, 0)
         self.closeMaximumWaitNanoseconds = closeMaximumWaitNanoseconds
     }
 
@@ -45,7 +41,6 @@ final class GraphicSaveRetryController: ObservableObject {
         retryTask?.cancel()
         retryTask = nil
         inFlightSendAction = nil
-        retryCount = 0
 
         if let queued = queuedLatestSendAction {
             queuedLatestSendAction = nil
@@ -67,21 +62,15 @@ final class GraphicSaveRetryController: ObservableObject {
         deferredCloseAction = action
 
         // closeCurrentImage submits the final canvas state immediately before
-        // calling this method. If another save was still awaiting ACK, that
-        // final state is the queued action; transmit it now instead of waiting
-        // for an acknowledgement that may never arrive.
+        // calling this method. If a newer state is queued, make it the active
+        // retry payload now. It remains eligible for retries until ACK or the
+        // close deadline, even when the transport is temporarily disconnected.
         if let queued = queuedLatestSendAction {
             queuedLatestSendAction = nil
             retryTask?.cancel()
             retryTask = nil
             inFlightSendAction = queued
-            retryCount = 0
-            guard queued() else {
-                isAwaitingAcknowledgement = false
-                inFlightSendAction = nil
-                runDeferredClose()
-                return false
-            }
+            _ = queued()
             scheduleRetry()
         }
 
@@ -98,7 +87,6 @@ final class GraphicSaveRetryController: ObservableObject {
         inFlightSendAction = nil
         queuedLatestSendAction = nil
         deferredCloseAction = nil
-        retryCount = 0
         isAwaitingAcknowledgement = false
         didExhaustRetries = false
     }
@@ -106,18 +94,17 @@ final class GraphicSaveRetryController: ObservableObject {
     private func beginSave(_ sendAction: @escaping () -> Bool) {
         retryTask?.cancel()
         inFlightSendAction = sendAction
-        retryCount = 0
         isAwaitingAcknowledgement = true
-        guard sendAction() else {
-            isAwaitingAcknowledgement = false
-            inFlightSendAction = nil
-            runDeferredClose()
-            return
-        }
+
+        // Do not discard the save when the bridge transport is momentarily
+        // unavailable. The same latest state is retried until the bridge ACKs
+        // it, or until reset/close explicitly terminates this document session.
+        _ = sendAction()
         scheduleRetry()
     }
 
     private func scheduleRetry() {
+        retryTask?.cancel()
         retryTask = Task { [weak self] in
             guard let self else { return }
             do {
@@ -125,17 +112,13 @@ final class GraphicSaveRetryController: ObservableObject {
             } catch {
                 return
             }
-            guard isAwaitingAcknowledgement, let sendAction = inFlightSendAction else { return }
-            guard retryCount < maximumRetryCount else {
-                exhaustRetries()
+            guard isAwaitingAcknowledgement,
+                  deferredCloseAction == nil,
+                  let sendAction = inFlightSendAction else {
                 return
             }
 
-            retryCount += 1
-            guard sendAction() else {
-                exhaustRetries()
-                return
-            }
+            _ = sendAction()
             scheduleRetry()
         }
     }
@@ -156,23 +139,11 @@ final class GraphicSaveRetryController: ObservableObject {
         }
     }
 
-    private func exhaustRetries() {
-        isAwaitingAcknowledgement = false
-        didExhaustRetries = true
-        retryTask?.cancel()
-        retryTask = nil
-        inFlightSendAction = nil
-        queuedLatestSendAction = nil
-        retryCount = 0
-        runDeferredClose()
-    }
-
     private func cancelPendingSaveState() {
         retryTask?.cancel()
         retryTask = nil
         inFlightSendAction = nil
         queuedLatestSendAction = nil
-        retryCount = 0
         isAwaitingAcknowledgement = false
     }
 
