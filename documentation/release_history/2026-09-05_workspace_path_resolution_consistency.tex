@@ -1,0 +1,55 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+
+\title{Workspace path resolution consistency fix}
+\date{2026-09-05}
+\author{Mohammad Rahmani}
+
+\begin{document}
+\maketitle
+
+\section{Problem}
+Path-bearing LaTeX commands did not use one consistent resolution model. Preview
+recursive inputs treated every leading slash as an operating-system absolute path,
+while file delete and move/rename maintenance used separate resolver logic. This
+made paths such as \texttt{/nd\_research\_publication/...} fail even though the
+configured \texttt{search.default\_path} was the repository root, and it could
+make Preview and file-maintenance operations disagree about the same reference.
+
+\section{Fix}
+\begin{itemize}
+   \item Introduced one shared three-mode resolution order: file-relative paths, leading-slash paths rooted at \texttt{search.default\_path}, and real operating-system absolute paths.
+   \item Preserved the explicit portable \texttt{/repo/...} repository alias.
+   \item Move and rename rewriting now delegate path matching and path-style formatting to \texttt{WorkspaceReferenceResolver} instead of maintaining a second independent path model.
+   \item Delete occurrence discovery and cleanup use the same resolver and support \texttt{input}, \texttt{include}, \texttt{subfile}, \texttt{includegraphics}, \texttt{includepdf}, \texttt{bibliography}, \texttt{addbibresource}, \texttt{includeonly}, \texttt{inputminted}, listing/verbatim inputs, \texttt{href}, and \texttt{url} references.
+   \item Comma-separated \texttt{bibliography} and \texttt{includeonly} references remove or rewrite only the affected item and preserve unrelated entries.
+   \item Preview recursive input expansion, preamble resources, graphics, PDFs, bibliography resources, and graphic dependency tracking now use \texttt{search.default\_path} semantics as well.
+   \item Reloading \texttt{settings.yaml} reconfigures the Preview path resolvers so a changed \texttt{search.default\_path} takes effect immediately.
+\end{itemize}
+
+\section{Regression coverage}
+Added tests for relative paths, leading-slash paths relative to the configured
+default path, real operating-system absolute paths, move/rename style
+preservation, bibliography-item deletion, recursive input expansion, and Preview
+rewriting of preamble and graphic paths.
+
+\section{Repository hygiene}
+The fix is implemented in canonical resolver/updater classes with dedicated
+workspace-aware Preview resolver classes. No patch or hotfix implementation is
+part of the repository.
+
+\end{document}

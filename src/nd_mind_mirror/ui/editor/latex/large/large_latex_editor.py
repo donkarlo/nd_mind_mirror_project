@@ -10,14 +10,15 @@ from nd_mind_mirror.ui.editor.latex.large.large_latex_editor_incremental_core im
 
 
 class LargeLatexEditor(IncrementalLargeLatexEditor):
-    """Window large LaTeX sources in QTextEdit with incremental canonical edits.
+    """Edit a bounded rich Source window backed by the complete source buffer.
 
-    QTextEdit provides native paragraph geometry for RTL prose and Source figure
-    reservations. The canonical source remains chunked, and only a bounded Source
-    window is materialized once the configured large-document threshold is met.
+    QTextEdit is retained only for the small visible Persian/Arabic layout
+    window. LatexSourceBuffer remains the canonical complete document and normal
+    typing splices edits incrementally without materializing the complete file.
     """
 
-    _DEFAULT_SOURCE_WINDOW_CHARS = 40_000
+    _DEFAULT_SOURCE_WINDOW_CHARS = 8_000
+    _FULL_DOCUMENT_IDLE_MS = 2_000
 
     def __init__(self, *args, app_settings, **kwargs) -> None:
         super().__init__(*args, app_settings=app_settings, **kwargs)

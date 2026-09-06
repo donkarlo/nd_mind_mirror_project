@@ -1,4 +1,4 @@
-"""Share fast workspace-reference resolution across Preview, Visual, rename, navigation, and delete."""
+"""Share workspace-reference resolution across Preview, Visual, navigation, and delete."""
 
 from __future__ import annotations
 
@@ -7,19 +7,11 @@ from pathlib import Path
 import re
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (
-    QDialog,
-    QDialogButtonBox,
-    QLabel,
-    QListWidget,
-    QListWidgetItem,
-    QVBoxLayout,
-)
+from PySide6.QtWidgets import QDialog
 
 from nd_mind_mirror.core.latex.input.recursive.recursive_input_resolver import RecursiveInputResolver
 from nd_mind_mirror.core.render.latex.latex_preview_source_builder import LatexPreviewSourceBuilder
 from nd_mind_mirror.core.render.latex.latex_renderer import LatexRenderer
-from nd_mind_mirror.core.workspace.path.path_reference_updater import PathReferenceUpdater
 from nd_mind_mirror.core.workspace.path.workspace_reference_resolver import (
     ReferenceOccurrence,
     WorkspaceReferenceResolver,
@@ -28,54 +20,9 @@ from nd_mind_mirror.ui.editor.latex.latex_editor import LatexEditor
 from nd_mind_mirror.ui.editor.latex.latex_visual_editor import LatexVisualEditor
 from nd_mind_mirror.ui.panel.editor.editor_panel import EditorPanel
 from nd_mind_mirror.ui.panel.file_system.file_system_panel import FileSystemPanel
-
-
-class _ReferenceDeleteDialog(QDialog):
-    """List usages before the application's ordinary delete confirmation."""
-
-    def __init__(self, window, target: Path, usages: list[ReferenceOccurrence], parent=None) -> None:
-        super().__init__(parent)
-        self._window = window
-        self._usages = list(usages)
-        self.setWindowTitle("Delete — file references")
-        self.resize(900, 500)
-        layout = QVBoxLayout(self)
-        layout.addWidget(
-            QLabel(
-                f"{target}\n\nThis path is used in {len(usages)} reference(s). "
-                "Double-click an item or press Enter to open that source location."
-            )
-        )
-        self._list = QListWidget(self)
-        for index, usage in enumerate(self._usages):
-            item = QListWidgetItem(
-                f"{usage.referring_file}  —  line {usage.line}  —  "
-                f"\\{usage.command}{{{usage.raw_target}}}"
-            )
-            item.setData(Qt.ItemDataRole.UserRole, index)
-            self._list.addItem(item)
-        self._list.itemDoubleClicked.connect(self._activate)
-        self._list.itemActivated.connect(self._activate)
-        layout.addWidget(self._list, 1)
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel,
-            parent=self,
-        )
-        button = buttons.button(QDialogButtonBox.StandardButton.Ok)
-        if button is not None:
-            button.setText("Continue to Delete…")
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
-        if self._list.count():
-            self._list.setCurrentRow(0)
-
-    def _activate(self, item: QListWidgetItem) -> None:
-        try:
-            usage = self._usages[int(item.data(Qt.ItemDataRole.UserRole))]
-        except (TypeError, ValueError, IndexError):
-            return
-        WorkspaceReferenceController.jump_to_usage(self._window, usage)
+from nd_mind_mirror.ui.window.main.workspace.reference_delete_dialog import (
+    ReferenceDeleteDialog,
+)
 
 
 class WorkspaceReferenceController:
@@ -102,13 +49,13 @@ class WorkspaceReferenceController:
         cls._install_renderer()
         cls._install_recursive_input()
         cls._install_visual()
-        cls._install_rename()
         cls._install_ctrl_b()
         cls._install_delete()
         cls._installed = True
 
     @staticmethod
     def _settings_root(owner) -> Path | None:
+        """Return the configured workspace root for a renderer/editor/window-owned object."""
         settings = getattr(owner, "_app_settings", None)
         if settings is None:
             window = None
@@ -132,6 +79,7 @@ class WorkspaceReferenceController:
 
     @classmethod
     def _resolver_for_renderer(cls, renderer: LatexRenderer) -> WorkspaceReferenceResolver:
+        """Keep one workspace resolver attached to the renderer and its preview helpers."""
         root = cls._settings_root(renderer)
         resolver = getattr(renderer, "_nd_workspace_reference_resolver", None)
         if not isinstance(resolver, WorkspaceReferenceResolver):
@@ -145,6 +93,7 @@ class WorkspaceReferenceController:
 
     @classmethod
     def _install_renderer(cls) -> None:
+        """Attach workspace-aware link resolution to renderer construction and Preview building."""
         cls._original_renderer_init = LatexRenderer.__init__
         cls._original_renderer_apply = LatexRenderer.apply_settings
         cls._original_environment = LatexRenderer._build_process_environment
@@ -178,6 +127,7 @@ class WorkspaceReferenceController:
 
     @classmethod
     def _install_recursive_input(cls) -> None:
+        """Resolve recursive inputs through the same workspace-aware path semantics."""
         cls._original_recursive_source = RecursiveInputResolver._resolve_source
         cls._original_recursive_target = RecursiveInputResolver._resolve_target
 
@@ -192,7 +142,10 @@ class WorkspaceReferenceController:
         ):
             root = getattr(input_resolver, "_nd_reference_default_path", None)
             if root not in (None, ""):
-                source = WorkspaceReferenceResolver(root).rewrite_preview_links(source, containing_file)
+                source = WorkspaceReferenceResolver(root).rewrite_preview_links(
+                    source,
+                    containing_file,
+                )
             return cls._original_recursive_source(
                 input_resolver,
                 source,
@@ -208,7 +161,11 @@ class WorkspaceReferenceController:
             containing_file: Path,
             target: str,
         ) -> Path | None:
-            result = cls._original_recursive_target(input_resolver, containing_file, target)
+            result = cls._original_recursive_target(
+                input_resolver,
+                containing_file,
+                target,
+            )
             if result is not None:
                 return result
             root = getattr(input_resolver, "_nd_reference_default_path", None)
@@ -226,6 +183,7 @@ class WorkspaceReferenceController:
 
     @classmethod
     def _install_visual(cls) -> None:
+        """Keep Visual-mode links and graphics aligned with workspace-aware targets."""
         cls._original_visual_graphic = LatexVisualEditor._insert_graphic_block
         cls._original_visual_raw_text = LatexVisualEditor._visual_raw_inline_text
 
@@ -248,7 +206,9 @@ class WorkspaceReferenceController:
             display_path = graphic_path
             source_path = getattr(visual, "_source_path", None)
             if source_path is not None:
-                resolved = WorkspaceReferenceResolver(cls._settings_root(visual)).resolve(
+                resolved = WorkspaceReferenceResolver(
+                    cls._settings_root(visual)
+                ).resolve(
                     graphic_path,
                     source_path,
                     command="includegraphics",
@@ -267,27 +227,12 @@ class WorkspaceReferenceController:
         LatexVisualEditor._visual_raw_inline_text = classmethod(raw_text)
         LatexVisualEditor._insert_graphic_block = graphic
 
-    @staticmethod
-    def _install_rename() -> None:
-        def match_path(
-            updater_class,
-            token: str,
-            *,
-            referring_file: Path,
-            workspace_root: Path,
-            old_path: Path,
-        ) -> tuple[str, Path, bool] | None:
-            return WorkspaceReferenceResolver(workspace_root).match_candidate(
-                token,
-                referring_file,
-                old_path,
-                suffix_hint=old_path.suffix,
-            )
-
-        PathReferenceUpdater._match_reference_path = classmethod(match_path)
-
     @classmethod
-    def _reference_at_editor_cursor(cls, editor: LatexEditor) -> ReferenceOccurrence | None:
+    def _reference_at_editor_cursor(
+        cls,
+        editor: LatexEditor,
+    ) -> ReferenceOccurrence | None:
+        """Return the supported local reference under the active Source/Visual cursor."""
         source_path = getattr(editor, "source_path", None)
         if source_path is None:
             return None
@@ -311,6 +256,7 @@ class WorkspaceReferenceController:
 
     @classmethod
     def _open_reference(cls, editor: LatexEditor) -> bool:
+        """Open the local file reference at the current editor cursor when present."""
         occurrence = cls._reference_at_editor_cursor(editor)
         if occurrence is None or occurrence.target_path is None:
             return False
@@ -326,6 +272,7 @@ class WorkspaceReferenceController:
 
     @classmethod
     def _install_ctrl_b(cls) -> None:
+        """Open a local reference with Ctrl+B before falling back to bold formatting."""
         cls._original_panel_bold = EditorPanel.bold_current_selection
         cls._original_key_press = LatexEditor.keyPressEvent
 
@@ -341,7 +288,10 @@ class WorkspaceReferenceController:
                 and bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier)
                 and not bool(
                     event.modifiers()
-                    & (Qt.KeyboardModifier.AltModifier | Qt.KeyboardModifier.MetaModifier)
+                    & (
+                        Qt.KeyboardModifier.AltModifier
+                        | Qt.KeyboardModifier.MetaModifier
+                    )
                 )
             )
             if ctrl_b and cls._open_reference(editor):
@@ -354,6 +304,7 @@ class WorkspaceReferenceController:
 
     @classmethod
     def _install_delete(cls) -> None:
+        """Preserve the occurrence preflight before the ordinary delete confirmation."""
         cls._original_delete = FileSystemPanel._delete_path
 
         def delete_path(panel: FileSystemPanel, path: Path) -> None:
@@ -365,10 +316,21 @@ class WorkspaceReferenceController:
             usages = resolver.find_usages(
                 root,
                 target,
-                ignore_file_path=getattr(settings, "search_ignore_file_path", None),
+                ignore_file_path=getattr(
+                    settings,
+                    "search_ignore_file_path",
+                    None,
+                ),
             )
             if usages:
-                if _ReferenceDeleteDialog(window, target, usages, parent=panel).exec() != QDialog.DialogCode.Accepted:
+                dialog = ReferenceDeleteDialog(
+                    window,
+                    target,
+                    usages,
+                    cls.jump_to_usage,
+                    parent=panel,
+                )
+                if dialog.exec() != QDialog.DialogCode.Accepted:
                     return
 
             connected = False
@@ -385,7 +347,12 @@ class WorkspaceReferenceController:
                         pass
                     connected = False
                 if usages:
-                    cls._remove_usage_references(window, target, usages, resolver)
+                    cls._remove_usage_references(
+                        window,
+                        target,
+                        usages,
+                        resolver,
+                    )
 
             if usages:
                 panel.path_deleted.connect(after_deleted)
@@ -403,10 +370,18 @@ class WorkspaceReferenceController:
     def jump_to_usage(window, usage: ReferenceOccurrence) -> None:
         """Open a referring file and jump to its reference line."""
         try:
-            window._open_path(str(usage.referring_file), select=True, reveal_in_navigator=True)
+            window._open_path(
+                str(usage.referring_file),
+                select=True,
+                reveal_in_navigator=True,
+            )
             editor = window._editor_panel.current_editor()
             if isinstance(editor, LatexEditor):
-                editor.go_to_source_location(usage.line, usage.column, align_top=True)
+                editor.go_to_source_location(
+                    usage.line,
+                    usage.column,
+                    align_top=True,
+                )
             elif editor is not None:
                 editor.go_to_line(usage.line, align_top=True)
         except (AttributeError, RuntimeError, TypeError, ValueError):
@@ -420,21 +395,48 @@ class WorkspaceReferenceController:
         usages: list[ReferenceOccurrence],
         resolver: WorkspaceReferenceResolver,
     ) -> None:
+        """Queue post-delete reference edits after the existing synchronous occurrence preflight."""
+        maintenance = getattr(
+            window,
+            "_workspace_reference_maintenance_controller",
+            None,
+        )
+        if maintenance is not None:
+            maintenance.remove_deleted_references(
+                target,
+                usages,
+                resolver,
+            )
+            return
+
         panel = getattr(window, "_editor_panel", None)
         for referring_file in sorted({usage.referring_file for usage in usages}):
             if cls._same_or_child(referring_file, target):
                 continue
             editor = None
             if panel is not None:
-                for candidate, candidate_path in list(getattr(panel, "_paths", {}).items()):
-                    if Path(candidate_path).resolve(strict=False) == referring_file.resolve(strict=False):
+                for candidate, candidate_path in list(
+                    getattr(panel, "_paths", {}).items()
+                ):
+                    if (
+                        Path(candidate_path).resolve(strict=False)
+                        == referring_file.resolve(strict=False)
+                    ):
                         editor = candidate
                         break
             try:
-                source = editor.toPlainText() if editor is not None else referring_file.read_text(encoding="utf-8")
+                source = (
+                    editor.toPlainText()
+                    if editor is not None
+                    else referring_file.read_text(encoding="utf-8")
+                )
             except (OSError, UnicodeError, AttributeError):
                 continue
-            updated = resolver.remove_references(source, referring_file, target)
+            updated = resolver.remove_references(
+                source,
+                referring_file,
+                target,
+            )
             if updated == source:
                 continue
             try:
@@ -455,6 +457,7 @@ class WorkspaceReferenceController:
 
     @staticmethod
     def _same_or_child(candidate: Path, root: Path) -> bool:
+        """Return whether candidate is root or one of its descendants."""
         candidate = candidate.resolve(strict=False)
         root = root.resolve(strict=False)
         if candidate == root:

@@ -1,0 +1,51 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+
+\usetikzlibrary{graphs,graphdrawing}
+\usegdlibrary{layered}
+
+% for external graphviz
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/external_graphviz.tex}
+
+% for tags
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/parts/control_sequence/kind/semtag/semtag.tex}
+
+% for links
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/seehere.tex}
+
+\title{Startup stale Structure import fix}
+\date{2026-09-05}
+\author{Mohammad Rahmani}
+
+\begin{document}
+   \maketitle
+
+   \section{Bug}
+   Mind Mirror failed during startup with \texttt{ModuleNotFoundError} because
+   \texttt{special\_latex\_toolbar.py} still imported and installed
+   \texttt{StructureSelectionIntegrityController} after that obsolete runtime
+   patch controller had been removed.
+
+   \section{Fix}
+   The stale import and install call were removed from
+   \texttt{SpecialLatexToolbar}. Structure highlighting remains owned by the
+   canonical \texttt{LatexStructurePanel}; the deleted runtime patch was not
+   restored and no replacement monkey patch was introduced.
+
+   \bibliographystyle{plainnat}
+   \bibliography{/home/donkarlo/Dropbox/repo/nd_shared_research/bibliography/bibliography.bib}
+\end{document}

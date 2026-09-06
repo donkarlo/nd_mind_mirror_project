@@ -1,48 +1,25 @@
-"""Guarantee that every hierarchical Structure tree paints exactly one semantic highlight."""
+"""Keep Structure highlighting deterministic without replacing panel methods."""
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QBrush
 from PySide6.QtWidgets import QAbstractItemView
+
+from nd_mind_mirror.ui.panel.structure.latex_structure_panel import (
+    LatexStructurePanel,
+)
 
 
 class StructureHighlightController:
-    """Replace selection/current-item painting with one deterministic source-position highlight."""
+    """Configure the Structure tree and delegate highlighting to its panel."""
 
-    def __init__(self, structure_panel) -> None:
-        """Install deterministic single-row highlighting on the supplied Structure panel."""
+    def __init__(self, structure_panel: LatexStructurePanel) -> None:
         self._panel = structure_panel
         tree = self._panel._tree
         tree.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
         tree.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         tree.clearSelection()
         tree.setCurrentItem(None)
-        self._panel._apply_current_line_highlight = self.apply_highlight
         self.apply_highlight()
 
     def apply_highlight(self) -> None:
-        """Clear every visual selection/background and paint only the deepest preceding item."""
-        tree = self._panel._tree
-        items = self._panel._all_items_in_source_order()
-        target = None
-        current_line = max(int(self._panel._current_line), 1)
-
-        tree.setUpdatesEnabled(False)
-        try:
-            tree.clearSelection()
-            tree.setCurrentItem(None)
-            for item in items:
-                item.setSelected(False)
-                item.setBackground(0, QBrush())
-                try:
-                    item_line = int(item.data(0, Qt.ItemDataRole.UserRole))
-                except (TypeError, ValueError):
-                    continue
-                if item_line <= current_line:
-                    target = item
-                else:
-                    break
-            if target is not None:
-                target.setBackground(0, self._panel._highlight_brush)
-        finally:
-            tree.setUpdatesEnabled(True)
-            tree.viewport().update()
+        """Refresh the panel-owned semantic highlight without instance overrides."""
+        LatexStructurePanel._apply_current_line_highlight(self._panel)

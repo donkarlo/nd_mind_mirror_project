@@ -1,4 +1,4 @@
-// Main iPad drawing screen with live Ubuntu synchronization and one atomic drawing+raster history.
+// Main iPad drawing screen. Ubuntu opens the image once; the iPad owns the edit session until close.
 
 import Foundation
 import PencilKit
@@ -12,14 +12,13 @@ struct ContentView: View {
     @StateObject private var savedTools = SavedDrawingToolStore()
     @StateObject private var recentColors = RecentPencilColors()
     @StateObject private var editHistory = CanvasEditHistoryController(maximumDepth: 200)
-    @StateObject private var programmaticDrawingChanges = ProgrammaticDrawingChangeGuard()
     @StateObject private var saveRetryController = GraphicSaveRetryController()
     @StateObject private var saveGate = GraphicDocumentSaveGate()
     @StateObject private var liveSyncSettings = LiveGraphicSyncSettingsStore()
     @StateObject private var liveSaveScheduler = LiveGraphicSaveScheduler()
 
-    @AppStorage("graphic.last.canvas.width") private var rememberedCanvasWidth: Double = 1240
-    @AppStorage("graphic.last.canvas.height") private var rememberedCanvasHeight: Double = 1754
+    @AppStorage("graphic.last.canvas.width") private var rememberedCanvasWidth: Double = 760
+    @AppStorage("graphic.last.canvas.height") private var rememberedCanvasHeight: Double = 980
     @AppStorage("graphic.measurement.grid.visible") private var showMeasurementGrid = true
     @AppStorage("graphic.measurement.rulers.visible") private var showMeasurementRulers = true
 
@@ -29,24 +28,27 @@ struct ContentView: View {
     @State private var backgroundImage: UIImage?
     @State private var localToken = -1
     @State private var canvasToken = 0
-    @State private var canvasWidth: Double = 1240
-    @State private var canvasHeight: Double = 1754
+    @State private var canvasWidth: Double = 760
+    @State private var canvasHeight: Double = 980
     @State private var zoomScale: CGFloat = 1
     @State private var zoom100RequestToken = 0
     @State private var selectedPhotoItem: PhotosPickerItem?
     @State private var showCanvasEditor = false
     @State private var showLiveSyncSettings = false
-    @State private var canvasWidthText = "1240"
-    @State private var canvasHeightText = "1754"
+    @State private var canvasWidthText = "760"
+    @State private var canvasHeightText = "980"
     @State private var loadedPath: String?
-    @State private var lastLocalEdit = Date.distantPast
     @State private var initializedTool = false
     @State private var pendingRemoteToken: Int?
 
     var body: some View {
         VStack(spacing: 0) {
             header
-            if bridge.selectedPath == nil { connectionScreen } else { drawingScreen }
+            if bridge.selectedPath == nil {
+                connectionScreen
+            } else {
+                drawingScreen
+            }
         }
         .popover(isPresented: $showCanvasEditor) {
             CanvasSizeEditorView(
@@ -66,17 +68,27 @@ struct ContentView: View {
             }
             bindToolRuntime()
         }
-        .onChange(of: bridge.documentToken) { _, token in loadRemoteDocument(token: token) }
-        .onChange(of: bridge.status) { _, status in handleBridgeStatus(status) }
-        .onChange(of: saveRetryController.didExhaustRetries) { _, exhausted in
-            if exhausted { bridge.status = "Save not confirmed — image kept open" }
+        .onChange(of: bridge.documentToken) { _, token in
+            loadRemoteDocument(token: token)
         }
-        .onChange(of: activeTool.state) { _, _ in bindToolRuntime() }
+        .onChange(of: bridge.status) { _, status in
+            handleBridgeStatus(status)
+        }
+        .onChange(of: saveRetryController.didExhaustRetries) { _, exhausted in
+            if exhausted {
+                bridge.status = "Save not confirmed — image kept open"
+            }
+        }
+        .onChange(of: activeTool.state) { _, _ in
+            bindToolRuntime()
+        }
         .onChange(of: savedTools.tools) { _, tools in
             activeTool.reconcileSavedToolSelection(tools)
         }
         .onChange(of: activeTool.isPencilGestureActive) { _, active in
-            if !active { consumePendingRemoteDocument() }
+            if !active {
+                consumePendingRemoteDocument()
+            }
         }
     }
 
@@ -87,21 +99,28 @@ struct ContentView: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
             Spacer()
+
             Button {
                 showLiveSyncSettings = true
             } label: {
                 Image(systemName: "gearshape.fill")
                     .font(.title3)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .contentShape(Rectangle())
             .accessibilityLabel("Live sync settings")
 
             if bridge.selectedPath != nil {
                 Button(action: closeCurrentImage) {
                     Image(systemName: "xmark.circle.fill")
                         .font(.title3)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .contentShape(Rectangle())
                 .accessibilityLabel("Close image")
             }
         }
@@ -114,23 +133,31 @@ struct ContentView: View {
         VStack(spacing: 16) {
             Spacer()
             if bridge.isConnected {
-                Text("Waiting for image from Ubuntu").font(.largeTitle.bold())
+                Text("Waiting for image from Ubuntu")
+                    .font(.largeTitle.bold())
                 Text("On Ubuntu, right-click an image and choose Edit image in iPad.")
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
-                Button("Disconnect") { bridge.disconnect() }
-                    .buttonStyle(.bordered)
+                Button("Disconnect") {
+                    bridge.disconnect()
+                }
+                .buttonStyle(.bordered)
             } else {
-                Text("Connect to Mind Mirror").font(.largeTitle.bold())
+                Text("Connect to Mind Mirror")
+                    .font(.largeTitle.bold())
                 Text("iPad listens on TCP 8768; Ubuntu connects automatically.")
                     .foregroundStyle(.secondary)
                 SecureField("Token (optional)", text: $bridge.token)
                     .textFieldStyle(.roundedBorder)
                     .frame(maxWidth: 480)
-                Button("Start listening for Ubuntu") { bridge.connect() }
-                    .buttonStyle(.borderedProminent)
+                Button("Start listening for Ubuntu") {
+                    bridge.connect()
+                }
+                .buttonStyle(.borderedProminent)
             }
-            Text(bridge.status).font(.caption).foregroundStyle(.secondary)
+            Text(bridge.status)
+                .font(.caption)
+                .foregroundStyle(.secondary)
             Spacer()
         }
         .padding(24)
@@ -154,7 +181,9 @@ struct ContentView: View {
                 onClearDrawing: clearDrawing,
                 onDisconnect: bridge.disconnect
             )
-            .onChange(of: selectedPhotoItem) { _, item in importPhoto(item) }
+            .onChange(of: selectedPhotoItem) { _, item in
+                importPhoto(item)
+            }
 
             statusBar
             MeasurementRulerFrameView(
@@ -181,14 +210,18 @@ struct ContentView: View {
                     onImageObjectsCommitted: { _, _, _ in }
                 )
                 .clipped()
-                .onAppear { bindToolRuntime() }
+                .onAppear {
+                    bindToolRuntime()
+                }
             }
         }
     }
 
     private var statusBar: some View {
         HStack(spacing: 12) {
-            Text(activeToolName).font(.caption2.bold()).foregroundStyle(Color.accentColor)
+            Text(activeToolName)
+                .font(.caption2.bold())
+                .foregroundStyle(Color.accentColor)
             Text("\(Int((zoomScale * 100).rounded()))%")
                 .font(.caption2.monospacedDigit())
             Text("\(Int(canvasWidth)) × \(Int(canvasHeight))")
@@ -199,7 +232,8 @@ struct ContentView: View {
             Spacer()
             if activeTool.kind == .eraser {
                 Text("\(activeTool.eraserMode.title) • \(Int(activeTool.width)) px")
-                    .font(.caption2).foregroundStyle(.secondary)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
             }
         }
         .padding(.horizontal, 10)
@@ -213,28 +247,66 @@ struct ContentView: View {
             pendingRemoteToken = token
             return
         }
+
         localToken = token
         liveSaveScheduler.cancelPending()
         saveRetryController.reset()
         guard let path = bridge.selectedPath else {
             loadedPath = nil
-            programmaticDrawingChanges.reset()
+            activeTool.prepareForRemoteDocumentLoad()
             saveGate.reset()
             return
         }
 
+        // A desktop rename changes only the document identity/path. Keep the
+        // live canvas, raster state, viewport, and Undo/Redo history intact.
+        if let renamedFrom = bridge.document?.renamedFrom,
+           loadedPath == renamedFrom,
+           path != renamedFrom {
+            saveGate.remapPath(from: renamedFrom, to: path)
+            loadedPath = path
+            return
+        }
+
+        // Ubuntu owns only the initial open. Once this path is active, the iPad
+        // remains authoritative until it is closed, so repeated same-path opens
+        // cannot reset Undo history or replace in-progress raster/Pencil edits.
+        if path == loadedPath {
+            return
+        }
+
+        activeTool.prepareForRemoteDocumentLoad()
         saveGate.beginLoading(path: path)
-        programmaticDrawingChanges.reset()
         let newDocument = path != loadedPath
         loadedPath = path
         localDrawing = bridge.drawing
+
+        let remoteBackground = bridge.backgroundImageForCurrentDocument()
         if bridge.currentOperation == "insert" {
-            canvasWidth = max(rememberedCanvasWidth, 64)
-            canvasHeight = max(rememberedCanvasHeight, 64)
+            if let width = bridge.document?.canvasWidth, width > 0 {
+                canvasWidth = Double(width)
+            } else {
+                canvasWidth = 760
+            }
+            if let height = bridge.document?.canvasHeight, height > 0 {
+                canvasHeight = Double(height)
+            } else {
+                canvasHeight = 980
+            }
         } else {
-            if let width = bridge.document?.canvasWidth, width > 0 { canvasWidth = Double(width) }
-            if let height = bridge.document?.canvasHeight, height > 0 { canvasHeight = Double(height) }
+            if let width = bridge.document?.canvasWidth, width > 0 {
+                canvasWidth = Double(width)
+            } else if let remoteBackground, remoteBackground.size.width > 0 {
+                canvasWidth = Double(remoteBackground.size.width)
+            }
+
+            if let height = bridge.document?.canvasHeight, height > 0 {
+                canvasHeight = Double(height)
+            } else if let remoteBackground, remoteBackground.size.height > 0 {
+                canvasHeight = Double(remoteBackground.size.height)
+            }
         }
+
         if !showCanvasEditor {
             canvasWidthText = String(Int(canvasWidth))
             canvasHeightText = String(Int(canvasHeight))
@@ -244,17 +316,27 @@ struct ContentView: View {
 
         let legacyObjects = bridge.document?.imageObjects ?? []
         backgroundImage = rasterComposer.flatten(
-            backgroundImage: bridge.backgroundImageForCurrentDocument(),
+            backgroundImage: remoteBackground,
             legacyImageObjects: legacyObjects,
             canvasSize: logicalCanvasSize
         )
         CanvasImageObjectStore.clear(documentIdentifier: path)
-        editHistory.reset(drawing: localDrawing, backgroundImage: backgroundImage)
+        editHistory.reset(
+            drawing: localDrawing,
+            backgroundImage: backgroundImage
+        )
+
         if let remote = bridge.document?.pencil {
-            activeTool.adoptDocumentPencil(width: remote.width, colorHex: remote.color)
+            activeTool.adoptDocumentPencil(
+                width: remote.width,
+                colorHex: remote.color
+            )
         }
+
         canvasToken += 1
-        if newDocument { zoom100RequestToken += 1 }
+        if newDocument {
+            zoom100RequestToken += 1
+        }
         saveGate.finishLoading(
             path: path,
             operation: bridge.currentOperation,
@@ -271,7 +353,6 @@ struct ContentView: View {
             historyController: editHistory,
             canvasStateCommitted: { drawing, image, rasterChanged in
                 liveSaveScheduler.cancelPending()
-                lastLocalEdit = Date()
                 localDrawing = drawing
                 backgroundImage = image
                 save(
@@ -285,25 +366,28 @@ struct ContentView: View {
     }
 
     private func handleDrawingChanged(_ drawing: PKDrawing) {
-        if programmaticDrawingChanges.matches(drawing)
-            || activeTool.consumeProgrammaticDrawingChange(drawing) {
+        if activeTool.consumeProgrammaticDrawingChange(drawing) {
             return
         }
-        lastLocalEdit = Date()
-        localDrawing = drawing
 
+        localDrawing = drawing
         if activeTool.isCanvasGestureInFlight {
             scheduleLiveSave(drawing)
             return
         }
 
-        if editHistory.record(drawing: drawing, backgroundImage: backgroundImage) {
+        liveSaveScheduler.cancelPending()
+        if editHistory.record(
+            drawing: drawing,
+            backgroundImage: backgroundImage
+        ) {
             saveCurrentState(persistBackground: false)
         }
     }
 
     private func scheduleLiveSave(_ drawing: PKDrawing) {
         guard saveGate.allowsSave(path: bridge.selectedPath) else { return }
+
         let canvasSize = logicalCanvasSize
         let pencil = activeTool.pencilSettings
         let image = backgroundImage
@@ -321,24 +405,25 @@ struct ContentView: View {
 
     private func performUndo() {
         guard !activeTool.isPencilGestureActive,
-              let snapshot = editHistory.undo() else { return }
+              let snapshot = editHistory.undo() else {
+            return
+        }
         restore(snapshot)
     }
 
     private func performRedo() {
         guard !activeTool.isPencilGestureActive,
-              let snapshot = editHistory.redo() else { return }
+              let snapshot = editHistory.redo() else {
+            return
+        }
         restore(snapshot)
     }
 
     private func restore(_ snapshot: CanvasEditHistoryController.Snapshot) {
-        lastLocalEdit = Date()
         liveSaveScheduler.cancelPending()
-        programmaticDrawingChanges.register(snapshot.drawing)
         activeTool.applyHistorySnapshot(snapshot)
         localDrawing = snapshot.drawing
         backgroundImage = snapshot.backgroundImage
-        canvasToken += 1
         saveCurrentState(persistBackground: true)
     }
 
@@ -348,11 +433,17 @@ struct ContentView: View {
         guard editHistory.record(
             drawing: cleared,
             backgroundImage: backgroundImage
-        ) else { return }
-        lastLocalEdit = Date()
+        ) else {
+            return
+        }
+
         liveSaveScheduler.cancelPending()
+        let snapshot = CanvasEditHistoryController.Snapshot(
+            drawing: cleared,
+            backgroundImage: backgroundImage
+        )
+        activeTool.applyHistorySnapshot(snapshot)
         localDrawing = cleared
-        canvasToken += 1
         saveCurrentState(persistBackground: false)
     }
 
@@ -405,7 +496,7 @@ struct ContentView: View {
     private func consumePendingRemoteDocument() {
         guard let token = pendingRemoteToken else { return }
         pendingRemoteToken = nil
-        if bridge.selectedPath != loadedPath { loadRemoteDocument(token: token) }
+        loadRemoteDocument(token: token)
     }
 
     private func openCanvasEditor() {
@@ -423,6 +514,7 @@ struct ContentView: View {
     }
 
     private func setCanvas(width: Double, height: Double) {
+        liveSaveScheduler.cancelPending()
         canvasWidth = max(width.rounded(), 64)
         canvasHeight = max(height.rounded(), 64)
         rememberedCanvasWidth = canvasWidth
@@ -432,7 +524,10 @@ struct ContentView: View {
         if saveGate.allowsSave(path: bridge.selectedPath) {
             bridge.saveCanvasSize(logicalCanvasSize: logicalCanvasSize)
         }
-        editHistory.reset(drawing: localDrawing, backgroundImage: backgroundImage)
+        editHistory.reset(
+            drawing: localDrawing,
+            backgroundImage: backgroundImage
+        )
         bindToolRuntime()
     }
 
@@ -440,20 +535,24 @@ struct ContentView: View {
         guard let item else { return }
         Task {
             guard let data = try? await item.loadTransferable(type: Data.self),
-                  let image = UIImage(data: data) else { return }
+                  let image = UIImage(data: data) else {
+                return
+            }
             await MainActor.run {
                 selectedPhotoItem = nil
                 guard let merged = rasterComposer.inserting(
                     image: image,
                     into: backgroundImage,
                     canvasSize: logicalCanvasSize
-                ), editHistory.record(
+                ),
+                editHistory.record(
                     drawing: localDrawing,
                     backgroundImage: merged
-                ) else { return }
-                backgroundImage = merged
-                lastLocalEdit = Date()
+                ) else {
+                    return
+                }
                 liveSaveScheduler.cancelPending()
+                backgroundImage = merged
                 saveCurrentState(persistBackground: true)
             }
         }
@@ -467,7 +566,9 @@ struct ContentView: View {
     }
 
     private var graphicContextTitle: String {
-        guard let selectedPath = bridge.selectedPath else { return "ND Graphic" }
+        guard let selectedPath = bridge.selectedPath else {
+            return "ND Graphic"
+        }
         let sidecarURL = URL(fileURLWithPath: selectedPath)
         let folder = sidecarURL.deletingLastPathComponent().lastPathComponent
         let imageName = bridge.document?.imageName?.trimmingCharacters(in: .whitespacesAndNewlines)

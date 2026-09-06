@@ -1,0 +1,50 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+
+\usetikzlibrary{graphs,graphdrawing}
+\usegdlibrary{layered}
+
+% for external graphviz
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/external_graphviz.tex}
+
+% for tags
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/parts/control_sequence/kind/semtag/semtag.tex}
+
+% for links
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/seehere.tex}
+
+\title{Structure and large Persian editor cleanup}
+\date{2026-09-05}
+\author{Mohammad Rahmani}
+
+\begin{document}
+   \maketitle
+
+   \section{Bug}
+   The Structure panel could leave a stale second highlight because clearing stopped when the first structure item after the current source line was reached. Large Persian LaTeX documents also remained expensive to type in because a relatively large rich-text Source window was laid out by \texttt{QTextEdit}, and unchanged block formatting could be reapplied during ordinary edits.
+
+   \section{Fix}
+   Structure selection and highlighting are now owned directly by \texttt{LatexStructurePanel}. Every row is cleared before the single semantic target is painted, and ordinary prose edits in large documents no longer schedule a complete Structure parse when they cannot affect line mapping or structural commands. The separate selection-integrity monkey patch was removed, and the large-document runtime controller no longer installs duplicate Structure or line-number patches.
+
+   \texttt{LargeLatexEditor} keeps the complete canonical document in \texttt{LatexSourceBuffer} while reducing the rich \texttt{QTextEdit} materialization window from 40,000 to 8,000 characters. Large-mode \texttt{TextEditor} also skips redundant block-format rewrites when direction and line height are already correct. Full-document idle publication was relaxed to reduce work while the user is actively writing.
+
+   \section{Scope}
+   The source document itself is unchanged. This change affects editor presentation, Structure synchronization, and large-document typing performance only.
+
+   \bibliographystyle{plainnat}
+   \bibliography{/home/donkarlo/Dropbox/repo/nd_shared_research/bibliography/bibliography.bib}
+\end{document}

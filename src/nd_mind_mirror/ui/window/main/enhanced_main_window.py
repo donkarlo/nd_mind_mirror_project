@@ -1,20 +1,137 @@
 """Compose enhanced window features with robust persistent-session handling."""
 
+from nd_mind_mirror.core.latex.input.recursive.workspace_recursive_input_resolver import (
+    WorkspaceRecursiveInputResolver,
+)
+from nd_mind_mirror.graphic.core.workspace_graphic_dependency_resolver import (
+    WorkspaceGraphicDependencyResolver,
+)
 from nd_mind_mirror.core.settings.storage.session_string_list_sanitizer import (
     SessionStringListSanitizer,
+)
+from nd_mind_mirror.ui.window.main.autosave.low_sync_document_autosave_controller import (
+    LowSyncDocumentAutosaveController,
 )
 from nd_mind_mirror.ui.window.main.enhanced_main_window_features import (
     EnhancedMainWindow as FeatureEnhancedMainWindow,
 )
+from nd_mind_mirror.ui.window.main.navigator_multi_path_context_controller import (
+    NavigatorMultiPathContextController,
+)
+from nd_mind_mirror.ui.window.main.navigator_strict_active_selection_controller import (
+    NavigatorStrictActiveSelectionController,
+)
+from nd_mind_mirror.ui.window.main.workspace.reference_maintenance_controller import (
+    WorkspaceReferenceMaintenanceController,
+)
+from nd_mind_mirror.ui.window.main.graphic_open_session_path_controller import (
+    GraphicOpenSessionPathController,
+)
+from nd_mind_mirror.ui.window.main.workspace.managed_graphic_filesystem_operation_controller import (
+    ManagedGraphicWorkspaceFilesystemOperationController,
+)
 
 
 class EnhancedMainWindow(FeatureEnhancedMainWindow):
-    """Run the enhanced window with safe QSettings string-list persistence."""
+    """Run the enhanced window with safe session state and non-blocking workspace operations."""
 
     _SESSION_STRING_LIST_KEYS = (
         "filesystem/expanded_paths",
         "editor/recent_files",
     )
+
+    def __init__(self, parent=None) -> None:
+        """Initialize enhanced features, Navigator clipboard, workers, and active-file navigation."""
+        super().__init__(parent)
+        self._replace_document_autosave_controller()
+        self._replace_navigator_context_controller()
+        self._configure_workspace_input_resolver()
+        self._refresh_current_preview(immediate=True)
+        self._workspace_reference_maintenance_controller = (
+            WorkspaceReferenceMaintenanceController(self, self)
+        )
+        self._workspace_filesystem_operation_controller = (
+            ManagedGraphicWorkspaceFilesystemOperationController(self, self)
+        )
+        self._graphic_open_session_path_controller = GraphicOpenSessionPathController(
+            self,
+            self,
+        )
+        self._navigator_active_selection_controller = (
+            NavigatorStrictActiveSelectionController(
+                self._editor_panel,
+                self._file_system_panel,
+                self,
+            )
+        )
+
+    def _replace_document_autosave_controller(self) -> None:
+        """Use local cache staging so autosave creates no temporary files in Dropbox."""
+        existing = getattr(self, "_document_autosave_controller", None)
+        if existing is not None:
+            existing.shutdown()
+        self._document_autosave_controller = LowSyncDocumentAutosaveController(
+            self._editor_panel,
+            protected_path=self._app_settings.latex_shortcuts_file_path,
+            on_written=self._remember_autosave_write,
+            parent=self,
+        )
+
+    def _replace_navigator_context_controller(self) -> None:
+        """Install Ctrl/Shift multi-selection Copy/Cut/Paste without duplicate shortcuts."""
+        existing = getattr(self, "_navigator_context_controller", None)
+        self._navigator_context_controller = NavigatorMultiPathContextController.replace(
+            existing,
+            self._file_system_panel,
+            pin_callback=self._pin_navigator_path,
+        )
+
+    def _configure_workspace_input_resolver(self) -> None:
+        """Use search.default_path for Preview input/include resolution."""
+        renderer = getattr(self, "_renderer", None)
+        settings = getattr(self, "_app_settings", None)
+        if renderer is None or settings is None:
+            return
+        renderer._input_resolver = WorkspaceRecursiveInputResolver(
+            settings.search_default_path
+        )
+        renderer._graphic_dependency_resolver = WorkspaceGraphicDependencyResolver(
+            settings.search_default_path
+        )
+
+    def _reload_yaml_settings(self) -> bool:
+        """Keep Preview path semantics synchronized with search.default_path."""
+        loaded = super()._reload_yaml_settings()
+        if not loaded:
+            return False
+        self._configure_workspace_input_resolver()
+        graphic_path_controller = getattr(
+            self,
+            "_graphic_open_session_path_controller",
+            None,
+        )
+        if graphic_path_controller is not None:
+            graphic_path_controller.reload_settings()
+        self._refresh_current_preview(immediate=True)
+        return True
+
+    def _sync_external_file_changes(self) -> None:
+        """Defer external-file reconciliation while workspace workers mutate related files."""
+        filesystem = getattr(
+            self,
+            "_workspace_filesystem_operation_controller",
+            None,
+        )
+        if filesystem is not None and filesystem.has_pending_work:
+            return
+        references = getattr(
+            self,
+            "_workspace_reference_maintenance_controller",
+            None,
+        )
+        if references is not None and references.has_pending_work:
+            return
+        super()._sync_external_file_changes()
 
     def _restore_session(self) -> None:
         """Normalize invalid Qt list values before the base restore reads them."""
@@ -28,6 +145,7 @@ class EnhancedMainWindow(FeatureEnhancedMainWindow):
         self._session_settings.sync()
 
     def _sanitize_session_string_lists(self) -> None:
+        """Normalize persisted string-list values used by editor and Navigator state."""
         settings = getattr(self, "_session_settings", None)
         if settings is None:
             return

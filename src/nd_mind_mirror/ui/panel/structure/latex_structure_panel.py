@@ -28,6 +28,19 @@ class LatexStructurePanel(Panel):
     line_activated = Signal(int)
     _LARGE_DOCUMENT_THRESHOLD_CHARS = 120_000
     _LARGE_DOCUMENT_DEBOUNCE_MS = 650
+    _LATEX_STRUCTURE_TOKENS = (
+        "\\part",
+        "\\chapter",
+        "\\section",
+        "\\subsection",
+        "\\subsubsection",
+        "\\paragraph",
+        "\\subparagraph",
+        "\\includegraphics",
+        "\\caption",
+        "\\begin{figure",
+        "\\end{figure",
+    )
 
     def __init__(self, parent=None) -> None:
         super().__init__("Structure", parent)
@@ -57,6 +70,10 @@ class LatexStructurePanel(Panel):
         self._tree.setIndentation(self._indent_width)
         self._tree.setAnimated(False)
         self._tree.setUniformRowHeights(True)
+        self._tree.setSelectionMode(
+            QAbstractItemView.SelectionMode.NoSelection
+        )
+        self._tree.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._tree.setEditTriggers(
             QAbstractItemView.EditTrigger.NoEditTriggers
         )
@@ -90,10 +107,12 @@ class LatexStructurePanel(Panel):
         immediate: bool = False,
     ) -> None:
         file_path = Path(path).expanduser().resolve()
-        path_changed = file_path != self._path
+        previous_path = self._path
+        previous_source = self._source
+        path_changed = file_path != previous_path
+
         self._path = file_path
         self._source = str(source)
-        self._parse_generation += 1
 
         if file_path.suffix.lower() not in {".tex", ".yaml", ".yml"}:
             self.clear()
@@ -102,8 +121,20 @@ class LatexStructurePanel(Panel):
         self._label.setText(f"Structure — {file_path.name}")
 
         if self._is_large_latex_document():
-            # The full source is retained above. Parsing is merely moved off
-            # the GUI thread so startup and tab switching can paint promptly.
+            if (
+                not immediate
+                and not path_changed
+                and previous_source
+                and not self._structure_change_requires_rescan(
+                    previous_source,
+                    self._source,
+                )
+            ):
+                # Ordinary prose typing does not change the Structure tree.
+                # Keep the complete source current without scheduling a parse.
+                return
+
+            self._parse_generation += 1
             self._structure_signature = None
             self._refresh_timer.stop()
             self._refresh_timer.setInterval(
@@ -112,6 +143,7 @@ class LatexStructurePanel(Panel):
             self._refresh_timer.start()
             return
 
+        self._parse_generation += 1
         signature = self._signature_for(file_path, self._source)
         structure_changed = signature != self._structure_signature
         self._structure_signature = signature
@@ -132,34 +164,22 @@ class LatexStructurePanel(Panel):
         self._label.setText("Structure")
         self._tree.clear()
 
-    @staticmethod
+    @classmethod
     def _signature_for(
+        cls,
         file_path: Path,
         source: str,
     ) -> tuple[tuple[int, str], ...]:
         """Return a cheap structural signature without rebuilding the tree."""
         suffix = file_path.suffix.lower()
         if suffix == ".tex":
-            tokens = (
-                "\\part",
-                "\\chapter",
-                "\\section",
-                "\\subsection",
-                "\\subsubsection",
-                "\\paragraph",
-                "\\subparagraph",
-                "\\includegraphics",
-                "\\caption",
-                "\\begin{figure",
-                "\\end{figure",
-            )
             return tuple(
                 (line_number, line.strip())
                 for line_number, line in enumerate(
                     source.splitlines(),
                     start=1,
                 )
-                if any(token in line for token in tokens)
+                if any(token in line for token in cls._LATEX_STRUCTURE_TOKENS)
             )
         if suffix in {".yaml", ".yml"}:
             return tuple(
@@ -175,6 +195,68 @@ class LatexStructurePanel(Panel):
                 )
             )
         return ()
+
+    @classmethod
+    def _structure_change_requires_rescan(
+        cls,
+        old: str,
+        new: str,
+    ) -> bool:
+        """Return whether an edit can alter line mapping or Structure nodes."""
+        if old == new:
+            return False
+
+        limit = min(len(old), len(new))
+        prefix = 0
+        chunk = 4096
+        while (
+            prefix + chunk <= limit
+            and old[prefix : prefix + chunk] == new[prefix : prefix + chunk]
+        ):
+            prefix += chunk
+        while prefix < limit and old[prefix] == new[prefix]:
+            prefix += 1
+
+        suffix_limit = min(len(old) - prefix, len(new) - prefix)
+        suffix = 0
+        while (
+            suffix + chunk <= suffix_limit
+            and old[len(old) - suffix - chunk : len(old) - suffix]
+            == new[len(new) - suffix - chunk : len(new) - suffix]
+        ):
+            suffix += chunk
+        while (
+            suffix < suffix_limit
+            and old[len(old) - suffix - 1] == new[len(new) - suffix - 1]
+        ):
+            suffix += 1
+
+        old_end = len(old) - suffix
+        new_end = len(new) - suffix
+        old_changed = old[prefix:old_end]
+        new_changed = new[prefix:new_end]
+
+        if "\n" in old_changed or "\n" in new_changed:
+            return True
+        if "\\" in old_changed or "\\" in new_changed:
+            return True
+
+        def line_context(text: str, start: int, end: int) -> str:
+            left = text.rfind("\n", 0, start) + 1
+            right = text.find("\n", end)
+            if right < 0:
+                right = len(text)
+            return text[left:right]
+
+        context = (
+            line_context(old, prefix, old_end)
+            + "\n"
+            + line_context(new, prefix, new_end)
+        )
+        return any(
+            token in context
+            for token in cls._LATEX_STRUCTURE_TOKENS
+        )
 
     def _is_large_latex_document(self) -> bool:
         return bool(
@@ -292,6 +374,7 @@ class LatexStructurePanel(Panel):
             self._apply_current_line_highlight()
         finally:
             self._tree.setUpdatesEnabled(True)
+            self._tree.viewport().update()
 
     def set_current_line(self, line_number: int) -> None:
         """Highlight the deepest structure item containing the cursor line."""
@@ -316,28 +399,42 @@ class LatexStructurePanel(Panel):
         return items
 
     def _apply_current_line_highlight(self) -> None:
+        """Clear every row and paint exactly one semantic Structure highlight."""
         items = self._all_items_in_source_order()
         target: QTreeWidgetItem | None = None
-        self._tree.clearSelection()
-        self._tree.setCurrentItem(None)
-        for item in items:
-            try:
-                item_line = int(
-                    item.data(
-                        0,
-                        Qt.ItemDataRole.UserRole,
+
+        self._tree.setUpdatesEnabled(False)
+        try:
+            self._tree.clearSelection()
+            self._tree.setCurrentItem(None)
+
+            for item in items:
+                item.setSelected(False)
+                item.setBackground(0, self._clear_brush)
+
+            for item in items:
+                try:
+                    item_line = int(
+                        item.data(
+                            0,
+                            Qt.ItemDataRole.UserRole,
+                        )
                     )
-                )
-            except (TypeError, ValueError):
-                continue
-            item.setSelected(False)
-            item.setBackground(0, self._clear_brush)
-            if item_line <= self._current_line:
+                except (TypeError, ValueError):
+                    continue
+                if item_line > self._current_line:
+                    break
                 target = item
-            else:
-                break
-        if target is not None:
-            target.setBackground(0, self._highlight_brush)
+
+            if target is not None:
+                target.setBackground(0, self._highlight_brush)
+
+            selection_model = self._tree.selectionModel()
+            if selection_model is not None:
+                selection_model.clear()
+        finally:
+            self._tree.setUpdatesEnabled(True)
+            self._tree.viewport().update()
 
     def _on_item_clicked(
         self,

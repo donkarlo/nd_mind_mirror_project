@@ -1,0 +1,57 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+
+\usetikzlibrary{graphs,graphdrawing}
+\usegdlibrary{layered}
+
+% for external graphviz
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/external_graphviz.tex}
+
+% for tags
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/parts/control_sequence/kind/semtag/semtag.tex}
+
+% for links
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/seehere.tex}
+
+\title{Reliable iPad Close and Managed Graphic Rename Collision Fix}
+\date{2026-09-06}
+\author{Mohammad Rahmani}
+
+\begin{document}
+   \maketitle
+
+   \section{Fixed behavior}
+
+   \begin{itemize}
+      \item The iPad close-image control now has a 44-by-44 point hit target while keeping the visible icon compact.
+      \item Closing an image no longer remains permanently blocked when the final graphic save acknowledgement is lost. Normal save retries are preserved, while a close request has a bounded wait and always completes.
+      \item Managed image rename/move now recognizes a pre-existing destination \texttt{.ndgraphic} file when it is a stale alias for the same managed image.
+      \item A compatible stale sidecar is atomically replaced by the current source sidecar, preserving the latest PencilKit state.
+      \item An unrelated destination sidecar continues to block the rename instead of being overwritten.
+      \item After a successful managed rename, the existing sidecar path-remap flow updates the active iPad document identity without reloading the canvas or resetting Undo/Redo.
+   \end{itemize}
+
+   \section{Observed failure}
+
+   The reported rename from \texttt{img\_4.png} was blocked because
+   \texttt{agent\_architecture\_tree.ndgraphic} already existed. That sidecar
+   still referenced \texttt{img\_4.png}, which is the stale-alias case handled
+   by this fix.
+
+   \bibliographystyle{plainnat}
+   \bibliography{/home/donkarlo/Dropbox/repo/nd_shared_research/bibliography/bibliography.bib}
+\end{document}

@@ -1,0 +1,50 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+
+\usetikzlibrary{graphs,graphdrawing}
+\usegdlibrary{layered}
+
+% for external graphviz
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/external_graphviz.tex}
+
+% for tags
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/parts/control_sequence/kind/semtag/semtag.tex}
+
+% for links
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/seehere.tex}
+
+\title{2026-09-05 iPad Two-Finger Undo State Consistency}
+\date{2026-09-05}
+\author{Mohammad Rahmani}
+
+\begin{document}
+   \maketitle
+
+   \section{iPad Undo}
+   \begin{itemize}
+      \item Changed the app-owned Undo gesture from a two-finger double tap to a two-finger single tap.
+      \item Kept the legacy PencilKit native two-finger Undo recognizer disabled so the atomic drawing and raster history remains the single source of truth.
+      \item After an app-owned Undo or Redo snapshot is applied, PencilKit's native undo manager is cleared. This prevents stale native stroke actions from restoring strokes that were removed by the application history when the Pencil next touches the canvas.
+      \item Same-document Ubuntu graphic updates continue to be treated as save acknowledgements rather than remote replacements, so the current iPad canvas remains authoritative after Undo.
+   \end{itemize}
+
+   \section{Version}
+   ND Graphic is advanced to version 0.31.38, build 68.
+
+   \bibliographystyle{plainnat}
+   \bibliography{/home/donkarlo/Dropbox/repo/nd_shared_research/bibliography/bibliography.bib}
+\end{document}

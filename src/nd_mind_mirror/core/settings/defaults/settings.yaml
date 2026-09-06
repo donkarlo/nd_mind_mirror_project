@@ -146,8 +146,10 @@ graphic:
   # source, next to an editable .ndgraphic sidecar.
   directory: "."
   latex_width_ratio: 0.90
-  canvas_width: 1600
-  canvas_height: 1000
+  # Logical size used only when Insert image creates a new iPad canvas.
+  # Existing images opened with Edit keep their native image dimensions.
+  canvas_width: 760
+  canvas_height: 980
   # The native iPad app talks to the Ubuntu bridge on port 8766. The desktop
   # writes a durable open request into the workspace and nudges this local URL.
   bridge_http_url: "http://127.0.0.1:8766"

@@ -6,6 +6,8 @@ import UIKit
 /// Mirrors PencilKit's gray dashed lasso feedback while the app keeps ownership of selection geometry.
 @MainActor
 final class LassoSelectionFeedbackController: NSObject, UIGestureRecognizerDelegate {
+    var onLassoCompleted: (([CGPoint]) -> Void)?
+
     private weak var canvas: PKCanvasView?
     private weak var hostView: UIView?
     private weak var selectionOverlay: SelectionResizeOverlay?
@@ -134,6 +136,7 @@ final class LassoSelectionFeedbackController: NSObject, UIGestureRecognizerDeleg
             trackingFreehand = false
             waitingForSelectionUntil = CACurrentMediaTime() + 0.20
             render(points: completedPoints, closed: true)
+            onLassoCompleted?(completedPoints)
             DispatchQueue.main.async { [weak self] in
                 self?.refreshPersistentPath()
             }

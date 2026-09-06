@@ -1,21 +1,34 @@
+"""Rewrite workspace file references after one or more paths move."""
+
 from __future__ import annotations
 
 import os
 import re
+from collections.abc import Iterable, Sequence
 from pathlib import Path
 
 from nd_mind_mirror.core.search.ignore.search_ignore_matcher import SearchIgnoreMatcher
+from nd_mind_mirror.core.workspace.path.workspace_reference_resolver import (
+    WorkspaceReferenceResolver,
+)
 
 
 class PathReferenceUpdater:
-    """Rewrite real file references after a file or folder is moved."""
+    """Rewrite supported local references while preserving their path style."""
 
     _TEXT_SUFFIXES = {
         ".tex",
+        ".ltx",
+        ".sty",
+        ".cls",
+        ".tikz",
         ".bib",
         ".yaml",
         ".yml",
         ".md",
+        ".markdown",
+        ".html",
+        ".htm",
         ".txt",
         ".py",
         ".sh",
@@ -59,12 +72,31 @@ class PathReferenceUpdater:
         new_path: str | Path,
         ignore_file_path: str | Path | None = None,
     ) -> list[Path]:
+        """Rewrite one moved path across the workspace."""
+        return cls.update_workspace_reference_mappings(
+            workspace_root,
+            [(old_path, new_path)],
+            ignore_file_path=ignore_file_path,
+        )
+
+    @classmethod
+    def update_workspace_reference_mappings(
+        cls,
+        workspace_root: str | Path,
+        mappings: Sequence[tuple[str | Path, str | Path]],
+        ignore_file_path: str | Path | None = None,
+        exclude_files: Iterable[str | Path] = (),
+    ) -> list[Path]:
+        """Rewrite many moved paths in one workspace scan."""
         root = Path(workspace_root).expanduser().resolve()
-        old = Path(old_path).expanduser().resolve()
-        new = Path(new_path).expanduser().resolve()
-        if not root.is_dir() or old == new:
+        normalized = cls._normalize_mappings(mappings)
+        if not root.is_dir() or not normalized:
             return []
 
+        excluded = {
+            Path(path).expanduser().resolve(strict=False)
+            for path in exclude_files
+        }
         matcher = SearchIgnoreMatcher.from_file(ignore_file_path)
         changed: list[Path] = []
 
@@ -84,6 +116,9 @@ class PathReferenceUpdater:
                 candidate = directory_path / name
                 if candidate.suffix.lower() not in cls._TEXT_SUFFIXES:
                     continue
+                resolved_candidate = candidate.resolve(strict=False)
+                if resolved_candidate in excluded:
+                    continue
                 if matcher.is_ignored(candidate, root, is_directory=False):
                     continue
                 try:
@@ -93,22 +128,61 @@ class PathReferenceUpdater:
                 except (OSError, UnicodeError):
                     continue
 
-                updated = cls._rewrite_for_file(
+                updated = cls.rewrite_source_for_mappings(
                     source,
                     referring_file=candidate,
                     workspace_root=root,
-                    old_path=old,
-                    new_path=new,
+                    mappings=normalized,
                 )
                 if updated == source:
                     continue
                 try:
-                    candidate.write_text(updated, encoding="utf-8")
+                    cls._write_text_atomic(candidate, updated)
                 except OSError:
                     continue
-                changed.append(candidate.resolve())
+                changed.append(resolved_candidate)
 
         return changed
+
+    @classmethod
+    def rewrite_source_for_mappings(
+        cls,
+        source: str,
+        *,
+        referring_file: str | Path,
+        workspace_root: str | Path,
+        mappings: Sequence[tuple[str | Path, str | Path]],
+    ) -> str:
+        """Rewrite path mappings in one source string without touching the filesystem."""
+        referring = Path(referring_file).expanduser().resolve(strict=False)
+        root = Path(workspace_root).expanduser().resolve(strict=False)
+        updated = source
+        for old_path, new_path in cls._normalize_mappings(mappings):
+            updated = cls._rewrite_for_file(
+                updated,
+                referring_file=referring,
+                workspace_root=root,
+                old_path=old_path,
+                new_path=new_path,
+            )
+        return updated
+
+    @classmethod
+    def _normalize_mappings(
+        cls,
+        mappings: Sequence[tuple[str | Path, str | Path]],
+    ) -> list[tuple[Path, Path]]:
+        normalized: list[tuple[Path, Path]] = []
+        seen: set[tuple[Path, Path]] = set()
+        for old_path, new_path in mappings:
+            old = Path(old_path).expanduser().resolve(strict=False)
+            new = Path(new_path).expanduser().resolve(strict=False)
+            pair = (old, new)
+            if old == new or pair in seen:
+                continue
+            seen.add(pair)
+            normalized.append(pair)
+        return normalized
 
     @classmethod
     def _rewrite_for_file(
@@ -120,13 +194,16 @@ class PathReferenceUpdater:
         old_path: Path,
         new_path: Path,
     ) -> str:
+        resolver = WorkspaceReferenceResolver(workspace_root)
+
         def replace_reference(match: re.Match[str]) -> str:
             command = match.groupdict().get("command") or ""
             value = match.group("value")
             rewritten = cls._rewrite_reference_value(
                 value,
+                command=command,
                 referring_file=referring_file,
-                workspace_root=workspace_root,
+                resolver=resolver,
                 old_path=old_path,
                 new_path=new_path,
                 allow_list=command in {"bibliography", "includeonly"},
@@ -149,8 +226,9 @@ class PathReferenceUpdater:
         cls,
         value: str,
         *,
+        command: str,
         referring_file: Path,
-        workspace_root: Path,
+        resolver: WorkspaceReferenceResolver,
         old_path: Path,
         new_path: Path,
         allow_list: bool = False,
@@ -160,8 +238,9 @@ class PathReferenceUpdater:
             return ",".join(
                 cls._rewrite_reference_value(
                     part,
+                    command=command,
                     referring_file=referring_file,
-                    workspace_root=workspace_root,
+                    resolver=resolver,
                     old_path=old_path,
                     new_path=new_path,
                     allow_list=False,
@@ -176,7 +255,7 @@ class PathReferenceUpdater:
             return value
 
         lowered = token.casefold()
-        if lowered.startswith(("http://", "https://", "mailto:", "data:", "ftp://", "#")):
+        if not resolver.is_local_reference(token):
             return value
 
         file_url_prefix = ""
@@ -191,11 +270,11 @@ class PathReferenceUpdater:
         path_token = token.replace(r"\_", "_")
         original_dot_prefix = path_token.startswith("./")
 
-        match = cls._match_reference_path(
+        match = resolver.match_candidate(
             path_token,
-            referring_file=referring_file,
-            workspace_root=workspace_root,
-            old_path=old_path,
+            referring_file,
+            old_path,
+            suffix_hint=old_path.suffix if old_path.suffix else "",
         )
         if match is None:
             return value
@@ -205,20 +284,12 @@ class PathReferenceUpdater:
         if mapped is None:
             return value
 
-        if base_kind == "absolute":
-            output = mapped.as_posix()
-        elif base_kind == "file_relative":
-            output = os.path.relpath(mapped, referring_file.parent).replace(os.sep, "/")
-        else:
-            try:
-                output = mapped.relative_to(workspace_root).as_posix()
-            except ValueError:
-                return value
+        output = resolver.format_path(mapped, base_kind, referring_file)
+        if output is None:
+            return value
 
-        if omitted_suffix and new_path.is_file() and mapped == new_path:
-            suffix = new_path.suffix
-            if suffix and output.endswith(suffix):
-                output = output[: -len(suffix)]
+        if omitted_suffix and mapped.suffix and output.endswith(mapped.suffix):
+            output = output[: -len(mapped.suffix)]
 
         if original_dot_prefix and not output.startswith(("./", "../", "/")):
             output = "./" + output
@@ -227,57 +298,12 @@ class PathReferenceUpdater:
 
         return f"{leading}{file_url_prefix}{output}{trailing}"
 
-    @classmethod
-    def _match_reference_path(
-        cls,
-        token: str,
-        *,
-        referring_file: Path,
-        workspace_root: Path,
+    @staticmethod
+    def _map_old_to_new(
+        candidate: Path,
         old_path: Path,
-    ) -> tuple[str, Path, bool] | None:
-        raw_path = Path(token).expanduser()
-        if raw_path.is_absolute():
-            candidates = [("absolute", raw_path)]
-        else:
-            candidates = [
-                ("file_relative", referring_file.parent / raw_path),
-                ("workspace_relative", workspace_root / raw_path),
-            ]
-
-        for kind, candidate in candidates:
-            resolved = cls._resolve_without_requirement(candidate)
-            if cls._is_same_or_child(resolved, old_path):
-                return kind, resolved, False
-
-            if old_path.suffix and not Path(token).suffix:
-                with_suffix = cls._resolve_without_requirement(
-                    candidate.with_suffix(old_path.suffix)
-                )
-                if cls._is_same_or_child(with_suffix, old_path):
-                    return kind, with_suffix, True
-
-        return None
-
-    @staticmethod
-    def _resolve_without_requirement(path: Path) -> Path:
-        try:
-            return path.resolve(strict=False)
-        except OSError:
-            return Path(os.path.abspath(os.fspath(path)))
-
-    @staticmethod
-    def _is_same_or_child(candidate: Path, root: Path) -> bool:
-        if candidate == root:
-            return True
-        try:
-            candidate.relative_to(root)
-            return True
-        except ValueError:
-            return False
-
-    @staticmethod
-    def _map_old_to_new(candidate: Path, old_path: Path, new_path: Path) -> Path | None:
+        new_path: Path,
+    ) -> Path | None:
         if candidate == old_path:
             return new_path
         try:
@@ -285,3 +311,16 @@ class PathReferenceUpdater:
         except ValueError:
             return None
         return new_path / relative
+
+    @staticmethod
+    def _write_text_atomic(path: Path, content: str) -> None:
+        temporary = path.with_name(f".{path.name}.nd_reference.tmp")
+        try:
+            temporary.write_text(content, encoding="utf-8")
+            os.replace(temporary, path)
+        except Exception:
+            try:
+                temporary.unlink()
+            except OSError:
+                pass
+            raise

@@ -36,6 +36,21 @@ final class GraphicDocumentSaveGate: ObservableObject {
         state = hasHydratedContent ? .ready(path: path) : .blocked(path: path)
     }
 
+    /// Preserve hydration state when Ubuntu renames the currently open graphic.
+    func remapPath(from oldPath: String, to newPath: String) {
+        guard oldPath != newPath else { return }
+        switch state {
+        case .loading(let path) where path == oldPath:
+            state = .loading(path: newPath)
+        case .ready(let path) where path == oldPath:
+            state = .ready(path: newPath)
+        case .blocked(let path) where path == oldPath:
+            state = .blocked(path: newPath)
+        default:
+            break
+        }
+    }
+
     func reset() {
         state = .empty
     }

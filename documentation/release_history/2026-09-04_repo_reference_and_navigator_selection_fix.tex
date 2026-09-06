@@ -1,0 +1,51 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+
+\title{Repository reference navigation and Navigator selection fix}
+\date{2026-09-04}
+\author{Mohammad Rahmani}
+
+\begin{document}
+\maketitle
+
+\section{Problem}
+Local LaTeX references written with the portable \texttt{/repo/...} prefix were
+mistaken for literal operating-system absolute paths. As a result, Ctrl+B could
+not resolve those references to the Dropbox repository and therefore could not
+open referenced LaTeX/YAML/text files in Mind Mirror or delegate PDFs/images to
+the system application. In addition, switching the active editor tab could leave
+the corresponding Navigator row without a visible selection highlight.
+
+\section{Fix}
+\begin{itemize}
+   \item \texttt{WorkspaceReferenceResolver} now recognizes \texttt{/repo} as a repository alias and maps it through the configured workspace repository root before normal absolute-path handling.
+   \item Existing command-specific extension inference remains active after alias resolution, including \texttt{includegraphics} targets without an explicit suffix.
+   \item Ctrl+B continues to use the shared reference-opening path, so editable text files open inside Mind Mirror while binary/image/PDF files continue through the operating-system application association.
+   \item Added \texttt{NavigatorActiveSelectionController} to make the active editor document the authoritative visible Navigator selection whenever the active tab changes.
+\end{itemize}
+
+\section{Regression coverage}
+Tests cover direct \texttt{/repo} resolution, extension inference for graphics,
+\texttt{href} occurrence resolution used by Ctrl+B, and installation of the
+active-Navigator selection controller in the real enhanced window.
+
+\section{Repository hygiene}
+The implementation uses canonical source files and a dedicated controller class.
+No patch, hotfix, backup implementation, or persistent temporary file is part of
+the fix.
+
+\end{document}

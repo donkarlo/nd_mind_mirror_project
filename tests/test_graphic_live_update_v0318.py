@@ -60,10 +60,15 @@ def test_ipad_canvas_supports_pan_pinch_zoom_and_photo_background() -> None:
     assert 'backgroundImageBase64' in message
 
 
-def test_ipad_autosave_is_quicker_and_ack_does_not_reopen_document() -> None:
+def test_ipad_live_update_uses_configured_scheduler_and_ack_does_not_reopen_document() -> None:
     package = ROOT / "src/nd_mind_mirror/graphic/ipad/nd_graphic.swiftpm"
     content = (package / "Views/ContentView.swift").read_text(encoding="utf-8")
     bridge = (package / "Services/GraphicBridgeClient.swift").read_text(encoding="utf-8")
-    assert '55_000_000' in content
+
+    assert 'LiveGraphicSyncSettingsStore()' in content
+    assert 'LiveGraphicSaveScheduler()' in content
+    assert 'LiveGraphicSyncSettingsView(settingsStore: liveSyncSettings)' in content
+    assert 'scheduleLiveSave(drawing)' in content
+    assert 'liveSaveScheduler.submit(updateRateHz: liveSyncSettings.updateRateHz)' in content
     assert 'case "graphic_saved":' in bridge
     assert 'applyRemote(message, statusPrefix: "Updated")' in bridge

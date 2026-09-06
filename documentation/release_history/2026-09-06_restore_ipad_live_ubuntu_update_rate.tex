@@ -1,0 +1,62 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+
+\usetikzlibrary{graphs,graphdrawing}
+\usegdlibrary{layered}
+
+% for external graphviz
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/external_graphviz.tex}
+
+% for tags
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/parts/control_sequence/kind/semtag/semtag.tex}
+
+% for links
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/seehere.tex}
+
+\title{Restore iPad Live Ubuntu Update Rate}
+\date{2026-09-06}
+\author{Mohammad Rahmani}
+
+\begin{document}
+   \maketitle
+
+   \section{Bug}
+   The iPad live-update settings and gear button still existed as separate
+   source files, but the active ContentView no longer used them. Pencil
+   changes were therefore not streamed to Ubuntu at the configured update
+   rate while a stroke was in progress.
+
+   \section{Fix}
+   \begin{itemize}
+      \item Restored the header gear button and the live synchronization
+      settings sheet.
+      \item Restored the persisted 1--20 updates/s setting, with the existing
+      10 updates/s default.
+      \item Routed in-progress PencilKit drawing callbacks through
+      LiveGraphicSaveScheduler so Ubuntu receives coalesced live updates at
+      the configured rate.
+      \item Kept the final committed save immediate and cancelled pending live
+      work before final saves, Undo/Redo, canvas resize, raster import, close,
+      rename/remap, and remote document changes.
+      \item Preserved the current 760 x 980 Insert canvas default, native-size
+      Edit behavior, live path remapping after Navigator rename, and the
+      enlarged reliable close control.
+   \end{itemize}
+
+   \bibliographystyle{plainnat}
+   \bibliography{/home/donkarlo/Dropbox/repo/nd_shared_research/bibliography/bibliography.bib}
+\end{document}

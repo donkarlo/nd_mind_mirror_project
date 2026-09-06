@@ -1,0 +1,53 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+
+\title{iPad desktop-raster editing and Undo stability}
+\date{2026-09-05}
+\author{Mohammad Rahmani}
+
+\begin{document}
+\maketitle
+
+\section{Problem}
+Images opened from Ubuntu through \texttt{Edit image in iPad} are raster backgrounds,
+not PencilKit strokes. The custom lasso therefore could not select arbitrary parts
+of those images. Partial erasing also normalized the raster by stretching it to the
+entire logical canvas, which changed visible geometry. In addition, duplicate
+same-path desktop opens and redundant PencilKit programmatic drawing assignments
+could reset or contaminate the app-owned Undo history and allow previously undone
+strokes to reappear.
+
+\section{Fix}
+\begin{itemize}
+   \item Added shared raster canvas geometry that preserves the displayed aspect-fit mapping instead of stretching source images.
+   \item Partial erasing now operates on an aspect-correct logical-canvas raster and never changes the logical canvas dimensions.
+   \item Added raster-region lasso support for desktop PNG/JPG backgrounds. A lasso can select arbitrary raster pixels, then move or proportionally resize the selected fragment while keeping it inside the canvas.
+   \item Existing PencilKit stroke lasso behavior remains authoritative when the lasso substantially encloses a Pencil stroke.
+   \item Ubuntu now acts as the initial document loader for an active edit session. Repeated same-path open notifications do not reload the live iPad canvas or reset its history.
+   \item Removed per-stroke live save scheduling. The iPad saves only committed edits, reducing Ubuntu/iPad feedback loops during Pencil input.
+   \item The app-owned atomic history remains the only Undo authority. Native PencilKit Undo actions are cleared before a new Pencil gesture, after history restores, after gesture completion, and again on the next run-loop turn after programmatic restore.
+   \item Undo/Redo restore now updates the live canvas directly without incrementing the document canvas token and causing a second SwiftUI drawing assignment.
+\end{itemize}
+
+\section{Version}
+The iPad package version is \texttt{0.31.39} with bundle version \texttt{69}.
+
+\section{Repository hygiene}
+The implementation uses dedicated raster geometry, raster selection overlay, and
+raster lasso controller classes. No patch or hotfix implementation is retained.
+
+\end{document}

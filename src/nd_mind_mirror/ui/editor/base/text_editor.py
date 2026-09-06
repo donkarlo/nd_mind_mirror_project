@@ -12,7 +12,7 @@ class TextEditor(RichTextEditor):
 
     QTextEdit keeps the paragraph geometry required by Persian/Arabic source
     direction and inline figure reservations. Large LaTeX files are bounded by
-    LargeLatexEditor, so this class never needs a custom QTextDocumentLayout.
+    LargeLatexEditor, so rich layout work is restricted to a small Source window.
     """
 
     _NORMAL_LAYOUT_DEBOUNCE_MS = 25
@@ -39,6 +39,117 @@ class TextEditor(RichTextEditor):
             else self._NORMAL_LAYOUT_DEBOUNCE_MS
         )
         self.viewport().update()
+
+    def _schedule_block_layout_update_for_change(
+        self,
+        position: int,
+        chars_removed: int,
+        chars_added: int,
+    ) -> None:
+        """Avoid rewriting unchanged rich block formats during large-file typing."""
+        if not self._large_document_mode:
+            super()._schedule_block_layout_update_for_change(
+                position,
+                chars_removed,
+                chars_added,
+            )
+            return
+
+        if int(chars_removed) == 0 and int(chars_added) == 0:
+            return
+
+        document = self.document()
+        block = document.findBlock(max(int(position), 0))
+        if not block.isValid():
+            super()._schedule_block_layout_update_for_change(
+                position,
+                chars_removed,
+                chars_added,
+            )
+            return
+
+        block_format = block.blockFormat()
+        expected_direction = self._block_direction(block.text())
+        direction_is_current = (
+            block_format.layoutDirection() == expected_direction
+        )
+        line_height_is_current = (
+            abs(
+                float(block_format.lineHeight())
+                - float(self._line_height_percent)
+            )
+            < 0.5
+        )
+        if direction_is_current and line_height_is_current:
+            return
+
+        super()._schedule_block_layout_update_for_change(
+            position,
+            chars_removed,
+            chars_added,
+        )
+
+    def _handle_common_editor_shortcut(self, event) -> bool:
+        """Handle source-only line deletion before the shared shortcuts."""
+        modifiers = event.modifiers()
+        control = bool(modifiers & Qt.KeyboardModifier.ControlModifier)
+        shift = bool(modifiers & Qt.KeyboardModifier.ShiftModifier)
+        alt_or_meta = bool(
+            modifiers
+            & (
+                Qt.KeyboardModifier.AltModifier
+                | Qt.KeyboardModifier.MetaModifier
+            )
+        )
+        if (
+            control
+            and shift
+            and not alt_or_meta
+            and event.key() == Qt.Key.Key_D
+        ):
+            self._delete_current_line()
+            event.accept()
+            return True
+        return super()._handle_common_editor_shortcut(event)
+
+    def _delete_current_line(self) -> None:
+        """Delete the logical source line containing the active cursor."""
+        cursor = self.textCursor()
+        block = cursor.block()
+        if not block.isValid():
+            return
+
+        document = self.document()
+        start = block.position()
+        next_block = block.next()
+
+        edit = QTextCursor(document)
+        edit.beginEditBlock()
+        if next_block.isValid():
+            edit.setPosition(start)
+            edit.setPosition(
+                next_block.position(),
+                QTextCursor.MoveMode.KeepAnchor,
+            )
+        else:
+            previous = block.previous()
+            if previous.isValid():
+                edit.setPosition(max(start - 1, 0))
+                edit.setPosition(
+                    start + len(block.text()),
+                    QTextCursor.MoveMode.KeepAnchor,
+                )
+            else:
+                edit.select(QTextCursor.SelectionType.Document)
+        edit.removeSelectedText()
+        edit.endEditBlock()
+
+        restored = QTextCursor(document)
+        restored.setPosition(
+            min(max(start, 0), max(document.characterCount() - 1, 0))
+        )
+        self.setTextCursor(restored)
+        self.ensureCursorVisible()
 
     def _apply_layout_to_block(self, block, metrics) -> None:
         if not self._large_document_mode:

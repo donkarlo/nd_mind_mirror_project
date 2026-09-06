@@ -1,0 +1,54 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+
+\usetikzlibrary{graphs,graphdrawing}
+\usegdlibrary{layered}
+
+% for external graphviz
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/external_graphviz.tex}
+
+% for tags
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/parts/control_sequence/kind/semtag/semtag.tex}
+
+% for links
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/seehere.tex}
+
+\title{Ctrl+Shift+D Current-Line Deletion Fix}
+\date{2026-09-04}
+\author{Mohammad Rahmani}
+
+\begin{document}
+   \maketitle
+
+   \section{Bug}
+   Ctrl+Shift+D had been documented as deleting the current line, but the
+   Source editor only implemented Ctrl+D for line duplication and the Visual
+   editor had no Ctrl+Shift+D deletion handler.
+
+   \section{Fix}
+   Ctrl+Shift+D now deletes the logical line containing the active cursor in
+   Source mode. The operation is one QTextCursor edit block, so Undo restores
+   the removed line and no file-level delete operation is involved.
+
+   In Visual mode, Ctrl+Shift+D deletes the active Visual block and preserves
+   the metadata and block format of the following projected block. This keeps
+   LaTeX serialization valid after deletion, including windowed large-document
+   Visual editing.
+
+   \bibliographystyle{plainnat}
+   \bibliography{/home/donkarlo/Dropbox/repo/nd_shared_research/bibliography/bibliography.bib}
+\end{document}

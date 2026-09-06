@@ -1,0 +1,62 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+
+\usetikzlibrary{graphs,graphdrawing}
+\usegdlibrary{layered}
+
+% for external graphviz
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/external_graphviz.tex}
+
+% for tags
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/parts/control_sequence/kind/semtag/semtag.tex}
+
+% for links
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/seehere.tex}
+
+\title{Durable iPad Graphic Rename and Stale-Path Save Recovery}
+\date{2026-09-06}
+\author{Mohammad Rahmani}
+
+\begin{document}
+   \maketitle
+
+   \section{Bug}
+   After a managed image was renamed in the Ubuntu Navigator, an already-open
+   iPad session could continue sending updates to the previous
+   \texttt{.ndgraphic} path.  The rename notification depended on a
+   best-effort HTTP request to the configured bridge port.  If that request was
+   missed, the new desktop image stopped receiving iPad updates.
+
+   \section{Fix}
+   \begin{itemize}
+      \item Every managed-graphic rename is now written atomically to
+      \texttt{.nd\_mind\_mirror/graphic\_rename\_request.json} before the
+      low-latency HTTP notification is attempted.
+      \item The bridge watches the durable rename request independently of the
+      HTTP port.
+      \item The bridge keeps a workspace-safe old-path to new-path alias
+      registry, including folder and chained renames.
+      \item A stale iPad \texttt{update\_graphic} request for an old
+      \texttt{.ndgraphic} path is resolved to the current path before the PNG
+      and sidecar are saved.
+      \item Live rename broadcasts still remap the open iPad document identity
+      without resetting its canvas or Undo/Redo session.
+   \end{itemize}
+
+   \bibliographystyle{plainnat}
+   \bibliography{/home/donkarlo/Dropbox/repo/nd_shared_research/bibliography/bibliography.bib}
+\end{document}

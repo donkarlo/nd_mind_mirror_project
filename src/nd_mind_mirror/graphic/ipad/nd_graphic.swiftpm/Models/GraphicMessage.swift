@@ -10,6 +10,7 @@ struct GraphicDocumentPayload: Codable {
     var backgroundImageBase64: String?
     var imageObjects: [CanvasImageObject]?
     var pencil: PencilPayload?
+    var renamedFrom: String?
 
     enum CodingKeys: String, CodingKey {
         case version
@@ -21,6 +22,7 @@ struct GraphicDocumentPayload: Codable {
         case backgroundImageBase64 = "background_image_base64"
         case imageObjects = "image_objects"
         case pencil
+        case renamedFrom = "renamed_from"
     }
 }
 

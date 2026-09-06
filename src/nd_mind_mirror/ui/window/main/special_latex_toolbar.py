@@ -17,12 +17,8 @@ from nd_mind_mirror.ui.window.main.fix11_desktop_controller import Fix11DesktopC
 from nd_mind_mirror.ui.window.main.source_edit_command_controller import (
     SourceEditCommandController,
 )
-from nd_mind_mirror.ui.window.main.structure_selection_integrity_controller import (
-    StructureSelectionIntegrityController,
-)
 
 Fix11DesktopController.install()
-StructureSelectionIntegrityController.install()
 
 
 class SpecialLatexToolbar(QWidget):

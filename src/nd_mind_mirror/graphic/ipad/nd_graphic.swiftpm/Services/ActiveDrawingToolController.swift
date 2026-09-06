@@ -2,7 +2,7 @@ import PencilKit
 import SwiftUI
 import UIKit
 
-/// Owns the active PencilKit tool, atomic canvas history, raster erasing, and finger navigation safety.
+/// Owns the active PencilKit tool, atomic canvas history, raster editing, and finger navigation safety.
 @MainActor
 final class ActiveDrawingToolController: NSObject, ObservableObject, UIGestureRecognizerDelegate {
     struct State: Equatable {
@@ -27,6 +27,7 @@ final class ActiveDrawingToolController: NSObject, ObservableObject, UIGestureRe
     private weak var historyController: CanvasEditHistoryController?
     private let stateStore: ActiveDrawingToolStateStore
     private let lassoSelectionFeedbackController = LassoSelectionFeedbackController()
+    private let rasterLassoInteractionController = RasterLassoInteractionController()
     private var rasterSession: RasterEraseSession?
     private var pendingRasterImage: UIImage?
     private var pendingRasterChanged = false
@@ -50,6 +51,10 @@ final class ActiveDrawingToolController: NSObject, ObservableObject, UIGestureRe
         )
         super.init()
         state = canonicalized(state)
+        lassoSelectionFeedbackController.onLassoCompleted = { [weak self] points in
+            guard let self, self.state.kind == .lasso else { return }
+            self.rasterLassoInteractionController.selectRasterRegion(with: points)
+        }
     }
 
     var kind: GraphicTool { state.kind }
@@ -65,17 +70,26 @@ final class ActiveDrawingToolController: NSObject, ObservableObject, UIGestureRe
         return gesture.state == .began || gesture.state == .changed
     }
 
-    /// Attaches tool handling plus a non-mutating visual observer for custom lasso feedback.
+    /// Attaches tool handling plus non-mutating lasso feedback and raster-region interaction.
     func attach(canvas: PKCanvasView, backgroundView: UIImageView) {
         if self.canvas === canvas {
             self.backgroundView = backgroundView
+            rasterSurfaceView = canvas.superview ?? canvas
             lassoSelectionFeedbackController.attach(to: canvas)
             lassoSelectionFeedbackController.setEnabled(state.kind == .lasso)
+            rasterLassoInteractionController.attach(
+                canvas: canvas,
+                backgroundView: backgroundView
+            )
+            rasterLassoInteractionController.setEnabled(state.kind == .lasso)
             suppressCanvasMenus()
             return
         }
 
-        observedDrawingGesture?.removeTarget(self, action: #selector(handleDrawingGesture(_:)))
+        observedDrawingGesture?.removeTarget(
+            self,
+            action: #selector(handleDrawingGesture(_:))
+        )
         lassoSelectionFeedbackController.detach()
         if let historyUndoGesture {
             historyUndoGesture.view?.removeGestureRecognizer(historyUndoGesture)
@@ -87,15 +101,26 @@ final class ActiveDrawingToolController: NSObject, ObservableObject, UIGestureRe
         rasterSurfaceView = canvas.superview ?? canvas
 
         let drawingGesture = canvas.drawingGestureRecognizer
-        drawingGesture.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.pencil.rawValue)]
-        drawingGesture.addTarget(self, action: #selector(handleDrawingGesture(_:)))
+        drawingGesture.allowedTouchTypes = [
+            NSNumber(value: UITouch.TouchType.pencil.rawValue)
+        ]
+        drawingGesture.addTarget(
+            self,
+            action: #selector(handleDrawingGesture(_:))
+        )
         observedDrawingGesture = drawingGesture
         lassoSelectionFeedbackController.attach(to: canvas)
+        rasterLassoInteractionController.attach(
+            canvas: canvas,
+            backgroundView: backgroundView
+        )
 
         configureFingerNavigation(for: canvas)
+        clearNativeUndoHistory()
         suppressCanvasMenus()
         DispatchQueue.main.async { [weak self] in
             self?.suppressCanvasMenus()
+            self?.clearNativeUndoHistory()
         }
         applyImmediately()
     }
@@ -110,7 +135,19 @@ final class ActiveDrawingToolController: NSObject, ObservableObject, UIGestureRe
         self.historyController = historyController
         self.canvasStateCommitted = canvasStateCommitted
         self.undoRequested = undoRequested
+        rasterLassoInteractionController.bindRuntime(
+            canvasSize: canvasSize,
+            historyController: historyController,
+            canvasStateCommitted: canvasStateCommitted
+        )
         applyImmediately()
+    }
+
+    /// Clears transient selection and native PencilKit history before a remote document replaces the canvas.
+    func prepareForRemoteDocumentLoad() {
+        rasterLassoInteractionController.clearSelection()
+        pendingProgrammaticDrawingData = nil
+        clearNativeUndoHistory()
     }
 
     /// Reconnect a persisted preset UUID to the current saved-tool collection.
@@ -149,24 +186,39 @@ final class ActiveDrawingToolController: NSObject, ObservableObject, UIGestureRe
         setState(next)
     }
 
-    func updateAppearance(color: Color? = nil, width: Double? = nil, opacity: Double? = nil) {
+    func updateAppearance(
+        color: Color? = nil,
+        width: Double? = nil,
+        opacity: Double? = nil
+    ) {
         var next = state
-        if let color { next.colorHex = canonicalColor(color.hexRGB()) }
+        if let color {
+            next.colorHex = canonicalColor(color.hexRGB())
+        }
         if let width {
             next.width = next.kind == .eraser
                 ? canonicalEraserWidth(width)
                 : canonicalInkWidth(width)
         }
-        if let opacity { next.opacity = canonicalOpacity(opacity) }
+        if let opacity {
+            next.opacity = canonicalOpacity(opacity)
+        }
         next.selectedSavedToolID = nil
         setState(next)
     }
 
     func adoptDocumentPencil(width: Double?, colorHex: String?) {
-        guard state.selectedSavedToolID == nil, state.kind != .eraser else { return }
+        guard state.selectedSavedToolID == nil,
+              state.kind != .eraser else {
+            return
+        }
         var next = state
-        if let width { next.width = canonicalInkWidth(width) }
-        if let colorHex, !colorHex.isEmpty { next.colorHex = canonicalColor(colorHex) }
+        if let width {
+            next.width = canonicalInkWidth(width)
+        }
+        if let colorHex, !colorHex.isEmpty {
+            next.colorHex = canonicalColor(colorHex)
+        }
         setState(next)
     }
 
@@ -207,7 +259,8 @@ final class ActiveDrawingToolController: NSObject, ObservableObject, UIGestureRe
     private func configureFingerNavigation(for canvas: PKCanvasView) {
         var parent = canvas.superview
         while let view = parent {
-            if let scroll = view as? UIScrollView, scroll !== canvas {
+            if let scroll = view as? UIScrollView,
+               scroll !== canvas {
                 parentScrollView = scroll
                 scroll.isMultipleTouchEnabled = true
                 scroll.panGestureRecognizer.minimumNumberOfTouches = 1
@@ -228,17 +281,22 @@ final class ActiveDrawingToolController: NSObject, ObservableObject, UIGestureRe
         parentScrollView?.pinchGestureRecognizer?.isEnabled = enabled
     }
 
-    /// Uses a deliberate two-finger double tap so a resting palm cannot trigger history changes.
+    /// Uses one two-finger tap for the app-owned atomic canvas Undo history.
     private func installHistoryUndoGesture(on scroll: UIScrollView) {
-        if let historyUndoGesture, historyUndoGesture.view === scroll { return }
+        if let historyUndoGesture,
+           historyUndoGesture.view === scroll {
+            return
+        }
 
         let gesture = UITapGestureRecognizer(
             target: self,
             action: #selector(handleHistoryUndo(_:))
         )
         gesture.numberOfTouchesRequired = 2
-        gesture.numberOfTapsRequired = 2
-        gesture.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
+        gesture.numberOfTapsRequired = 1
+        gesture.allowedTouchTypes = [
+            NSNumber(value: UITouch.TouchType.direct.rawValue)
+        ]
         gesture.cancelsTouchesInView = false
         gesture.delaysTouchesBegan = false
         gesture.delaysTouchesEnded = false
@@ -248,17 +306,29 @@ final class ActiveDrawingToolController: NSObject, ObservableObject, UIGestureRe
     }
 
     @objc private func handleHistoryUndo(_ gesture: UITapGestureRecognizer) {
-        guard gesture.state == .ended, !isCanvasGestureInFlight else { return }
+        guard gesture.state == .ended,
+              !isCanvasGestureInFlight else {
+            return
+        }
+        rasterLassoInteractionController.clearSelection()
         undoRequested?()
     }
 
-    /// Applies an Undo/Redo snapshot to the live PencilKit surface immediately.
-    /// SwiftUI state updates can arrive a frame later; drawing must not start from stale canvas contents.
+    /// Applies an Undo/Redo snapshot to the live surfaces before the next Pencil event can start.
     func applyHistorySnapshot(_ snapshot: CanvasEditHistoryController.Snapshot) {
         guard let canvas else { return }
+        rasterLassoInteractionController.clearSelection()
         pendingProgrammaticDrawingData = snapshot.drawing.dataRepresentation()
+        clearNativeUndoHistory()
         canvas.drawing = snapshot.drawing
         backgroundView?.image = snapshot.backgroundImage
+        clearNativeUndoHistory()
+
+        // PencilKit can register delayed native actions after a programmatic drawing assignment.
+        // Clear once more on the next run-loop turn so stale strokes cannot resurrect later.
+        DispatchQueue.main.async { [weak self] in
+            self?.clearNativeUndoHistory()
+        }
         suppressCanvasMenus()
     }
 
@@ -276,7 +346,8 @@ final class ActiveDrawingToolController: NSObject, ObservableObject, UIGestureRe
         _ gestureRecognizer: UIGestureRecognizer,
         shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
     ) -> Bool {
-        gestureRecognizer === historyUndoGesture || otherGestureRecognizer === historyUndoGesture
+        gestureRecognizer === historyUndoGesture
+            || otherGestureRecognizer === historyUndoGesture
     }
 
     private func suppressCanvasMenus() {
@@ -284,9 +355,11 @@ final class ActiveDrawingToolController: NSObject, ObservableObject, UIGestureRe
         CanvasInteractionSanitizer.suppressMenus(in: canvas)
     }
 
-    /// The app owns lasso selection itself. Native PencilKit lasso must never run at the same time,
-    /// otherwise PencilKit can mutate the same strokes while the custom lasso is also tracking them.
-    private func configureNativeDrawingGesture(for kind: GraphicTool, on canvas: PKCanvasView) {
+    /// The app owns lasso selection itself; native PKLassoTool must stay disabled.
+    private func configureNativeDrawingGesture(
+        for kind: GraphicTool,
+        on canvas: PKCanvasView
+    ) {
         let shouldEnableNativeDrawing = kind != .lasso
         if canvas.drawingGestureRecognizer.isEnabled != shouldEnableNativeDrawing {
             canvas.drawingGestureRecognizer.isEnabled = shouldEnableNativeDrawing
@@ -297,7 +370,10 @@ final class ActiveDrawingToolController: NSObject, ObservableObject, UIGestureRe
         guard let canvas else { return }
         suppressCanvasMenus()
         configureNativeDrawingGesture(for: state.kind, on: canvas)
-        lassoSelectionFeedbackController.setEnabled(state.kind == .lasso)
+        let lassoEnabled = state.kind == .lasso
+        lassoSelectionFeedbackController.setEnabled(lassoEnabled)
+        rasterLassoInteractionController.setEnabled(lassoEnabled)
+
         switch state.kind {
         case .pencil:
             canvas.tool = PKInkingTool(
@@ -305,19 +381,21 @@ final class ActiveDrawingToolController: NSObject, ObservableObject, UIGestureRe
                 color: UIColor(color).withAlphaComponent(CGFloat(state.opacity)),
                 width: CGFloat(state.width)
             )
+
         case .highlighter:
             canvas.tool = PKInkingTool(
                 .marker,
                 color: UIColor(color).withAlphaComponent(CGFloat(state.opacity)),
                 width: CGFloat(state.width)
             )
+
         case .eraser:
-            let type: PKEraserTool.EraserType = state.eraserMode == .partial ? .bitmap : .vector
+            let type: PKEraserTool.EraserType = state.eraserMode == .partial
+                ? .bitmap
+                : .vector
             canvas.tool = PKEraserTool(type, width: CGFloat(state.width))
+
         case .lasso:
-            // The custom lasso recognizer in PencilCanvasView owns selection and movement.
-            // Do not install PKLassoTool here: two lasso engines mutating one drawing caused
-            // partial moves and apparent duplicated strokes.
             break
         }
     }
@@ -327,8 +405,12 @@ final class ActiveDrawingToolController: NSObject, ObservableObject, UIGestureRe
         switch gesture.state {
         case .began:
             beginCanvasGesture(gesture, canvas: canvas)
+
         case .changed:
-            if state.kind == .eraser { applyRasterPoint(from: gesture) }
+            if state.kind == .eraser {
+                applyRasterPoint(from: gesture)
+            }
+
         case .ended:
             if state.kind == .eraser {
                 applyRasterPoint(from: gesture)
@@ -337,15 +419,22 @@ final class ActiveDrawingToolController: NSObject, ObservableObject, UIGestureRe
             DispatchQueue.main.async { [weak self] in
                 self?.completeCanvasGesture()
             }
+
         case .cancelled, .failed:
             cancelCanvasGesture()
+
         default:
             break
         }
     }
 
-    private func beginCanvasGesture(_ gesture: UIGestureRecognizer, canvas: PKCanvasView) {
+    private func beginCanvasGesture(
+        _ gesture: UIGestureRecognizer,
+        canvas: PKCanvasView
+    ) {
         guard !isPencilGestureActive else { return }
+        rasterLassoInteractionController.clearSelection()
+        clearNativeUndoHistory()
         isPencilGestureActive = true
         setFingerNavigationEnabled(false)
         historyController?.beginGesture()
@@ -354,7 +443,10 @@ final class ActiveDrawingToolController: NSObject, ObservableObject, UIGestureRe
 
         guard state.kind == .eraser,
               let image = backgroundView?.image,
-              let session = RasterEraseSession(image: image, canvasSize: canvasSize) else {
+              let session = RasterEraseSession(
+                image: image,
+                canvasSize: canvasSize
+              ) else {
             return
         }
         rasterSession = session
@@ -366,12 +458,15 @@ final class ActiveDrawingToolController: NSObject, ObservableObject, UIGestureRe
         guard state.kind == .eraser,
               let session = rasterSession,
               let surface = rasterSurfaceView,
-              let backgroundView else { return }
+              let backgroundView else {
+            return
+        }
         session.erase(
             points: [gesture.location(in: surface)],
             brushDiameter: max(2, CGFloat(state.width))
         )
         guard session.didChange else { return }
+
         if rasterPreviewLayer == nil {
             let layer = session.makePreviewLayer()
             backgroundView.layer.addSublayer(layer)
@@ -384,7 +479,8 @@ final class ActiveDrawingToolController: NSObject, ObservableObject, UIGestureRe
 
     private func prepareRasterCompletion() {
         guard let session = rasterSession else { return }
-        if session.didChange, let finalImage = session.image() {
+        if session.didChange,
+           let finalImage = session.image() {
             backgroundView?.image = finalImage
             pendingRasterImage = finalImage
             pendingRasterChanged = true
@@ -395,7 +491,10 @@ final class ActiveDrawingToolController: NSObject, ObservableObject, UIGestureRe
     }
 
     private func completeCanvasGesture() {
-        guard isPencilGestureActive, let canvas else { return }
+        guard isPencilGestureActive,
+              let canvas else {
+            return
+        }
         let finalImage = pendingRasterChanged
             ? pendingRasterImage
             : backgroundView?.image
@@ -406,16 +505,25 @@ final class ActiveDrawingToolController: NSObject, ObservableObject, UIGestureRe
         ) ?? true
 
         if changed {
-            canvasStateCommitted?(finalDrawing, finalImage, pendingRasterChanged)
+            canvasStateCommitted?(
+                finalDrawing,
+                finalImage,
+                pendingRasterChanged
+            )
         }
+        clearNativeUndoHistory()
         finishGestureState()
     }
 
     private func cancelCanvasGesture() {
         guard isPencilGestureActive else { return }
-        if let snapshot = historyController?.cancelGesture(), let canvas {
+        if let snapshot = historyController?.cancelGesture(),
+           let canvas {
+            pendingProgrammaticDrawingData = snapshot.drawing.dataRepresentation()
+            clearNativeUndoHistory()
             canvas.drawing = snapshot.drawing
             backgroundView?.image = snapshot.backgroundImage
+            clearNativeUndoHistory()
         }
         finishGestureState()
     }
@@ -428,15 +536,29 @@ final class ActiveDrawingToolController: NSObject, ObservableObject, UIGestureRe
         pendingRasterChanged = false
         isRasterEditing = false
         isPencilGestureActive = false
+        clearNativeUndoHistory()
         setFingerNavigationEnabled(true)
         suppressCanvasMenus()
     }
 
+    private func clearNativeUndoHistory() {
+        canvas?.undoManager?.removeAllActions()
+    }
+
     private func canonicalColor(_ raw: String) -> String {
-        var value = raw.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
-        if value.hasPrefix("#") { value.removeFirst() }
-        if value.count == 8 { value = String(value.prefix(6)) }
-        guard value.count == 6, value.allSatisfy(\.isHexDigit) else { return "#000000" }
+        var value = raw
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .uppercased()
+        if value.hasPrefix("#") {
+            value.removeFirst()
+        }
+        if value.count == 8 {
+            value = String(value.prefix(6))
+        }
+        guard value.count == 6,
+              value.allSatisfy(\.isHexDigit) else {
+            return "#000000"
+        }
         return "#\(value)"
     }
 

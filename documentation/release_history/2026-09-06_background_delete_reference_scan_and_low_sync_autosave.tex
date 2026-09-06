@@ -1,0 +1,47 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+
+\usetikzlibrary{graphs,graphdrawing}
+\usegdlibrary{layered}
+
+% for external graphviz
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/external_graphviz.tex}
+
+% for tags
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/parts/control_sequence/kind/semtag/semtag.tex}
+
+% for links
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/seehere.tex}
+
+\title{Background Delete Reference Scan and Low-Sync Autosave}
+\date{6 September 2026}
+\author{Mohammad Rahmani}
+
+\begin{document}
+   \maketitle
+
+   \section{Fixes}
+   \begin{itemize}
+      \item Moved the expensive reference-usage scan that precedes Navigator Delete into a standalone child process. The editor remains usable while the workspace is searched, and the existing reference dialog is shown only after the scan finishes.
+      \item Applied the same background reference scan to the reference-cleanup branch of multi-file Delete.
+      \item Kept the existing delete confirmation and the existing background filesystem/reference-cleanup workers unchanged after preflight completes.
+      \item Moved autosave staging files out of the Dropbox project tree into the local application cache under \texttt{\~{}/.cache/nd\_mind\_mirror\_project/autosave\_staging}. Dropbox now sees only the final autosave commit instead of an additional temporary file for each autosave cycle.
+   \end{itemize}
+
+   \bibliographystyle{plainnat}
+   \bibliography{/home/donkarlo/Dropbox/repo/nd_shared_research/bibliography/bibliography.bib}
+\end{document}

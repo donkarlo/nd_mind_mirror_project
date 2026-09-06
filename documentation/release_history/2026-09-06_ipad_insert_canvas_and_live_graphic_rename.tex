@@ -1,0 +1,58 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+
+\usetikzlibrary{graphs,graphdrawing}
+\usegdlibrary{layered}
+
+% for external graphviz
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/external_graphviz.tex}
+
+% for tags
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/parts/control_sequence/kind/semtag/semtag.tex}
+
+% for links
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/seehere.tex}
+
+\title{ND Mind Mirror -- iPad insert canvas and live graphic rename}
+\date{2026-09-06}
+\author{Mohammad Rahmani}
+
+\begin{document}
+   \maketitle
+
+   \section{Changes}
+   \begin{itemize}
+      \item New \texttt{Insert image in iPad} documents now take their logical canvas width and height from the Ubuntu \texttt{graphic.canvas\_width} and \texttt{graphic.canvas\_height} settings. The shipped and current values are \texttt{760 x 980}.
+      \item Existing images opened with \texttt{Edit image in iPad} continue to use the image/sidecar native dimensions and are not resized to the Insert default.
+      \item PNG, JPG, and JPEG files with an adjacent \texttt{.ndgraphic} sidecar are treated as one managed graphic during Navigator move/rename operations, so the sidecar follows the raster file.
+      \item After a managed sidecar rename, its \texttt{image\_name} field is repaired to the new raster filename when the corresponding same-stem image exists.
+      \item The Ubuntu bridge now accepts a compact rename notification. If the renamed/moved path contains the currently active graphic, the bridge remaps its active sidecar and publishes the new path/name to connected iPad clients.
+      \item The durable bridge open-request path is remapped together with the active sidecar so later reconnect handling does not point at the pre-rename path.
+      \item A live iPad rename now carries an explicit old-path marker. The iPad remaps only the active document identity and save gate, preserving the current canvas, raster state, viewport, and Undo/Redo history instead of loading the renamed graphic as a new document.
+      \item The rewritten durable open request is marked as already consumed by the bridge watcher, preventing a second ordinary open event from reloading the renamed document.
+   \end{itemize}
+
+   \section{Validation}
+   \begin{itemize}
+      \item Modified Python modules pass \texttt{py\_compile}.
+      \item The modified Swift \texttt{GraphicMessage.swift}, \texttt{GraphicDocumentSaveGate.swift}, and \texttt{ContentView.swift} pass the Swift frontend parser.
+      \item YAML settings parse successfully with the Insert dimensions set to \texttt{760 x 980}.
+   \end{itemize}
+
+   \bibliographystyle{plainnat}
+   \bibliography{/home/donkarlo/Dropbox/repo/nd_shared_research/bibliography/bibliography.bib}
+\end{document}

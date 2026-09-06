@@ -1,0 +1,49 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+
+\usetikzlibrary{graphs,graphdrawing}
+\usegdlibrary{layered}
+
+% for external graphviz
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/external_graphviz.tex}
+
+% for tags
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/parts/control_sequence/kind/semtag/semtag.tex}
+
+% for links
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/seehere.tex}
+
+\title{Migration 7 Navigator clipboard and active selection}
+\date{2026-09-06}
+\author{Mohammad Rahmani}
+
+\begin{document}
+   \maketitle
+
+   \section{Changes}
+   \begin{itemize}
+      \item Navigator now uses extended row selection so Ctrl-click cherry-picking and Shift-click range selection work for files and folders.
+      \item Ctrl+C, Ctrl+X, and Ctrl+V operate on all selected top-level Navigator paths. Copy and Cut are also available directly in the right-click menu.
+      \item Right-clicking an item already inside a multi-selection preserves the complete selection. Right-clicking an unselected item makes that item the single context target.
+      \item Paste collisions suggest suffix-aware names such as \texttt{name\_0}, \texttt{name\_1}, and \texttt{file\_0.tex} while allowing the suggested name to be edited before the operation continues.
+      \item Cut/Paste is routed through the existing background workspace move controller so open tabs and repository references follow moved paths using the same semantic maintenance pipeline as Navigator drag/move.
+      \item Changing the active editor tab clears stale Navigator selection, reveals the backing file, centers its row vertically, and keeps the selection blue with white text even while keyboard focus remains in the editor.
+   \end{itemize}
+
+   \bibliographystyle{plainnat}
+   \bibliography{/home/donkarlo/Dropbox/repo/nd_shared_research/bibliography/bibliography.bib}
+\end{document}

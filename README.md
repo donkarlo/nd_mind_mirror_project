@@ -18,12 +18,15 @@ The file on disk is always the canonical source. Visual editing, Preview wrapper
 - Ctrl/Shift multi-selection, multi-delete, and drag/move are supported.
 - **F2** renames the selected Navigator file/folder.
 - File/folder rename and drag/move remap open editor tabs and renderer paths; stale queued/running Preview work against the old path is stopped before the filesystem move.
+- Managed PNG/JPG/JPEG graphics move or rename together with their neighboring `.ndgraphic` sidecar. If that graphic is active in the iPad bridge, the bridge remaps its live identity to the new path/name without reloading the active iPad canvas or resetting Undo/Redo history.
+- Existing occurrence/preflight checks and delete-reference dialogs remain synchronous before a confirmed operation. After confirmation, repository-wide rename/move/delete reference maintenance runs in a separate child process so the editor stays responsive; consecutive operations are batched, open editor buffers are excluded from worker writes, and search-index refreshes are coalesced after the batch.
 - Rename reference updating is semantic rather than a global text replacement. Ordinary prose that merely contains the old filename/path is left unchanged.
 - Reference rewriting recognizes actual file-reference contexts such as LaTeX `\input`, `\include`, `\subfile`, `\includegraphics`, `\includepdf`, bibliography resources, listings/verbatim input, `\inputminted`, local `\href`/`\url`, and supported document-link forms.
 - Rename reference resolution supports all three path forms:
   1. paths relative to the file that contains the reference;
   2. paths relative to the configured Navigator/search root;
   3. absolute operating-system paths.
+- Portable `/repo/...` references remain `/repo/...` when their target is moved or renamed.
 - Extensionless LaTeX references such as `\input{parts/chapter}` remain extensionless when the corresponding `.tex` file is renamed.
 - Rename reference scanning uses the configured `search_ignore.yaml`; ignored files and ignored folders are not searched or rewritten.
 - Navigator and Structure each provide explicit **Collapse** and **Restore Previous State** controls.
@@ -170,7 +173,7 @@ Equivalent Dropbox/repository-relative path:
 
 Important files include:
 
-- `settings.yaml` — application/UI behavior, including Source/Visual/Preview render-performance knobs and the shared Persian font;
+- `settings.yaml` — application/UI behavior, including Source/Visual/Preview render-performance knobs, the shared Persian font, and `graphic.canvas_width` / `graphic.canvas_height` for the default size of newly inserted iPad graphics;
 - `keyboard_shortcuts.yaml` — application accelerators;
 - `latex_shortcuts.yaml` — LaTeX snippets/completions;
 - `search_ignore.yaml` — search/Navigator/rename-scan ignore rules;
@@ -214,6 +217,7 @@ There is no second root-level copy of `nd_graphic.zip` in the project. The canon
 - Autosave through the Ubuntu/iPad bridge.
 - Managed PNG graphics keep neighboring `.ndgraphic` sidecars.
 - Existing managed figures can be updated from the iPad without replacing the surrounding LaTeX workflow.
+- New `Insert image in iPad` documents take their logical canvas size from Ubuntu `graphic.canvas_width` and `graphic.canvas_height`; the shipped/current default is **760 × 980**. `Edit image in iPad` continues to use the existing image's native dimensions.
 - The iPad header has a **Close image** button that closes only the active graphic and returns to the Ubuntu-waiting screen without disconnecting the bridge listener.
 - Pending graphic saves retry only the latest canvas state after a short acknowledgement timeout; closing waits for save acknowledgement and keeps the image open if retries are exhausted.
 
@@ -237,6 +241,7 @@ The startup path refreshes the iPad transfer package before constructing the Qt 
 ## Project layout
 
 - `src/nd_mind_mirror/core/` — document, LaTeX, search, settings, rendering, and workspace logic.
+- `src/nd_mind_mirror/core/workspace/operation/` — process-side services and worker entry points for batched workspace reference maintenance.
 - `src/nd_mind_mirror/ui/` — Qt editors, panels, Preview, search UI, and main-window controllers.
 - `src/nd_mind_mirror/graphic/` — desktop/iPad graphic workflow and bridge.
 - `src/nd_mind_mirror/graphic/ipad/` — editable Swift package and canonical transfer ZIP.
@@ -263,7 +268,8 @@ New and modified implementation files begin with a concise module description. N
 - Preview wheel/touchpad scrolling is handled directly by the PDF viewport. Source/Visual selection highlighting is applied only after the current SyncTeX mapping is ready, so highlighting does not control wheel scrolling or use stale PDF coordinates.
 - Live Preview cancels an obsolete LaTeX compile after the normal typing debounce and immediately renders the newest editor generation instead of waiting indefinitely for an old compile.
 - The canonical editable Swift Playgrounds package is `src/nd_mind_mirror/graphic/ipad/nd_graphic.swiftpm/`; startup removes numbered `nd_graphic (N).swiftpm` transfer/conflict copies and never treats them as source.
-- New Ubuntu `Insert image in iPad` graphics reuse the last edited iPad canvas size; both new and existing graphics open at logical 100% with the canvas aligned to the top-left viewport. Two-finger pinch zoom remains enabled after opening.
+- New Ubuntu `Insert image in iPad` graphics use the Ubuntu-configured logical canvas size (`graphic.canvas_width` × `graphic.canvas_height`, default 760 × 980); existing graphics opened with Edit keep their native dimensions. Both open at logical 100% with the canvas aligned to the top-left viewport, and two-finger pinch zoom remains enabled.
+- A managed graphic renamed or moved in the Ubuntu Navigator keeps its `.ndgraphic` companion; the active iPad session follows the new path/name while preserving the current canvas, viewport, and Undo/Redo history.
 - Starting the iPad app or reconnecting the bridge does not reopen a stale previous insert/update request and does not create a new blank graphic. Opening an insert request no longer performs an eager blank save before the user changes the canvas.
 - Existing update backgrounds are preserved during ordinary iPad autosaves even if SwiftUI briefly exposes a nil background while a document is loading, preventing a white canvas from overwriting the real PNG.
 - Pencil and Highlighter toolbar buttons each open their own settings popup for color, thickness, and transparency. The popup can add a new tool immediately after the current tool, change the current tool, switch among same-kind saved tools, or delete one; the main toolbar no longer duplicates those three setting controls.
