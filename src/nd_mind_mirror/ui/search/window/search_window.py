@@ -1,31 +1,43 @@
+"""Responsive Double-Shift file and folder search window."""
+
 from pathlib import Path
 
 from PySide6.QtCore import QEvent, Qt, QTimer, Signal
 from PySide6.QtGui import QKeyEvent
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QApplication,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QPushButton,
-    QStyle,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
     QWidget,
 )
 
-from nd_mind_mirror.ui.search.thread.file_search_index_thread import (
-    FileSearchIndexThread,
+from nd_mind_mirror.ui.search.search_typing_controller import (
+    SearchTypingController,
 )
-from nd_mind_mirror.ui.search.thread.file_search_thread import (
-    FileSearchThread,
+from nd_mind_mirror.ui.search.thread.cooperative_file_search_index_thread import (
+    CooperativeFileSearchIndexThread,
+)
+from nd_mind_mirror.ui.search.thread.cooperative_file_search_thread import (
+    CooperativeFileSearchThread,
+)
+from nd_mind_mirror.ui.search.window.search_result_tree_presenter import (
+    SearchResultTreePresenter,
 )
 
 
 class SearchWindow(QWidget):
+    """Search the configured workspace without ever blocking the input field."""
+
     latex_file_selected = Signal(str)
+
     _HIT_ROLE = int(Qt.ItemDataRole.UserRole) + 1
+    _DIRECTORY_ROLE = int(Qt.ItemDataRole.UserRole) + 2
 
     def __init__(
         self,
@@ -75,15 +87,24 @@ class SearchWindow(QWidget):
         )
 
         self._generation = 0
-        self._threads: list[
-            FileSearchThread
-        ] = []
         self._index_generation = 0
-        self._index_thread: FileSearchIndexThread | None = None
+        self._threads: list[
+            CooperativeFileSearchThread
+        ] = []
+        self._index_threads: list[
+            CooperativeFileSearchIndexThread
+        ] = []
+        # Compatibility boundary for the legacy large-document controller.
+        # Its historical runtime hook still writes ``_index_thread`` directly.
+        # The property below tracks that worker in the canonical thread list so
+        # cancellation and shutdown remain safe until that old hook is removed.
+        self._legacy_index_thread = None
         self._search_index: list[
             tuple[str, str, str, str, str, bool, str]
         ] = []
+        self._directory_flags: dict[str, bool] = {}
         self._index_ready = False
+        self._shutdown_started = False
 
         self._path_label = QLabel(self)
         self._path_label.setTextInteractionFlags(
@@ -131,6 +152,12 @@ class SearchWindow(QWidget):
         )
         self._tree.installEventFilter(self)
 
+        self._result_presenter = SearchResultTreePresenter(
+            tree=self._tree,
+            hit_role=self._HIT_ROLE,
+            directory_role=self._DIRECTORY_ROLE,
+        )
+
         self._status_label = QLabel(self)
 
         layout = QVBoxLayout(self)
@@ -160,29 +187,53 @@ class SearchWindow(QWidget):
             self._start_search
         )
 
+        self._typing_controller = SearchTypingController(
+            self,
+            self,
+        )
+
+        application = QApplication.instance()
+        if application is not None:
+            application.aboutToQuit.connect(
+                self.shutdown
+            )
+
         self._refresh_root_label()
         self._show_idle_state()
         self.rebuild_index()
 
+    @property
+    def _index_thread(self):
+        """Expose the historical single-index-thread name without splitting ownership."""
+        return self._legacy_index_thread
+
+    @_index_thread.setter
+    def _index_thread(self, thread) -> None:
+        """Track legacy-assigned index workers in the canonical lifecycle list."""
+        self._legacy_index_thread = thread
+        if thread is not None and thread not in self._index_threads:
+            self._index_threads.append(thread)
+
     def show_and_focus(self) -> None:
+        """Open Search, or just refocus it if Double Shift fires again."""
         was_visible = self.isVisible()
 
-        # The workspace may be changed by Dropbox, git, a terminal, or another
-        # editor while Mind Mirror is running. Rebuild the lightweight name
-        # index whenever Double Shift opens search so newly created/moved
-        # files and folders are searchable immediately without restarting.
-        self.rebuild_index()
+        if not was_visible:
+            if not self._has_running_index_thread():
+                self.rebuild_index()
 
-        self._center_on_parent()
-        self.show()
-        self._center_on_parent()
+            self._center_on_parent()
+            self.show()
+            self._center_on_parent()
+
         self.raise_()
         self.activateWindow()
         self._search_edit.setFocus()
 
-        # Keep the previous query between invocations, but select it all so the
-        # next typed character or Backspace replaces the complete previous
-        # query immediately.  Arrow keys can still move the caret normally.
+        if was_visible:
+            return
+
+        # Preserve the previous query but let the next typed character replace it.
         self._search_edit.selectAll()
 
         if self._search_edit.text().strip():
@@ -200,18 +251,16 @@ class SearchWindow(QWidget):
         tree_indent_width: int,
         hierarchical_path_matching: bool = True,
     ) -> None:
-        new_root = self._validated_root(
+        self._root_path = self._validated_root(
             root_path
         )
-        new_ignore_file = Path(
-            ignore_file_path
-        ).expanduser().resolve()
-        self._root_path = new_root
         self._max_results = max(
             int(max_results),
             1,
         )
-        self._ignore_file_path = new_ignore_file
+        self._ignore_file_path = Path(
+            ignore_file_path
+        ).expanduser().resolve()
         self._fuzzy_threshold = float(
             fuzzy_threshold
         )
@@ -238,42 +287,37 @@ class SearchWindow(QWidget):
                 50,
             )
         )
+        self._typing_controller.apply()
         self._refresh_root_label()
-
-        # Reloading settings also reloads search_ignore.yaml even when
-        # its path did not change.
         self.rebuild_index()
 
     def rebuild_index(self) -> None:
+        """Refresh names in the background while keeping the last good index usable."""
         self._index_generation += 1
         generation = self._index_generation
-        self._index_ready = False
-        self._search_index = []
+        had_index = self._index_ready
+
         self._generation += 1
         self._debounce_timer.stop()
+        self._interrupt_search_threads()
+        self._interrupt_index_threads()
 
-        for thread in list(self._threads):
-            if thread.isRunning():
-                thread.requestInterruption()
-
-        if (
-            self._index_thread is not None
-            and self._index_thread.isRunning()
-        ):
-            self._index_thread.requestInterruption()
-            self._index_thread.wait(1000)
+        if not had_index:
+            self._index_ready = False
 
         self._status_label.setText(
-            "Indexing search root..."
+            "Refreshing search index..."
+            if had_index
+            else "Indexing search root..."
         )
 
-        thread = FileSearchIndexThread(
+        thread = CooperativeFileSearchIndexThread(
             generation=generation,
             root_path=self._root_path,
             ignore_file_path=self._ignore_file_path,
             parent=self,
         )
-        self._index_thread = thread
+        self._index_threads.append(thread)
         thread.index_ready.connect(
             self._apply_index
         )
@@ -291,25 +335,42 @@ class SearchWindow(QWidget):
                 if key == Qt.Key.Key_Down:
                     if self._focus_first_search_result():
                         return True
-                if key in {Qt.Key.Key_Return, Qt.Key.Key_Enter}:
+
+                if key in {
+                    Qt.Key.Key_Return,
+                    Qt.Key.Key_Enter,
+                }:
                     item = self._tree.currentItem()
-                    if item is None or not bool(
-                        item.data(0, self._HIT_ROLE)
+                    if (
+                        item is None
+                        or not bool(
+                            item.data(
+                                0,
+                                self._HIT_ROLE,
+                            )
+                        )
                     ):
                         self._focus_first_search_result()
                         item = self._tree.currentItem()
+
                     if item is not None:
                         self._activate_item(item)
                     return True
 
             if watched is self._tree:
-                if key in {Qt.Key.Key_Return, Qt.Key.Key_Enter}:
+                if key in {
+                    Qt.Key.Key_Return,
+                    Qt.Key.Key_Enter,
+                }:
                     item = self._tree.currentItem()
                     if item is not None:
                         self._activate_item(item)
                     return True
 
-        return super().eventFilter(watched, event)
+        return super().eventFilter(
+            watched,
+            event,
+        )
 
     def keyPressEvent(
         self,
@@ -323,23 +384,30 @@ class SearchWindow(QWidget):
         super().keyPressEvent(event)
 
     def closeEvent(self, event) -> None:
+        """Hide promptly; workers stop cooperatively without GUI-thread waits."""
+        self._generation += 1
         self._debounce_timer.stop()
-
-        for thread in list(
-            self._threads
-        ):
-            if thread.isRunning():
-                thread.requestInterruption()
-                thread.wait(1000)
-
-        if (
-            self._index_thread is not None
-            and self._index_thread.isRunning()
-        ):
-            self._index_thread.requestInterruption()
-            self._index_thread.wait(1000)
-
+        self._interrupt_search_threads()
+        self._interrupt_index_threads()
         super().closeEvent(event)
+
+    def shutdown(self) -> None:
+        """Join workers only when the application itself is exiting."""
+        if self._shutdown_started:
+            return
+
+        self._shutdown_started = True
+        self._debounce_timer.stop()
+        self._interrupt_search_threads()
+        self._interrupt_index_threads()
+
+        for thread in list(self._threads):
+            if thread.isRunning():
+                thread.wait(1500)
+
+        for thread in list(self._index_threads):
+            if thread.isRunning():
+                thread.wait(1500)
 
     def _center_on_parent(self) -> None:
         parent = self.parentWidget()
@@ -395,6 +463,16 @@ class SearchWindow(QWidget):
             )
             return
 
+        # If the legacy performance controller started a background refresh,
+        # user typing has priority.  The last complete index remains valid and
+        # searchable while the refresh is cancelled cooperatively.
+        legacy_index_thread = self._legacy_index_thread
+        if (
+            legacy_index_thread is not None
+            and legacy_index_thread.isRunning()
+        ):
+            legacy_index_thread.requestInterruption()
+
         self._status_label.setText(
             "Searching..."
         )
@@ -412,19 +490,14 @@ class SearchWindow(QWidget):
 
         self._generation += 1
         generation = self._generation
+        self._interrupt_search_threads()
 
-        for thread in self._threads:
-            if thread.isRunning():
-                thread.requestInterruption()
-
-        thread = FileSearchThread(
+        thread = CooperativeFileSearchThread(
             generation=generation,
             entries=self._search_index,
             query=query,
             max_results=self._max_results,
-            fuzzy_threshold=(
-                self._fuzzy_threshold
-            ),
+            fuzzy_threshold=self._fuzzy_threshold,
             hierarchical_path_matching=(
                 self._hierarchical_path_matching
             ),
@@ -448,7 +521,20 @@ class SearchWindow(QWidget):
         if generation != self._index_generation:
             return
 
-        self._search_index = list(entries)
+        indexed_entries = list(entries)
+        self._search_index = indexed_entries
+        self._directory_flags = {
+            str(path_text): bool(is_directory)
+            for (
+                path_text,
+                _name_text,
+                _stem_text,
+                _normalized_name,
+                _normalized_stem,
+                is_directory,
+                _relative_path,
+            ) in indexed_entries
+        }
         self._index_ready = True
 
         query = self._search_edit.text().strip()
@@ -473,7 +559,12 @@ class SearchWindow(QWidget):
             Path(value)
             for value in results
         ]
-        self._populate_tree(paths)
+
+        self._result_presenter.populate(
+            root_path=self._root_path,
+            paths=paths,
+            directory_flags=self._directory_flags,
+        )
 
         if not paths:
             self._status_label.setText(
@@ -490,108 +581,6 @@ class SearchWindow(QWidget):
             f"{len(paths)} matches{suffix}"
         )
 
-    def _populate_tree(
-        self,
-        paths: list[Path],
-    ) -> None:
-        self._tree.clear()
-
-        if not paths:
-            return
-
-        root_label = (
-            self._root_path.name
-            or str(self._root_path)
-        )
-        root_item = QTreeWidgetItem(
-            [root_label]
-        )
-        root_item.setData(
-            0,
-            Qt.ItemDataRole.UserRole,
-            str(self._root_path),
-        )
-        root_item.setIcon(
-            0,
-            self.style().standardIcon(
-                QStyle.StandardPixmap.SP_DirIcon
-            ),
-        )
-        self._tree.addTopLevelItem(
-            root_item
-        )
-
-        nodes: dict[
-            Path,
-            QTreeWidgetItem,
-        ] = {
-            self._root_path: root_item
-        }
-        result_paths = {path.resolve() for path in paths}
-
-        for path in paths:
-            try:
-                relative = path.relative_to(
-                    self._root_path
-                )
-            except ValueError:
-                continue
-
-            parent_path = self._root_path
-            parent_item = root_item
-
-            for part in relative.parts:
-                current_path = (
-                    parent_path / part
-                )
-                item = nodes.get(
-                    current_path
-                )
-
-                if item is None:
-                    item = QTreeWidgetItem(
-                        [part]
-                    )
-                    item.setData(
-                        0,
-                        Qt.ItemDataRole.UserRole,
-                        str(current_path),
-                    )
-
-                    standard_icon = (
-                        QStyle.StandardPixmap.SP_DirIcon
-                        if current_path.is_dir()
-                        else QStyle.StandardPixmap.SP_FileIcon
-                    )
-                    item.setIcon(
-                        0,
-                        self.style().standardIcon(
-                            standard_icon
-                        ),
-                    )
-                    parent_item.addChild(
-                        item
-                    )
-                    nodes[current_path] = item
-
-                parent_item = item
-                parent_path = current_path
-
-        for node_path, node_item in nodes.items():
-            is_hit = node_path.resolve() in result_paths
-            node_item.setData(
-                0,
-                self._HIT_ROLE,
-                is_hit,
-            )
-            if is_hit:
-                font = node_item.font(0)
-                font.setBold(True)
-                node_item.setFont(0, font)
-
-        root_item.setExpanded(True)
-        self._tree.expandAll()
-
     def _on_item_double_clicked(
         self,
         item: QTreeWidgetItem,
@@ -600,46 +589,73 @@ class SearchWindow(QWidget):
         del column
         self._activate_item(item)
 
-    def _activate_item(self, item: QTreeWidgetItem) -> None:
-        path_text = item.data(0, Qt.ItemDataRole.UserRole)
+    def _activate_item(
+        self,
+        item: QTreeWidgetItem,
+    ) -> None:
+        path_text = item.data(
+            0,
+            Qt.ItemDataRole.UserRole,
+        )
         if not path_text:
             return
 
-        path = Path(str(path_text))
-        if path.is_dir():
-            # ND_MIGRATION4_FOLDER_REVEAL
-            # Folder hits behave like file hits: close Search and reveal the
-            # actual folder in the main Navigator instead of expanding the
-            # temporary search-result tree.
+        path_text = str(path_text)
+        is_directory = bool(
+            item.data(
+                0,
+                self._DIRECTORY_ROLE,
+            )
+        )
+
+        if is_directory:
             parent = self.parentWidget()
-            navigator = getattr(parent, "_file_system_panel", None)
+            navigator = getattr(
+                parent,
+                "_file_system_panel",
+                None,
+            )
             if navigator is not None:
                 navigator.select_path(
-                    str(path.resolve()),
+                    path_text,
                     force_reveal=True,
                 )
             self.close()
             return
 
-        self.latex_file_selected.emit(str(path.resolve()))
+        self.latex_file_selected.emit(
+            path_text
+        )
         self.close()
 
     def _focus_first_search_result(self) -> bool:
         iterator = self._tree.invisibleRootItem()
 
-        def walk(parent: QTreeWidgetItem):
-            for index in range(parent.childCount()):
+        def walk(
+            parent: QTreeWidgetItem,
+        ) -> QTreeWidgetItem | None:
+            for index in range(
+                parent.childCount()
+            ):
                 child = parent.child(index)
-                if bool(child.data(0, self._HIT_ROLE)):
+                if bool(
+                    child.data(
+                        0,
+                        self._HIT_ROLE,
+                    )
+                ):
                     return child
+
                 nested = walk(child)
                 if nested is not None:
                     return nested
+
             return None
 
         item = walk(iterator)
         if item is None:
             return False
+
         self._tree.setCurrentItem(item)
         self._tree.scrollToItem(
             item,
@@ -679,22 +695,41 @@ class SearchWindow(QWidget):
             f"Search root: {self._root_path}"
         )
 
+    def _interrupt_search_threads(self) -> None:
+        for thread in list(self._threads):
+            if thread.isRunning():
+                thread.requestInterruption()
+
+    def _interrupt_index_threads(self) -> None:
+        for thread in list(
+            self._index_threads
+        ):
+            if thread.isRunning():
+                thread.requestInterruption()
+
+    def _has_running_index_thread(self) -> bool:
+        return any(
+            thread.isRunning()
+            for thread in self._index_threads
+        )
+
     def _remove_thread(
         self,
-        thread: FileSearchThread,
+        thread: CooperativeFileSearchThread,
     ) -> None:
         if thread in self._threads:
-            self._threads.remove(
-                thread
-            )
+            self._threads.remove(thread)
 
         thread.deleteLater()
 
     def _remove_index_thread(
         self,
-        thread: FileSearchIndexThread,
+        thread,
     ) -> None:
-        if self._index_thread is thread:
-            self._index_thread = None
+        if thread in self._index_threads:
+            self._index_threads.remove(thread)
+
+        if self._legacy_index_thread is thread:
+            self._legacy_index_thread = None
 
         thread.deleteLater()

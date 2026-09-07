@@ -1,0 +1,74 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+
+\usetikzlibrary{graphs,graphdrawing}
+\usegdlibrary{layered}
+
+% for external graphviz
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/external_graphviz.tex}
+
+% for tags
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/parts/control_sequence/kind/semtag/semtag.tex}
+
+% for links
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/seehere.tex}
+
+% for nested lists and sections
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/deep_structure.tex}
+
+\title{iPad Undo Canvas State Consistency}
+\date{2026-09-06}
+\author{Mohammad Rahmani}
+
+\begin{document}
+   \maketitle
+
+   \section{Problem}
+   After an application-owned Undo, the visible canvas showed the restored state,
+   but the next Pencil or eraser gesture could cause previously undone content to
+   reappear. The application history and the long-lived internal PencilKit canvas
+   state were therefore not fully isolated from each other.
+
+   \section{Architecture correction}
+   \begin{itemize}
+      \item Application history remains the only Undo/Redo authority through
+      \texttt{CanvasEditHistoryController}.
+      \item Native PencilKit Undo registration is disabled when each
+      \texttt{PKCanvasView} surface is created. The previous
+      \texttt{levelsOfUndo = 0} configuration is removed because it does not
+      disable registration.
+      \item A dedicated \texttt{PencilCanvasHistoryRebaseController} owns
+      construction and replacement of the internal PencilKit surface.
+      \item A programmatic history restoration is intercepted before it is
+      propagated as a normal user drawing callback.
+      \item After Undo, Redo, Clear, or a new remote document load, the internal
+      PencilKit surface is rebuilt from the authoritative drawing state and the
+      active drawing tool is attached to the new surface.
+      \item Only the internal \texttt{PKCanvasView} is replaced. The outer
+      \texttt{UIScrollView}, content view, zoom, pan position, image layers, grid,
+      and rulers remain part of the same editor hierarchy.
+   \end{itemize}
+
+   \section{Regression coverage}
+   Automated source-level regression checks verify disabled native Undo
+   registration, interception of application history restores, replacement of
+   only the internal PencilKit surface, active-tool reattachment, and continued
+   use of the application-owned history controller.
+
+   \bibliographystyle{plainnat}
+   \bibliography{/home/donkarlo/Dropbox/repo/nd_shared_research/bibliography/bibliography.bib}
+\end{document}

@@ -1,4 +1,4 @@
-"""Filter ignored workspace paths and sort directories before files without resetting Navigator on routine file changes."""
+"""Filter ignored workspace paths and sort directories before files."""
 
 import re
 from pathlib import Path
@@ -9,10 +9,10 @@ from nd_mind_mirror.core.search.ignore.search_ignore_matcher import SearchIgnore
 
 
 class IgnoredFileSystemProxyModel(QSortFilterProxyModel):
-    """Keep ignored paths out of Navigator while preserving tree position during live filesystem updates."""
+    """Keep ignored paths out of Navigator and refresh after filesystem mutations."""
 
     def __init__(self, parent=None) -> None:
-        """Initialize a dynamic proxy rooted at the user's home directory until configured."""
+        """Initialize a dynamic proxy rooted at the user's home directory."""
         super().__init__(parent)
         self._root_path = Path.home().resolve()
         self._matcher = SearchIgnoreMatcher()
@@ -23,24 +23,27 @@ class IgnoredFileSystemProxyModel(QSortFilterProxyModel):
         root_path: str | Path,
         ignore_file_path: str | Path | None,
     ) -> None:
-        """Set the workspace root and reload ignore rules with one intentional full proxy refresh."""
+        """Set the workspace root and reload ignore rules."""
         self._root_path = Path(root_path).expanduser().resolve()
         self._matcher = SearchIgnoreMatcher.from_file(ignore_file_path)
+        self.refresh_after_filesystem_change()
+
+    def invalidateFilter(self) -> None:
+        """Refresh the proxy after an explicit filesystem mutation.
+
+        QFileSystemModel already watches ordinary external changes. Mind Mirror
+        calls this method specifically after create/rename/move/delete/paste;
+        those explicit operations must not leave stale proxy rows behind.
+        """
+        self.refresh_after_filesystem_change()
+
+    def refresh_after_filesystem_change(self) -> None:
+        """Rebuild proxy mappings from the current QFileSystemModel state."""
         super().invalidateFilter()
         self.invalidate()
 
-    def invalidateFilter(self) -> None:
-        """Ignore routine full-refresh requests because QFileSystemModel already publishes row changes live."""
-        # FileSystemPanel historically called invalidateFilter() after every
-        # create, rename, drag/move, delete, and clipboard-image paste.  That
-        # resets the entire proxy tree even though QFileSystemModel already
-        # emits the required insert/remove/data-change signals, which causes
-        # visible scroll/selection jumps.  Real root/ignore configuration
-        # changes call the base implementation explicitly from configure().
-        return
-
     def filterAcceptsRow(self, source_row: int, source_parent) -> bool:
-        """Accept root ancestors and non-ignored descendants while rejecting unrelated paths."""
+        """Accept root ancestors and non-ignored descendants."""
         model = self.sourceModel()
         if model is None:
             return False
@@ -54,7 +57,6 @@ class IgnoredFileSystemProxyModel(QSortFilterProxyModel):
             return False
         path = Path(path_text)
 
-        # QFileSystemModel needs root ancestors in the proxy for mapFromSource().
         if path == self._root_path:
             return True
 
@@ -92,7 +94,7 @@ class IgnoredFileSystemProxyModel(QSortFilterProxyModel):
         return tuple(key)
 
     def lessThan(self, left, right) -> bool:
-        """Order folders first, then sort folders/files independently by natural name."""
+        """Order folders first, then sort folders/files independently by name."""
         model = self.sourceModel()
         if model is None:
             return super().lessThan(left, right)

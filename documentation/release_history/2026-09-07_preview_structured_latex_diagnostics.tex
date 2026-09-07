@@ -1,0 +1,60 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+
+\title{Structured LaTeX Preview diagnostics}
+\date{2026-09-07}
+\author{Mohammad Rahmani}
+
+\begin{document}
+\maketitle
+
+\section{Feature}
+Preview compilation failures now have a readable tree instead of only a flat
+compiler message. The tree is rooted at \verb|search.default_path| and follows
+actual \verb|\input| and \verb|\include| references using the canonical
+workspace path-resolution rules.
+
+\section{Navigation}
+Every resolved source-file row and every reference row carries its source
+location. Double-clicking a row opens the corresponding file in Mind Mirror and
+moves the editor to the reported line and column. For a missing input, the
+clickable location is the referring source command because the target file does
+not exist.
+
+\section{Generated source mapping}
+Recursive Preview expansion flattens \verb|\input| and \verb|\include| content
+into the temporary \verb|preview.tex| file, so LaTeX can report a generated
+line instead of the original child-file line. Diagnostics now reproduce the
+same workspace-aware expansion and Preview source-building stages, read the
+existing begin/end insertion markers, and map generated Preview lines back to
+the deepest original source file and line. Nested inserted blocks are collapsed
+when counting the containing source so earlier inputs do not shift later error
+locations. This provenance layer is diagnostic-only and does not rewrite the
+canonical LaTeX source or change compile behavior.
+
+\section{Presentation}
+The diagnostics pane is resizable below the last valid PDF. Resolved files,
+references, missing paths, warnings, and compiler output have distinct tree
+roles and icons. A successful render automatically closes the diagnostics pane.
+
+\section{Path semantics}
+The trace uses \verb|WorkspaceReferenceResolver|. Relative references are
+resolved beside the referring file. Leading-slash references are resolved below
+\verb|search.default_path| first and then as operating-system absolute paths.
+No repository-wide suffix guessing is introduced by the diagnostics feature.
+
+\end{document}

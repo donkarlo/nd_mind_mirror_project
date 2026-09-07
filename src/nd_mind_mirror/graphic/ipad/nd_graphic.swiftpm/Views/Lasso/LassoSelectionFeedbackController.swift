@@ -1,16 +1,19 @@
-// Draws the visual path for the custom Pencil lasso without re-enabling PKLassoTool.
+// Draws the visual path for the custom Pencil lasso and follows the unified mixed selection.
 
 import PencilKit
 import UIKit
 
-/// Mirrors PencilKit's gray dashed lasso feedback while the app keeps ownership of selection geometry.
+/// Mirrors PencilKit's gray dashed lasso feedback while one mixed-selection controller owns geometry.
 @MainActor
-final class LassoSelectionFeedbackController: NSObject, UIGestureRecognizerDelegate {
+final class LassoSelectionFeedbackController:
+    NSObject,
+    UIGestureRecognizerDelegate
+{
     var onLassoCompleted: (([CGPoint]) -> Void)?
 
     private weak var canvas: PKCanvasView?
     private weak var hostView: UIView?
-    private weak var selectionOverlay: SelectionResizeOverlay?
+    private weak var selectionOverlay: RasterSelectionOverlayView?
 
     private let pathLayer = CAShapeLayer()
     private var pencilRecognizer: UIPanGestureRecognizer?
@@ -39,6 +42,7 @@ final class LassoSelectionFeedbackController: NSObject, UIGestureRecognizerDeleg
     func attach(to canvas: PKCanvasView) {
         if self.canvas === canvas {
             resolveSelectionOverlay()
+            installPathLayerIfNeeded()
             return
         }
 
@@ -49,7 +53,7 @@ final class LassoSelectionFeedbackController: NSObject, UIGestureRecognizerDeleg
         hostView = host
         pathLayer.frame = host.bounds
         resolveSelectionOverlay()
-        installPathLayer(in: host)
+        installPathLayerIfNeeded()
 
         let recognizer = UIPanGestureRecognizer(
             target: self,
@@ -102,15 +106,18 @@ final class LassoSelectionFeedbackController: NSObject, UIGestureRecognizerDeleg
         _ gestureRecognizer: UIGestureRecognizer,
         shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
     ) -> Bool {
-        true
+        false
     }
 
-    @objc private func handlePencilLasso(_ recognizer: UIPanGestureRecognizer) {
+    @objc private func handlePencilLasso(
+        _ recognizer: UIPanGestureRecognizer
+    ) {
         guard enabled, let hostView else { return }
 
         switch recognizer.state {
         case .began:
             resolveSelectionOverlay()
+            installPathLayerIfNeeded()
             trackingFreehand = true
             referenceSelectionBounds = nil
             completedPoints.removeAll(keepingCapacity: true)
@@ -158,10 +165,10 @@ final class LassoSelectionFeedbackController: NSObject, UIGestureRecognizerDeleg
 
         pathLayer.frame = hostView.bounds
         resolveSelectionOverlay()
+        installPathLayerIfNeeded()
 
-        guard let overlay = selectionOverlay,
-              !overlay.isHidden,
-              let currentBounds = selectionBounds(from: overlay) else {
+        guard let currentBounds = selectionOverlay?.selectionBounds,
+              selectionOverlay?.isHidden == false else {
             if CACurrentMediaTime() >= waitingForSelectionUntil {
                 clearPath()
             }
@@ -178,20 +185,33 @@ final class LassoSelectionFeedbackController: NSObject, UIGestureRecognizerDeleg
         }
 
         guard let reference = referenceSelectionBounds else { return }
-        let transformed = transformedPoints(
-            completedPoints,
-            from: reference,
-            to: currentBounds
+        render(
+            points: transformedPoints(
+                completedPoints,
+                from: reference,
+                to: currentBounds
+            ),
+            closed: true
         )
-        render(points: transformed, closed: true)
     }
 
-    private func installPathLayer(in host: UIView) {
+    private func installPathLayerIfNeeded() {
+        guard let hostView else { return }
+        if pathLayer.superlayer === hostView.layer {
+            if let overlay = selectionOverlay,
+               overlay.superview === hostView {
+                pathLayer.removeFromSuperlayer()
+                hostView.layer.insertSublayer(pathLayer, below: overlay.layer)
+            }
+            return
+        }
+
+        pathLayer.removeFromSuperlayer()
         if let overlay = selectionOverlay,
-           overlay.superview === host {
-            host.layer.insertSublayer(pathLayer, below: overlay.layer)
+           overlay.superview === hostView {
+            hostView.layer.insertSublayer(pathLayer, below: overlay.layer)
         } else {
-            host.layer.addSublayer(pathLayer)
+            hostView.layer.addSublayer(pathLayer)
         }
     }
 
@@ -201,25 +221,8 @@ final class LassoSelectionFeedbackController: NSObject, UIGestureRecognizerDeleg
             return
         }
         selectionOverlay = hostView.subviews
-            .compactMap { $0 as? SelectionResizeOverlay }
+            .compactMap { $0 as? RasterSelectionOverlayView }
             .last
-    }
-
-    private func selectionBounds(from overlay: SelectionResizeOverlay) -> CGRect? {
-        let centers = overlay.handles.map(\.center)
-        guard centers.count == 4 else { return nil }
-        let minimumX = centers.map(\.x).min() ?? 0
-        let maximumX = centers.map(\.x).max() ?? 0
-        let minimumY = centers.map(\.y).min() ?? 0
-        let maximumY = centers.map(\.y).max() ?? 0
-        let bounds = CGRect(
-            x: minimumX,
-            y: minimumY,
-            width: maximumX - minimumX,
-            height: maximumY - minimumY
-        )
-        guard bounds.width > 0.5, bounds.height > 0.5 else { return nil }
-        return bounds
     }
 
     private func transformedPoints(
@@ -234,8 +237,10 @@ final class LassoSelectionFeedbackController: NSObject, UIGestureRecognizerDeleg
 
         return points.map { point in
             CGPoint(
-                x: current.minX + (point.x - reference.minX) * scaleX,
-                y: current.minY + (point.y - reference.minY) * scaleY
+                x: current.minX
+                    + (point.x - reference.minX) * scaleX,
+                y: current.minY
+                    + (point.y - reference.minY) * scaleY
             )
         }
     }

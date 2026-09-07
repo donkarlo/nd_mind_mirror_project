@@ -2,11 +2,14 @@
 
 from pathlib import Path
 
-from nd_mind_mirror.core.workspace.path.path_reference_updater import PathReferenceUpdater
+from nd_mind_mirror.core.workspace.path.path_reference_updater import (
+    PathReferenceUpdater,
+)
 
 
-def test_batch_move_updates_multiple_targets_in_one_source(tmp_path: Path) -> None:
-    """Apply several move mappings without requiring a separate workspace pass per target."""
+def test_batch_move_updates_multiple_targets_in_one_source(
+    tmp_path: Path,
+) -> None:
     repository_root = tmp_path / "repo"
     project = repository_root / "project"
     assets = project / "assets"
@@ -41,8 +44,9 @@ def test_batch_move_updates_multiple_targets_in_one_source(tmp_path: Path) -> No
     assert "../assets/new.pdf" in text
 
 
-def test_repo_alias_is_preserved_after_move(tmp_path: Path) -> None:
-    """Keep /repo references portable instead of expanding them to a machine-specific absolute path."""
+def test_default_rooted_reference_is_preserved_after_move(
+    tmp_path: Path,
+) -> None:
     repository_root = tmp_path / "repo"
     project = repository_root / "project"
     project.mkdir(parents=True)
@@ -52,7 +56,7 @@ def test_repo_alias_is_preserved_after_move(tmp_path: Path) -> None:
     new_target.write_text("after", encoding="utf-8")
     source = project / "main.tex"
     source.write_text(
-        "\\href{/repo/project/before.tex}{open}\n",
+        "\\href{/project/before.tex}{open}\n",
         encoding="utf-8",
     )
 
@@ -63,12 +67,13 @@ def test_repo_alias_is_preserved_after_move(tmp_path: Path) -> None:
     )
 
     assert source.read_text(encoding="utf-8") == (
-        "\\href{/repo/project/after.tex}{open}\n"
+        "\\href{/project/after.tex}{open}\n"
     )
 
 
-def test_excluded_open_file_is_not_written_by_background_batch(tmp_path: Path) -> None:
-    """Leave open editor files to the GUI-side merge so the child process cannot race typing."""
+def test_excluded_open_file_is_not_written_by_background_batch(
+    tmp_path: Path,
+) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     old_target = workspace / "old.tex"

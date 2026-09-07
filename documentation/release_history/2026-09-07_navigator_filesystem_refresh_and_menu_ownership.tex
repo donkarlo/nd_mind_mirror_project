@@ -1,0 +1,55 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+
+\title{Navigator refresh after rename and move}
+\date{2026-09-07}
+\author{Mohammad Rahmani}
+
+\begin{document}
+\maketitle
+
+\section{Problem}
+Navigator could keep stale rows after a file or folder had already been renamed
+or moved successfully on disk. The filesystem operation completion path
+requested a proxy refresh, but the proxy model intentionally ignored
+\texttt{invalidateFilter()}, so the old proxy mapping could remain visible.
+
+A second ownership problem allowed a later workspace interaction layer to
+disconnect and reconnect the Navigator context-menu signal even though the
+multi-path context controller is the canonical menu owner.
+
+\section{Fix}
+\begin{itemize}
+   \item Explicit filesystem mutation refreshes now rebuild the
+   \texttt{QSortFilterProxyModel} mapping from the current
+   \texttt{QFileSystemModel} state.
+   \item Existing create, rename, move, delete, and paste completion paths keep
+   using the same refresh entry point, so no parallel refresh mechanism is
+   introduced.
+   \item The workspace interaction controller no longer owns or reconnects the
+   Navigator context menu.
+   \item \texttt{NavigatorMultiPathContextController} remains the single
+   right-click menu owner, including
+   \textbf{Copy / Share $\rightarrow$ Copy from Default Path}.
+\end{itemize}
+
+\section{Regression coverage}
+Regression checks verify real proxy invalidation after filesystem mutations,
+existing move/delete refresh calls, single context-menu ownership, and the
+presence of \textbf{Copy from Default Path}.
+
+\end{document}

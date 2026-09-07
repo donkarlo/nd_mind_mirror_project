@@ -1,0 +1,56 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+
+\usetikzlibrary{graphs,graphdrawing}
+\usegdlibrary{layered}
+
+\title{Strict recursive Preview workspace path resolution}
+\date{2026-09-07}
+\author{Mohammad Rahmani}
+
+\begin{document}
+\maketitle
+
+\section{Problem}
+A stale running Mind Mirror process could still use the older recursive input
+resolver. That resolver searched the repository for suffix matches when a
+relative \verb|\input| or \verb|\include| was not found beside its referring
+file. A thesis Preview could therefore pull an unrelated file from
+\verb|src/kind/presentation| even though the thesis never referenced that
+presentation tree.
+
+\section{Canonical behavior}
+The canonical workspace recursive resolver does not perform repository-wide
+suffix search. Relative paths are resolved only beside the referring file.
+Paths beginning with \verb|/| are resolved below
+\verb|search.default_path| first and then as true operating-system absolute
+paths.
+
+The application launches \verb|EnhancedMainWindow|, which configures Preview
+with \verb|WorkspaceRecursiveInputResolver| and refreshes the current Preview.
+
+\section{Regression coverage}
+Regression tests now verify that:
+\begin{itemize}
+   \item a missing thesis-relative input never selects an unrelated
+   presentation file with a matching suffix;
+   \item a leading-slash workspace reference resolves below
+   \verb|search.default_path|;
+   \item the application launch path wires the workspace recursive resolver.
+\end{itemize}
+
+\end{document}

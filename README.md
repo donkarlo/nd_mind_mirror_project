@@ -17,7 +17,7 @@ This README describes the active functional project: desktop Python/PySide6 sour
 - Double-click opens editable files in Mind Mirror; PDFs/images can open in the system application.
 - Navigator sort order is folders A–Z first, then files A–Z.
 - Navigator right-click commands are grouped into **Open**, **Copy / Share**, **Create**, and **Manage** submenus.
-- **Copy Absolute Path**, **Copy Dropbox Path**, file-name copy, GitHub URL copy/open, file-manager reveal, pinning, create, rename, delete, clipboard-image paste, and iPad graphic editing are supported.
+- **Copy Absolute Path**, **Copy from Default Path**, file-name copy, GitHub URL copy/open, file-manager reveal, pinning, create, rename, delete, clipboard-image paste, and iPad graphic editing are supported. **Copy from Default Path** copies `/path/to/item` relative to `search.default_path`, and supports multi-selection with one path per line.
 - Ctrl-click cherry-picks Navigator rows and Shift-click selects a contiguous range; file/folder Copy, Cut, Delete, and grouped operations use the complete top-level selected set.
 - Navigator file/folder **Copy / Cut / Paste** are available both from the right-click menu and from `Ctrl+C` / `Ctrl+X` / `Ctrl+V`.
 - Navigator clipboard keyboard handling is owned directly by a tree key-event filter rather than competing `QShortcut` objects: `Ctrl+C` stores the current selected set, `Ctrl+X` stores it for move, and `Ctrl+V` pastes it into the selected folder (or the selected file's parent). If there is no internal file/folder clipboard, `Ctrl+V` is deliberately left available to the existing clipboard-image paste workflow.
@@ -32,11 +32,12 @@ This README describes the active functional project: desktop Python/PySide6 sour
 - Existing occurrence/preflight checks and delete-reference dialogs remain synchronous before a confirmed operation. After confirmation, repository-wide rename/move/delete reference maintenance runs in a separate child process so the editor stays responsive; consecutive operations are batched, open editor buffers are excluded from worker writes, and search-index refreshes are coalesced after the batch.
 - Rename reference updating is semantic rather than a global text replacement. Ordinary prose that merely contains the old filename/path is left unchanged.
 - Reference rewriting recognizes actual file-reference contexts such as LaTeX `\input`, `\include`, `\subfile`, `\includegraphics`, `\includepdf`, bibliography resources, listings/verbatim input, `\inputminted`, local `\href`/`\url`, and supported document-link forms.
-- Rename reference resolution supports all three path forms:
-  1. paths relative to the file that contains the reference;
-  2. paths relative to the configured Navigator/search root;
-  3. absolute operating-system paths.
-- Portable `/repo/...` references remain `/repo/...` when their target is moved or renamed.
+- Local reference resolution uses one shared three-mode policy for Ctrl+B navigation, Preview/recursive input resolution, delete occurrence search/removal, and rename/move reference rewriting:
+  1. a token **without** a leading `/` is resolved only relative to the file containing the reference;
+  2. a token **with** a leading `/` is first resolved relative to `search.default_path` after removing that leading slash;
+  3. if the default-rooted candidate does not exist, the same leading-slash token is tried as a real operating-system absolute path.
+- With `search.default_path: /home/donkarlo/Dropbox/repo`, the portable reference to `/home/donkarlo/Dropbox/repo/nd_math_project/file.tex` is `/nd_math_project/file.tex`; `/repo/...` has no special alias semantics.
+- The shared policy applies to LaTeX source/input files, images, PDFs, bibliography resources, local href/url targets, listings/verbatim inputs, and inputminted targets.
 - Extensionless LaTeX references such as `\input{parts/chapter}` remain extensionless when the corresponding `.tex` file is renamed.
 - Rename reference scanning uses the configured `search_ignore.yaml`; ignored files and ignored folders are not searched or rewritten.
 - Navigator and Structure each provide explicit **Collapse** and **Restore Previous State** controls.

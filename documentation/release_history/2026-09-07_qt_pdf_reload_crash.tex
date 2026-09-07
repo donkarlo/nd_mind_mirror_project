@@ -1,0 +1,59 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+
+\usetikzlibrary{graphs,graphdrawing}
+\usegdlibrary{layered}
+
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/external_graphviz.tex}
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/parts/control_sequence/kind/semtag/semtag.tex}
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/seehere.tex}
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/deep_structure.tex}
+
+\title{Qt Quick PDF Preview Reload Crash}
+\date{2026-09-07}
+\author{Mohammad Rahmani}
+
+\begin{document}
+   \maketitle
+
+   \section{Fixed behavior}
+
+   Rapid successful LaTeX generations no longer reach the Qt Quick
+   \verb|PdfDocument| loader as an unrestricted burst.
+
+   \begin{itemize}
+      \item The first generated PDF is still presented immediately.
+      \item Subsequent generations arriving inside a short native-PDF loading
+      interval are collapsed so that only the newest PDF is handed to Qt.
+      \item A newer LaTeX compilation failure cancels any queued successful
+      intermediate PDF, preserving the last known-good preview behind the
+      structured diagnostic tree.
+      \item The change is isolated in an OOP handoff coordinator and does not
+      alter LaTeX rendering, source synchronization, zoom, Fit, or diagnostic
+      path resolution.
+   \end{itemize}
+
+   \section{Observed failure}
+
+   The previous implementation could repeatedly detach and attach the QML
+   \verb|PdfDocument| source while typing. Qt Quick PDF logged
+   \verb|PdfDocument: Cannot open:| during those detach cycles and could
+   terminate the process with native exit code \verb|-11|.
+
+   \bibliographystyle{plainnat}
+   \bibliography{/home/donkarlo/Dropbox/repo/nd_shared_research/bibliography/bibliography.bib}
+\end{document}

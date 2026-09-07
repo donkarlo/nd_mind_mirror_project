@@ -1,12 +1,26 @@
 import PencilKit
 import UIKit
 
-/// Selects, moves, and proportionally resizes arbitrary pixels from the raster background.
+/// Lets a view host apply programmatic lasso previews without recording every drag sample as a new edit.
+@MainActor
+protocol LassoDrawingMutationHost: AnyObject {
+    func applyLassoDrawing(_ drawing: PKDrawing, to canvas: PKCanvasView)
+}
+
+/// Selects, moves, and proportionally resizes one mixed raster + PencilKit selection.
 @MainActor
 final class RasterLassoInteractionController: NSObject, UIGestureRecognizerDelegate {
-    private struct Selection {
+    private struct RasterFragment {
         let baseImage: UIImage
         let fragment: UIImage
+        let originalBounds: CGRect
+    }
+
+    private struct Selection {
+        let originalDrawing: PKDrawing
+        let selectedStrokeIndices: [Int]
+        let originalBounds: CGRect
+        let raster: RasterFragment?
         var targetBounds: CGRect
     }
 
@@ -16,6 +30,7 @@ final class RasterLassoInteractionController: NSObject, UIGestureRecognizerDeleg
     private weak var historyController: CanvasEditHistoryController?
     private var overlay: RasterSelectionOverlayView?
     private var selection: Selection?
+
     private var canvasSize = CGSize(width: 1240, height: 1754)
     private var canvasStateCommitted: ((PKDrawing, UIImage?, Bool) -> Void)?
     private var gestureStartBounds: CGRect?
@@ -68,44 +83,62 @@ final class RasterLassoInteractionController: NSObject, UIGestureRecognizerDeleg
         overlay?.clearSelection()
     }
 
+    /// Builds one selection from every enclosed layer instead of choosing raster OR strokes.
     func selectRasterRegion(with polygon: [CGPoint]) {
-        guard polygon.count >= 3,
-              let canvas,
-              let image = backgroundView?.image,
-              !containsSelectableStroke(in: canvas.drawing, polygon: polygon),
-              let normalized = RasterCanvasGeometry().normalizedImage(
-                image,
-                canvasSize: canvasSize
-              ) else {
+        guard polygon.count >= 3, let canvas else {
+            clearSelection()
             return
         }
 
         let canvasRect = CGRect(origin: .zero, size: canvasSize)
         let path = closedPath(points: polygon)
-        let selectedBounds = path.bounds.intersection(canvasRect).standardized
-        guard !selectedBounds.isNull,
-              selectedBounds.width > 1,
-              selectedBounds.height > 1,
-              let base = imageByClearing(path: path, from: normalized),
-              let fragment = fragmentImage(
-                path: path,
-                bounds: selectedBounds,
-                source: normalized
-              ) else {
+        let lassoBounds = path.bounds.intersection(canvasRect).standardized
+        guard !lassoBounds.isNull,
+              lassoBounds.width > 1,
+              lassoBounds.height > 1 else {
+            clearSelection()
+            return
+        }
+
+        let strokeIndices = selectedStrokeIndices(
+            in: canvas.drawing,
+            polygon: polygon
+        )
+        let strokeBounds = boundsOfSelectedStrokes(
+            indices: strokeIndices,
+            drawing: canvas.drawing
+        )
+
+        let raster = makeRasterFragment(
+            path: path,
+            bounds: lassoBounds
+        )
+
+        var combinedBounds = strokeBounds
+        if let rasterBounds = raster?.originalBounds {
+            combinedBounds = combinedBounds.map {
+                $0.union(rasterBounds)
+            } ?? rasterBounds
+        }
+
+        guard let bounds = combinedBounds?.intersection(canvasRect).standardized,
+              !bounds.isNull,
+              bounds.width > 1,
+              bounds.height > 1 else {
             clearSelection()
             return
         }
 
         selection = Selection(
-            baseImage: base,
-            fragment: fragment,
-            targetBounds: selectedBounds
+            originalDrawing: canvas.drawing,
+            selectedStrokeIndices: strokeIndices,
+            originalBounds: bounds,
+            raster: raster,
+            targetBounds: bounds
         )
-        backgroundView?.image = composeCurrentSelection()
-        overlay?.setSelection(
-            bounds: selectedBounds,
-            zoomScale: outerScrollView()?.zoomScale ?? 1
-        )
+
+        // Identity composition guarantees selection creation itself never duplicates content.
+        applySelectionPreview()
     }
 
     private func installGestures(on overlay: RasterSelectionOverlayView) {
@@ -149,7 +182,7 @@ final class RasterLassoInteractionController: NSObject, UIGestureRecognizerDeleg
     }
 
     @objc private func handleMove(_ recognizer: UIPanGestureRecognizer) {
-        guard var selection, let overlay else { return }
+        guard let selection, let overlay else { return }
         let point = recognizer.location(in: overlay)
 
         switch recognizer.state {
@@ -169,9 +202,8 @@ final class RasterLassoInteractionController: NSObject, UIGestureRecognizerDeleg
                 max(startBounds.origin.y + dy, 0),
                 max(canvasSize.height - target.height, 0)
             )
-            selection.targetBounds = target
-            self.selection = selection
-            refreshPreview()
+            setTargetBounds(target)
+
             if recognizer.state == .ended {
                 commitInteraction()
             }
@@ -185,11 +217,12 @@ final class RasterLassoInteractionController: NSObject, UIGestureRecognizerDeleg
     }
 
     @objc private func handleResize(_ recognizer: UIPanGestureRecognizer) {
-        guard var selection,
+        guard selection != nil,
               let overlay,
               let view = recognizer.view,
-              let corner = RasterSelectionOverlayView.Corner(rawValue: view.tag),
-              let startBounds = gestureStartBounds ?? overlay.selectionBounds else {
+              let corner = RasterSelectionOverlayView.Corner(
+                rawValue: view.tag
+              ) else {
             return
         }
 
@@ -200,13 +233,13 @@ final class RasterLassoInteractionController: NSObject, UIGestureRecognizerDeleg
 
         case .changed, .ended:
             guard let original = gestureStartBounds else { return }
-            selection.targetBounds = resizedBounds(
-                original: original,
-                corner: corner,
-                currentPoint: point
+            setTargetBounds(
+                resizedBounds(
+                    original: original,
+                    corner: corner,
+                    currentPoint: point
+                )
             )
-            self.selection = selection
-            refreshPreview()
             if recognizer.state == .ended {
                 commitInteraction()
             }
@@ -228,21 +261,58 @@ final class RasterLassoInteractionController: NSObject, UIGestureRecognizerDeleg
         setNavigationEnabled(false)
     }
 
+    private func setTargetBounds(_ bounds: CGRect) {
+        guard var selection else { return }
+        selection.targetBounds = bounds.standardized
+        self.selection = selection
+        applySelectionPreview()
+    }
+
+    private func applySelectionPreview() {
+        guard let selection,
+              let canvas,
+              let drawing = composedDrawing(for: selection) else {
+            return
+        }
+
+        applyDrawing(drawing, to: canvas)
+        if let image = composedBackground(for: selection) {
+            backgroundView?.image = image
+        }
+        overlay?.setSelection(
+            bounds: selection.targetBounds,
+            zoomScale: outerScrollView()?.zoomScale ?? 1
+        )
+    }
+
     private func commitInteraction() {
-        guard let canvas,
-              let finalImage = composeCurrentSelection() else {
+        guard let selection,
+              let canvas,
+              let finalDrawing = composedDrawing(for: selection) else {
             finishInteraction()
             return
         }
 
-        backgroundView?.image = finalImage
+        let finalImage = composedBackground(for: selection)
+            ?? backgroundView?.image
+        applyDrawing(finalDrawing, to: canvas)
+        if let finalImage {
+            backgroundView?.image = finalImage
+        }
+
         let changed = historyController?.commitGesture(
-            drawing: canvas.drawing,
+            drawing: finalDrawing,
             backgroundImage: finalImage
         ) ?? true
+
         if changed {
-            canvasStateCommitted?(canvas.drawing, finalImage, true)
+            canvasStateCommitted?(
+                finalDrawing,
+                finalImage,
+                selection.raster != nil
+            )
         }
+
         canvas.undoManager?.removeAllActions()
         finishInteraction()
     }
@@ -251,7 +321,7 @@ final class RasterLassoInteractionController: NSObject, UIGestureRecognizerDeleg
         if var selection, let startBounds = gestureStartBounds {
             selection.targetBounds = startBounds
             self.selection = selection
-            refreshPreview()
+            applySelectionPreview()
         }
         _ = historyController?.cancelGesture()
         finishInteraction()
@@ -262,32 +332,116 @@ final class RasterLassoInteractionController: NSObject, UIGestureRecognizerDeleg
         setNavigationEnabled(true)
     }
 
-    private func refreshPreview() {
-        guard let selection,
-              let image = composeCurrentSelection() else { return }
-        backgroundView?.image = image
-        overlay?.setSelection(
-            bounds: selection.targetBounds,
-            zoomScale: outerScrollView()?.zoomScale ?? 1
+    /// Replaces selected stroke indices in-place; selected strokes are never appended.
+    private func composedDrawing(for selection: Selection) -> PKDrawing? {
+        guard !selection.selectedStrokeIndices.isEmpty else {
+            return selection.originalDrawing
+        }
+
+        let transform = geometryTransform(
+            from: selection.originalBounds,
+            to: selection.targetBounds
         )
+
+        var allStrokes = selection.originalDrawing.strokes
+        for index in selection.selectedStrokeIndices
+        where index >= 0 && index < selection.originalDrawing.strokes.count {
+            allStrokes[index] = strokeByApplyingGeometryTransform(
+                selection.originalDrawing.strokes[index],
+                transform: transform
+            )
+        }
+        return PKDrawing(strokes: allStrokes)
     }
 
-    private func composeCurrentSelection() -> UIImage? {
-        guard let selection else { return backgroundView?.image }
+    private func composedBackground(for selection: Selection) -> UIImage? {
+        guard let raster = selection.raster else {
+            return backgroundView?.image
+        }
+
+        let transform = geometryTransform(
+            from: selection.originalBounds,
+            to: selection.targetBounds
+        )
+        let destination = raster.originalBounds
+            .applying(transform)
+            .standardized
+
         let format = UIGraphicsImageRendererFormat.default()
         format.scale = 1
         format.opaque = false
-        return UIGraphicsImageRenderer(size: canvasSize, format: format).image { _ in
-            selection.baseImage.draw(in: CGRect(origin: .zero, size: canvasSize))
-            selection.fragment.draw(in: selection.targetBounds)
+        return UIGraphicsImageRenderer(
+            size: canvasSize,
+            format: format
+        ).image { _ in
+            raster.baseImage.draw(
+                in: CGRect(origin: .zero, size: canvasSize)
+            )
+            raster.fragment.draw(in: destination)
         }
     }
 
-    private func imageByClearing(path: UIBezierPath, from source: UIImage) -> UIImage? {
+    private func geometryTransform(
+        from original: CGRect,
+        to target: CGRect
+    ) -> CGAffineTransform {
+        let safeWidth = max(original.width, 0.001)
+        let safeHeight = max(original.height, 0.001)
+        let scaleX = target.width / safeWidth
+        let scaleY = target.height / safeHeight
+
+        return CGAffineTransform(
+            translationX: target.minX,
+            y: target.minY
+        )
+        .scaledBy(x: scaleX, y: scaleY)
+        .translatedBy(x: -original.minX, y: -original.minY)
+    }
+
+    private func applyDrawing(_ drawing: PKDrawing, to canvas: PKCanvasView) {
+        if let host = canvas.delegate as? LassoDrawingMutationHost {
+            host.applyLassoDrawing(drawing, to: canvas)
+        } else {
+            canvas.drawing = drawing
+        }
+    }
+
+    private func makeRasterFragment(
+        path: UIBezierPath,
+        bounds: CGRect
+    ) -> RasterFragment? {
+        guard let image = backgroundView?.image,
+              let normalized = RasterCanvasGeometry().normalizedImage(
+                image,
+                canvasSize: canvasSize
+              ),
+              let base = imageByClearing(path: path, from: normalized),
+              let fragment = fragmentImage(
+                path: path,
+                bounds: bounds,
+                source: normalized
+              ) else {
+            return nil
+        }
+
+        return RasterFragment(
+            baseImage: base,
+            fragment: fragment,
+            originalBounds: bounds
+        )
+    }
+
+    private func imageByClearing(
+        path: UIBezierPath,
+        from source: UIImage
+    ) -> UIImage? {
         let format = UIGraphicsImageRendererFormat.default()
         format.scale = 1
         format.opaque = false
-        return UIGraphicsImageRenderer(size: canvasSize, format: format).image { rendererContext in
+        return UIGraphicsImageRenderer(
+            size: canvasSize,
+            format: format
+        ).image { rendererContext in
             source.draw(in: CGRect(origin: .zero, size: canvasSize))
             let context = rendererContext.cgContext
             context.saveGState()
@@ -306,7 +460,10 @@ final class RasterLassoInteractionController: NSObject, UIGestureRecognizerDeleg
         let format = UIGraphicsImageRendererFormat.default()
         format.scale = 1
         format.opaque = false
-        return UIGraphicsImageRenderer(size: bounds.size, format: format).image { rendererContext in
+        return UIGraphicsImageRenderer(
+            size: bounds.size,
+            format: format
+        ).image { rendererContext in
             let context = rendererContext.cgContext
             context.saveGState()
             context.translateBy(x: -bounds.minX, y: -bounds.minY)
@@ -315,6 +472,101 @@ final class RasterLassoInteractionController: NSObject, UIGestureRecognizerDeleg
             source.draw(in: CGRect(origin: .zero, size: canvasSize))
             context.restoreGState()
         }
+    }
+
+    private func selectedStrokeIndices(
+        in drawing: PKDrawing,
+        polygon: [CGPoint]
+    ) -> [Int] {
+        drawing.strokes.enumerated().compactMap { index, stroke in
+            strokeBelongsToSelection(stroke, polygon: polygon)
+                ? index
+                : nil
+        }
+    }
+
+    /// Uses center, path coverage, and enclosed bounds so a lasso around a shape selects the whole shape.
+    private func strokeBelongsToSelection(
+        _ stroke: PKStroke,
+        polygon: [CGPoint]
+    ) -> Bool {
+        let bounds = stroke.renderBounds.standardized
+        let center = CGPoint(x: bounds.midX, y: bounds.midY)
+        let centerInside = pointInPolygon(center, polygon: polygon)
+
+        let corners = [
+            CGPoint(x: bounds.minX, y: bounds.minY),
+            CGPoint(x: bounds.maxX, y: bounds.minY),
+            CGPoint(x: bounds.minX, y: bounds.maxY),
+            CGPoint(x: bounds.maxX, y: bounds.maxY),
+        ]
+        let enclosedCorners = corners.reduce(into: 0) { count, point in
+            if pointInPolygon(point, polygon: polygon) {
+                count += 1
+            }
+        }
+
+        let points = stroke.path.map {
+            $0.location.applying(stroke.transform)
+        }
+        guard !points.isEmpty else {
+            return centerInside || enclosedCorners >= 2
+        }
+
+        let insideCount = points.reduce(into: 0) { count, point in
+            if pointInPolygon(point, polygon: polygon) {
+                count += 1
+            }
+        }
+        let fraction = CGFloat(insideCount) / CGFloat(points.count)
+
+        return enclosedCorners >= 2
+            || fraction >= 0.50
+            || (centerInside && fraction >= 0.15)
+    }
+
+    private func boundsOfSelectedStrokes(
+        indices: [Int],
+        drawing: PKDrawing
+    ) -> CGRect? {
+        var result: CGRect?
+        for index in indices
+        where index >= 0 && index < drawing.strokes.count {
+            let bounds = drawing.strokes[index].renderBounds.standardized
+            result = result.map { $0.union(bounds) } ?? bounds
+        }
+        return result
+    }
+
+    /// Preserves visible stroke thickness while transforming only stroke geometry.
+    private func strokeByApplyingGeometryTransform(
+        _ stroke: PKStroke,
+        transform: CGAffineTransform
+    ) -> PKStroke {
+        let points = stroke.path.map { point in
+            PKStrokePoint(
+                location: point.location
+                    .applying(stroke.transform)
+                    .applying(transform),
+                timeOffset: point.timeOffset,
+                size: point.size,
+                opacity: point.opacity,
+                force: point.force,
+                azimuth: point.azimuth,
+                altitude: point.altitude
+            )
+        }
+
+        let path = PKStrokePath(
+            controlPoints: points,
+            creationDate: Date()
+        )
+        return PKStroke(
+            ink: stroke.ink,
+            path: path,
+            transform: .identity,
+            mask: stroke.mask
+        )
     }
 
     private func closedPath(points: [CGPoint]) -> UIBezierPath {
@@ -338,6 +590,7 @@ final class RasterLassoInteractionController: NSObject, UIGestureRecognizerDeleg
         )
         let rawWidth = abs(currentPoint.x - fixed.x)
         let rawHeight = abs(currentPoint.y - fixed.y)
+
         var scale = max(
             rawWidth / max(original.width, 0.001),
             rawHeight / max(original.height, 0.001)
@@ -364,6 +617,7 @@ final class RasterLassoInteractionController: NSObject, UIGestureRecognizerDeleg
             availableWidth = canvasSize.width - fixed.x
             availableHeight = canvasSize.height - fixed.y
         }
+
         let maximumScale = max(
             minimumScale,
             min(
@@ -378,13 +632,23 @@ final class RasterLassoInteractionController: NSObject, UIGestureRecognizerDeleg
             height: original.height * scale
         )
         var frame = CGRect(origin: .zero, size: size)
+
         switch corner {
         case .topLeft:
-            frame.origin = CGPoint(x: fixed.x - size.width, y: fixed.y - size.height)
+            frame.origin = CGPoint(
+                x: fixed.x - size.width,
+                y: fixed.y - size.height
+            )
         case .topRight:
-            frame.origin = CGPoint(x: fixed.x, y: fixed.y - size.height)
+            frame.origin = CGPoint(
+                x: fixed.x,
+                y: fixed.y - size.height
+            )
         case .bottomLeft:
-            frame.origin = CGPoint(x: fixed.x - size.width, y: fixed.y)
+            frame.origin = CGPoint(
+                x: fixed.x - size.width,
+                y: fixed.y
+            )
         case .bottomRight:
             frame.origin = fixed
         }
@@ -396,44 +660,23 @@ final class RasterLassoInteractionController: NSObject, UIGestureRecognizerDeleg
         in frame: CGRect
     ) -> CGPoint {
         switch corner {
-        case .topLeft: return CGPoint(x: frame.minX, y: frame.minY)
-        case .topRight: return CGPoint(x: frame.maxX, y: frame.minY)
-        case .bottomLeft: return CGPoint(x: frame.minX, y: frame.maxY)
-        case .bottomRight: return CGPoint(x: frame.maxX, y: frame.maxY)
+        case .topLeft:
+            return CGPoint(x: frame.minX, y: frame.minY)
+        case .topRight:
+            return CGPoint(x: frame.maxX, y: frame.minY)
+        case .bottomLeft:
+            return CGPoint(x: frame.minX, y: frame.maxY)
+        case .bottomRight:
+            return CGPoint(x: frame.maxX, y: frame.maxY)
         }
     }
 
-    private func containsSelectableStroke(
-        in drawing: PKDrawing,
+    private func pointInPolygon(
+        _ point: CGPoint,
         polygon: [CGPoint]
     ) -> Bool {
-        for stroke in drawing.strokes {
-            let center = CGPoint(
-                x: stroke.renderBounds.midX,
-                y: stroke.renderBounds.midY
-            )
-            let points = stroke.path.map {
-                $0.location.applying(stroke.transform)
-            }
-            if points.isEmpty {
-                if pointInPolygon(center, polygon: polygon) { return true }
-                continue
-            }
-
-            let insideCount = points.reduce(into: 0) { count, point in
-                if pointInPolygon(point, polygon: polygon) { count += 1 }
-            }
-            let fraction = CGFloat(insideCount) / CGFloat(points.count)
-            if fraction >= 0.55
-                || (pointInPolygon(center, polygon: polygon) && fraction >= 0.25) {
-                return true
-            }
-        }
-        return false
-    }
-
-    private func pointInPolygon(_ point: CGPoint, polygon: [CGPoint]) -> Bool {
         guard polygon.count >= 3 else { return false }
+
         var inside = false
         var previous = polygon.count - 1
         for current in 0..<polygon.count {

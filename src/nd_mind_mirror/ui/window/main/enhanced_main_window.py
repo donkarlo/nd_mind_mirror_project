@@ -1,7 +1,14 @@
 """Compose enhanced window features with robust persistent-session handling."""
 
+from pathlib import Path
+
+from PySide6.QtCore import QTimer
+
 from nd_mind_mirror.core.latex.input.recursive.workspace_recursive_input_resolver import (
     WorkspaceRecursiveInputResolver,
+)
+from nd_mind_mirror.core.render.latex.diagnostic.latex_diagnostic_builder import (
+    LatexDiagnosticBuilder,
 )
 from nd_mind_mirror.graphic.core.workspace_graphic_dependency_resolver import (
     WorkspaceGraphicDependencyResolver,
@@ -49,6 +56,14 @@ class EnhancedMainWindow(FeatureEnhancedMainWindow):
     def __init__(self, parent=None) -> None:
         """Initialize enhanced features, Navigator clipboard, workers, and active-file navigation."""
         super().__init__(parent)
+        self._latex_diagnostic_builder = LatexDiagnosticBuilder(
+            default_path=self._app_settings.search_default_path,
+            template_path=self._app_settings.preview_latex_template_path,
+            beamer_template_path=self._app_settings.preview_latex_beamer_template_path,
+        )
+        self._preview_panel.source_location_requested.connect(
+            self._open_latex_diagnostic_location
+        )
         self._replace_document_autosave_controller()
         self._replace_navigator_context_controller()
         self._current_editor_tab_close_controller = (
@@ -121,6 +136,45 @@ class EnhancedMainWindow(FeatureEnhancedMainWindow):
             settings.search_default_path
         )
 
+    def _on_render_failed(self, message: str) -> None:
+        """Present a structured include/input trace instead of a flat error string."""
+        builder = getattr(self, "_latex_diagnostic_builder", None)
+        source_path = self._editor_panel.current_path()
+        if builder is None or source_path is None:
+            super()._on_render_failed(message)
+            return
+
+        diagnostic = builder.build(
+            message=message,
+            source_path=source_path,
+            source=self._editor_panel.current_content(),
+        )
+        self._preview_panel.show_latex_error(diagnostic)
+
+    def _open_latex_diagnostic_location(
+        self,
+        path: str,
+        line: int,
+        column: int,
+    ) -> None:
+        """Open a diagnostic source file and jump to its exact source location."""
+        source_path = Path(path).expanduser().resolve(strict=False)
+        if not source_path.is_file():
+            self.statusBar().showMessage(
+                f"Diagnostic source no longer exists: {source_path}",
+                5000,
+            )
+            return
+
+        self._open_path(str(source_path))
+        QTimer.singleShot(
+            0,
+            lambda: self._editor_panel.go_to_location(
+                max(int(line), 1),
+                max(int(column), 1),
+            ),
+        )
+
     def _sync_graphic_update_event(self) -> None:
         """Force Source and Visual image caches to follow every accepted iPad save event."""
         previous_signature = getattr(self, "_graphic_update_event_signature", None)
@@ -150,6 +204,19 @@ class EnhancedMainWindow(FeatureEnhancedMainWindow):
         if not loaded:
             return False
         self._configure_workspace_input_resolver()
+        diagnostic_builder = getattr(
+            self,
+            "_latex_diagnostic_builder",
+            None,
+        )
+        if diagnostic_builder is not None:
+            diagnostic_builder.configure(
+                default_path=self._app_settings.search_default_path,
+                template_path=self._app_settings.preview_latex_template_path,
+                beamer_template_path=(
+                    self._app_settings.preview_latex_beamer_template_path
+                ),
+            )
         graphic_path_controller = getattr(
             self,
             "_graphic_open_session_path_controller",

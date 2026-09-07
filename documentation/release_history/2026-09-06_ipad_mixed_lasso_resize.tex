@@ -1,0 +1,60 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+
+\title{iPad mixed lasso resize without omitted shapes or duplicates}
+\date{2026-09-06}
+\author{Mohammad Rahmani}
+
+\begin{document}
+\maketitle
+
+\section{Problem}
+The iPad canvas had two independent lasso pipelines. One selected PencilKit
+strokes in \texttt{PencilCanvasView}, while a second controller selected raster
+background pixels. The raster controller explicitly refused raster selection
+when a PencilKit stroke was detected. Consequently, one lasso could omit some
+visible content during resize. Moving or resizing one layer while the other
+layer remained at its original geometry also appeared as a duplicated shape.
+
+\section{Fix}
+\begin{itemize}
+   \item A single \texttt{RasterLassoInteractionController} now builds one
+   mixed selection containing both enclosed raster pixels and enclosed
+   PencilKit strokes.
+   \item Stroke inclusion uses stroke bounds, center, and path coverage so a
+   lasso drawn around a shape selects the complete shape more reliably.
+   \item Raster pixels and PencilKit strokes share one selection bounding box
+   and one proportional geometry transform for move and resize.
+   \item Selected PencilKit strokes are replaced at their original drawing
+   indices; transformed strokes are never appended, preventing duplicate
+   copies.
+   \item PencilKit stroke-point size is preserved while geometry is
+   transformed, so resize does not change visible line thickness.
+   \item The former parallel lasso/resize implementation was removed from
+   \texttt{PencilCanvasView}. Programmatic preview drawing mutations are
+   applied through a dedicated host protocol so each drag sample is not
+   recorded as a separate edit.
+   \item The gray dashed lasso feedback now follows the same unified
+   \texttt{RasterSelectionOverlayView}.
+\end{itemize}
+
+\section{Regression coverage}
+The iPad lasso regression test now verifies single-controller ownership,
+mixed raster/stroke transforms, in-place stroke replacement, preserved stroke
+thickness, and unified visual feedback.
+
+\end{document}

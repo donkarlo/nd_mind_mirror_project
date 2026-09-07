@@ -21,7 +21,6 @@ class WorkspaceInteractionController:
         self._renderer = main_window._renderer
         self._editor_panel = main_window._editor_panel
         self._preview = main_window._preview_panel.preview
-        self._context_controller = getattr(main_window, "_navigator_context_controller", None)
         self._navigator_selection_generation = 0
         # Compatibility handle only. LateRuntimeFixes still references this
         # timer during construction; the performance cleanup disables it.
@@ -29,7 +28,6 @@ class WorkspaceInteractionController:
         self._highlight_timer.setSingleShot(True)
 
         self._install_fast_navigator_selection()
-        self._install_context_menu()
         self._install_path_remap_guard()
         self._install_selection_only_preview_sync()
 
@@ -108,24 +106,6 @@ class WorkspaceInteractionController:
         self._tree.setCurrentIndex(index)
         self._tree.scrollTo(index, QAbstractItemView.ScrollHint.EnsureVisible)
         self._panel._pending_reveal = None
-
-    def _install_context_menu(self) -> None:
-        """Keep the canonical Navigator context controller as the sole menu owner."""
-        if self._context_controller is None:
-            return
-
-        # The multi-path controller is created before this interaction layer.
-        # Reconnect it explicitly so this later controller never replaces its
-        # Copy/Cut/Paste actions or its Ctrl/Shift multi-selection semantics.
-        try:
-            self._tree.customContextMenuRequested.disconnect(
-                self._context_controller.show_menu
-            )
-        except (RuntimeError, TypeError):
-            pass
-        self._tree.customContextMenuRequested.connect(
-            self._context_controller.show_menu
-        )
 
     def _install_path_remap_guard(self) -> None:
         self._panel.path_about_to_move.connect(self._before_path_move)

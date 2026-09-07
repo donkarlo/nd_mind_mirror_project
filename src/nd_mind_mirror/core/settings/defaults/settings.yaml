@@ -80,8 +80,12 @@ external_file_sync:
   interval_ms: 350
 
 search:
-  # This path is also the File System workspace root. Drag/drop moves inside
-  # the navigator rewrite relative and absolute textual references from here.
+  # This path is also the File System workspace root and the root for local
+  # references that BEGIN with "/". For example, with default_path set to
+  # "~/Dropbox/repo", "/project/file.tex" means
+  # "~/Dropbox/repo/project/file.tex" first; if that does not exist, the same
+  # token is tried as an operating-system absolute path. Tokens without a
+  # leading slash are resolved only relative to the file that contains them.
   default_path: "~/Dropbox/repo"
   ignore_file: "search_ignore.yaml"
   max_results: 100

@@ -1,0 +1,54 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+
+\usetikzlibrary{graphs,graphdrawing}
+\usegdlibrary{layered}
+
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/external_graphviz.tex}
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/parts/control_sequence/kind/semtag/semtag.tex}
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/seehere.tex}
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/deep_structure.tex}
+
+\title{Search Startup Compatibility Fix}
+\date{2026-09-07}
+\author{Mohammad Rahmani}
+
+\begin{document}
+   \maketitle
+
+   \section{Fixed behavior}
+
+   Mind Mirror no longer fails during startup when the historical
+   \verb|LargeDocumentPerformanceController| accesses the former
+   \verb|SearchWindow._index_thread| member.
+
+   \begin{itemize}
+      \item \verb|SearchWindow| now exposes the historical single-thread name as a
+      compatibility boundary backed by the current canonical index-thread lifecycle.
+      \item Threads assigned through the historical name are tracked, interrupted, and
+      cleaned up together with current index workers.
+      \item Typing in Double-Shift Search cancels an obsolete background index refresh
+      when a valid prior index is already available.
+      \item The base file-index worker periodically yields during large repository scans,
+      preventing Python indexing work from starving Qt input handling.
+      \item Regression checks cover the legacy member contract and typing-priority
+      cancellation path.
+   \end{itemize}
+
+   \bibliographystyle{plainnat}
+   \bibliography{/home/donkarlo/Dropbox/repo/nd_shared_research/bibliography/bibliography.bib}
+\end{document}

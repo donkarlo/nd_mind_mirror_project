@@ -1,0 +1,62 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+
+\usetikzlibrary{graphs,graphdrawing}
+\usegdlibrary{layered}
+
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/external_graphviz.tex}
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/parts/control_sequence/kind/semtag/semtag.tex}
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/seehere.tex}
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/deep_structure.tex}
+
+\title{Double-Shift Search Responsiveness}
+\date{2026-09-07}
+\author{Mohammad Rahmani}
+
+\begin{document}
+   \maketitle
+
+   \section{Fixed behavior}
+
+   The Double-Shift file search no longer blocks its text field while indexing,
+   replacing search results, or closing the search window.
+
+   \begin{itemize}
+      \item Repeated Double Shift while the search window is already visible only
+      restores focus; it does not rebuild the index or reselect the current query.
+      \item Index refresh and search cancellation no longer call
+      \verb|QThread.wait| from the interactive GUI path.
+      \item The previous valid search index remains usable while a refreshed index
+      is built in the background.
+      \item Search and indexing workers yield periodically during large Python loops
+      so fuzzy matching does not starve Qt input handling.
+      \item The hierarchical results tree is built entirely from index metadata and
+      no longer performs repeated \verb|Path.is_dir| or \verb|Path.resolve| calls
+      against Dropbox while the GUI is painting results.
+      \item Tree repainting is suspended only while the in-memory result hierarchy is
+      replaced and is immediately restored afterward.
+   \end{itemize}
+
+   \section{Preserved behavior}
+
+   Exact, prefix, substring, fuzzy, hierarchical-path matching, previous-query
+   preservation, keyboard navigation, folder reveal, file opening, and
+   \verb|search_ignore.yaml| semantics remain unchanged.
+
+   \bibliographystyle{plainnat}
+   \bibliography{/home/donkarlo/Dropbox/repo/nd_shared_research/bibliography/bibliography.bib}
+\end{document}

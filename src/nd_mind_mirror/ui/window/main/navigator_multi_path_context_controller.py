@@ -49,10 +49,6 @@ class NavigatorMultiPathContextController(NavigatorContextController):
             QAbstractItemView.SelectionBehavior.SelectRows
         )
 
-        # The base controller creates Ctrl+C/Ctrl+V QShortcuts.  They are
-        # deliberately disabled here because QShortcut resolution competes
-        # with QTreeView/FileSystemPanel input handling.  A tree event filter
-        # below becomes the single deterministic keyboard owner instead.
         for name in ("_copy_shortcut", "_paste_shortcut"):
             shortcut = getattr(self, name, None)
             if shortcut is None:
@@ -162,6 +158,17 @@ class NavigatorMultiPathContextController(NavigatorContextController):
         copy_path.triggered.connect(
             self._copy_selected_absolute_paths
         )
+
+        copy_default_path = copy_menu.addAction(
+            "Copy from Default Path"
+        )
+        copy_default_path.setEnabled(
+            bool(self._selected_default_rooted_paths())
+        )
+        copy_default_path.triggered.connect(
+            self._copy_selected_default_rooted_paths
+        )
+
         copy_name = copy_menu.addAction("Copy File Name")
         copy_name.triggered.connect(
             self._copy_selected_names
@@ -580,6 +587,46 @@ class NavigatorMultiPathContextController(NavigatorContextController):
         if paths:
             QApplication.clipboard().setText(
                 "\n".join(str(path) for path in paths)
+            )
+
+    def _selected_default_rooted_paths(self) -> list[str]:
+        """Return selected paths formatted relative to search.default_path."""
+        settings = getattr(
+            self._panel.window(),
+            "_app_settings",
+            None,
+        )
+        default_path = getattr(
+            settings,
+            "search_default_path",
+            None,
+        )
+        if default_path in (None, ""):
+            return []
+
+        try:
+            root = Path(default_path).expanduser().resolve(strict=False)
+        except OSError:
+            root = Path(default_path).expanduser()
+
+        output: list[str] = []
+        for path in self.selected_paths():
+            try:
+                relative = path.resolve(strict=False).relative_to(root)
+            except (OSError, ValueError):
+                continue
+            relative_text = relative.as_posix()
+            output.append(
+                "/" if not relative_text else f"/{relative_text}"
+            )
+        return output
+
+    def _copy_selected_default_rooted_paths(self) -> None:
+        """Copy selected paths using the leading-slash default-rooted syntax."""
+        paths = self._selected_default_rooted_paths()
+        if paths:
+            QApplication.clipboard().setText(
+                "\n".join(paths)
             )
 
     def _copy_selected_names(self) -> None:

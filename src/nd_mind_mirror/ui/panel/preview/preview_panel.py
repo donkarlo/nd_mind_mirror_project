@@ -10,10 +10,15 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QSizePolicy,
+    QSplitter,
     QStackedWidget,
 )
 
+from nd_mind_mirror.core.render.latex.diagnostic.latex_diagnostic import (
+    LatexDiagnostic,
+)
 from nd_mind_mirror.ui.panel.base.panel import Panel
+from nd_mind_mirror.ui.preview.latex.error.latex_error_panel import LatexErrorPanel
 from nd_mind_mirror.ui.preview.latex.latex_preview import LatexPreview
 from nd_mind_mirror.ui.preview.markdown.markdown_preview import MarkdownPreview
 
@@ -21,6 +26,7 @@ from nd_mind_mirror.ui.preview.markdown.markdown_preview import MarkdownPreview
 class PreviewPanel(Panel):
     export_requested = Signal()
     close_requested = Signal()
+    source_location_requested = Signal(str, int, int)
 
     def __init__(self, parent=None) -> None:
         super().__init__("Rendered LaTeX", parent)
@@ -71,6 +77,23 @@ class PreviewPanel(Panel):
         self._stack.addWidget(self._markdown_preview)
         self._stack.setCurrentWidget(self._preview)
 
+        self._latex_error_panel = LatexErrorPanel(self)
+        self._latex_error_panel.hide()
+        self._latex_error_panel.source_location_requested.connect(
+            self.source_location_requested.emit
+        )
+
+        self._preview_splitter = QSplitter(
+            Qt.Orientation.Vertical,
+            self,
+        )
+        self._preview_splitter.setChildrenCollapsible(False)
+        self._preview_splitter.setOpaqueResize(True)
+        self._preview_splitter.addWidget(self._stack)
+        self._preview_splitter.addWidget(self._latex_error_panel)
+        self._preview_splitter.setStretchFactor(0, 3)
+        self._preview_splitter.setStretchFactor(1, 2)
+
         self._fit_button.clicked.connect(self._preview.fit_to_panel)
         self._zoom_edit.editingFinished.connect(self._apply_zoom_edit)
         self._preview.view_status_changed.connect(self._on_view_status_changed)
@@ -98,7 +121,7 @@ class PreviewPanel(Panel):
 
         self.panel_layout.addLayout(header)
         self.panel_layout.addLayout(controls)
-        self.panel_layout.addWidget(self._stack, 1)
+        self.panel_layout.addWidget(self._preview_splitter, 1)
 
     def show_latex_mode(self) -> None:
         self._stack.setCurrentWidget(self._preview)
@@ -108,9 +131,26 @@ class PreviewPanel(Panel):
 
     def show_pdf(self, pdf_path) -> None:
         self.show_latex_mode()
+        self._latex_error_panel.hide()
         self._preview.show_pdf(pdf_path)
 
+    def show_latex_error(self, diagnostic: LatexDiagnostic) -> None:
+        """Show a structured error trace while preserving the last valid PDF."""
+        self.show_latex_mode()
+        self._latex_error_panel.show_diagnostic(diagnostic)
+        self._latex_error_panel.show()
+        self._preview_splitter.setSizes(
+            [
+                max(self.height() - 270, 180),
+                270,
+            ]
+        )
+        self._preview.show_error(
+            "LaTeX compilation failed. See the diagnostic tree below."
+        )
+
     def show_markdown(self, source: str, source_path: str | Path) -> None:
+        self._latex_error_panel.hide()
         self._markdown_preview.show_markdown(source, source_path)
         self._stack.setCurrentWidget(self._markdown_preview)
         self._label.setText(f"Rendered Markdown — {Path(source_path).name}")
@@ -119,6 +159,7 @@ class PreviewPanel(Panel):
 
     def show_message(self, message: str) -> None:
         self.show_latex_mode()
+        self._latex_error_panel.hide()
         self._preview.show_message(message)
 
     @property

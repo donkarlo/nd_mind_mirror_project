@@ -11,7 +11,7 @@ from nd_mind_mirror.core.workspace.path.workspace_reference_resolver import (
 
 
 class WorkspaceRecursiveInputResolver(RecursiveInputResolver):
-    """Add search.default_path semantics to recursive Preview expansion."""
+    """Apply the canonical workspace path modes to recursive Preview expansion."""
 
     def __init__(self, default_path: str | Path | None = None) -> None:
         super().__init__()
@@ -29,15 +29,20 @@ class WorkspaceRecursiveInputResolver(RecursiveInputResolver):
         containing_file: Path,
         target: str,
     ) -> Path | None:
-        resolved = self._workspace_reference_resolver.resolve(
+        """Resolve only through the canonical workspace reference resolver.
+
+        Relative references are resolved beside ``containing_file``. References
+        beginning with ``/`` are resolved below ``search.default_path`` first
+        and then as true operating-system absolute paths. Recursive Preview
+        must never search the rest of the repository for a suffix match,
+        because that can silently include an unrelated file.
+        """
+        return self._workspace_reference_resolver.resolve(
             target,
             containing_file,
             command="input",
             require_exists=True,
         )
-        if resolved is not None:
-            return resolved
-        return super()._resolve_target(containing_file, target)
 
     def _prepare_preamble(
         self,

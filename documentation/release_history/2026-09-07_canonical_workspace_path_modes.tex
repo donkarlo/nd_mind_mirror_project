@@ -1,0 +1,54 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+
+\title{Canonical three-mode workspace path resolution}
+\date{2026-09-07}
+\author{Mohammad Rahmani}
+
+\begin{document}
+\maketitle
+
+\section{Change}
+Local file references now use one canonical path policy across Ctrl+B
+navigation, Preview and recursive input resolution, delete occurrence
+discovery/removal, and rename/move reference rewriting.
+
+\begin{itemize}
+   \item A token without a leading slash is resolved only relative to the file
+   containing the reference.
+   \item A token beginning with a slash is first resolved below
+   \texttt{search.default\_path}, after removing the leading slash.
+   \item If that default-rooted candidate does not exist, the same token is
+   tried as a real operating-system absolute path.
+   \item The previous special \texttt{/repo/...} alias is removed.
+   \item Navigator \textbf{Copy / Share} now contains
+   \textbf{Copy from Default Path}, which emits the same leading-slash syntax
+   used by the second path mode and supports multiple selected items.
+\end{itemize}
+
+\section{Preserved behavior}
+Semantic command/reference discovery, delete command removal, extensionless
+LaTeX references, background reference maintenance, image/PDF external
+opening, and editable source/bibliography opening remain unchanged.
+
+\section{Regression coverage}
+Tests cover relative-only resolution, default-root precedence, absolute
+fallback, Ctrl+B resource targets, rename/move rewriting, delete bibliography
+cleanup, recursive input resolution, background batches, and Navigator
+default-path copying.
+
+\end{document}

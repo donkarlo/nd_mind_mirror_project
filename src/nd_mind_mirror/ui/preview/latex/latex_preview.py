@@ -8,6 +8,9 @@ from PySide6.QtWidgets import (
 )
 
 from nd_mind_mirror.ui.preview.base.preview import Preview
+from nd_mind_mirror.ui.preview.pdf.pdf_handoff_coalescer import (
+    PdfHandoffCoalescer,
+)
 from nd_mind_mirror.ui.preview.pdf.selectable_pdf_view import (
     SelectablePdfView,
 )
@@ -42,6 +45,18 @@ class LatexPreview(Preview):
             self._leave_fit_mode
         )
         self._pdf_view.setMinimumWidth(0)
+
+        # Qt Quick PdfDocument is native code and is sensitive to repeated
+        # source detach/attach cycles arriving faster than the previous load.
+        # Keep the first handoff immediate while collapsing a typing burst to
+        # the newest generated PDF.
+        self._pdf_handoff_coalescer = PdfHandoffCoalescer(
+            minimum_interval_ms=180,
+            parent=self,
+        )
+        self._pdf_handoff_coalescer.handoff_requested.connect(
+            self._present_pdf_now
+        )
 
         self._message = QLabel(
             "Open a .tex file to render its preview.",
@@ -95,6 +110,7 @@ class LatexPreview(Preview):
         if source_path == self._source_document_path:
             return
 
+        self._pdf_handoff_coalescer.cancel_pending()
         self._source_document_path = source_path
         self._reset_position_on_next_pdf = True
         self._fit_active = self._auto_fit_on_open
@@ -108,10 +124,26 @@ class LatexPreview(Preview):
         pdf_path = Path(path).resolve()
 
         if not pdf_path.is_file():
+            self._pdf_handoff_coalescer.cancel_pending()
             self._current_pdf_path = None
             self.show_error(
                 f"Generated PDF does not exist: {pdf_path}"
             )
+            return
+
+        reset_position = self._reset_position_on_next_pdf
+        self._pdf_handoff_coalescer.request(
+            pdf_path,
+            reset_position,
+        )
+
+    def _present_pdf_now(
+        self,
+        pdf_path: Path,
+        reset_position: bool,
+    ) -> None:
+        """Perform the actual Qt Quick PDF handoff after burst coalescing."""
+        if not pdf_path.is_file():
             return
 
         # Once Fit has been established, remember its exact zoom before each
@@ -123,10 +155,9 @@ class LatexPreview(Preview):
         if preserve_live_view:
             stable_zoom_percent = self._pdf_view.view_status()[0]
 
-        reset_position = self._reset_position_on_next_pdf
         if not self._pdf_view.show_pdf(
             pdf_path,
-            reset_position=reset_position,
+            reset_position=bool(reset_position),
         ):
             self._current_pdf_path = None
             self.show_error(
@@ -232,6 +263,10 @@ class LatexPreview(Preview):
         self._pdf_view.set_edit_highlight(text)
 
     def show_error(self, message: str) -> None:
+        # A compile failure is newer than any queued successful generation.
+        # Cancel that queued generation so Preview never advances to stale PDF
+        # content after the diagnostic tree is already showing the new error.
+        self._pdf_handoff_coalescer.cancel_pending()
         self._last_error = str(message)
         if (
             self._has_success_for_current_source
@@ -250,6 +285,7 @@ class LatexPreview(Preview):
         )
 
     def show_message(self, message: str) -> None:
+        self._pdf_handoff_coalescer.cancel_pending()
         self._message.setText(message)
         self._stack.setCurrentWidget(
             self._message

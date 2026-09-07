@@ -173,56 +173,36 @@ class WorkspaceReferenceResolver:
             value = unquote(parsed.path or "")
         return Path(value).expanduser()
 
-    def _repository_root(self) -> Path | None:
-        """Return the nearest configured workspace ancestor named ``repo``."""
-        if self._default_path is None:
-            return None
-        for candidate in (self._default_path, *self._default_path.parents):
-            if candidate.name == "repo":
-                return candidate
-        return None
-
-    def _repository_alias_candidate(self, raw: Path) -> Path | None:
-        """Map ``/repo/...`` to the configured repository root."""
-        raw_text = raw.as_posix()
-        if raw_text != "/repo" and not raw_text.startswith("/repo/"):
-            return None
-        repository_root = self._repository_root()
-        if repository_root is None:
-            return None
-        relative_text = raw_text[len("/repo") :].lstrip("/")
-        return self._safe(repository_root / relative_text)
-
     def candidate_paths(
         self,
         token: str,
         referring_file: str | Path,
     ) -> list[tuple[str, Path]]:
-        """Return candidates in the three configured path modes.
+        """Return candidates in the three canonical path modes.
 
-        Relative tokens are checked beside the referring file first. A leading
-        slash is workspace-rooted against ``search.default_path`` before being
-        interpreted as a real operating-system absolute path. ``/repo`` keeps
-        its explicit repository alias semantics.
+        A token without a leading slash is relative only to the file that
+        contains the reference. A token with a leading slash is first rooted
+        at ``search.default_path`` and, if that candidate does not exist, is
+        also available as a real operating-system absolute path.
         """
         raw = self._path_token(token)
         referring = self._safe(Path(referring_file).expanduser())
-        repository_alias = self._repository_alias_candidate(raw)
-        if repository_alias is not None:
-            return [("repository_alias", repository_alias)]
 
         candidates: list[tuple[str, Path]] = []
         if raw.is_absolute():
             if self._default_path is not None:
                 rooted_relative = raw.as_posix().lstrip("/")
                 candidates.append(
-                    ("default_rooted", self._safe(self._default_path / rooted_relative))
+                    (
+                        "default_rooted",
+                        self._safe(self._default_path / rooted_relative),
+                    )
                 )
             candidates.append(("absolute", self._safe(raw)))
         else:
-            candidates.append(("file_relative", self._safe(referring.parent / raw)))
-            if self._default_path is not None:
-                candidates.append(("default_relative", self._safe(self._default_path / raw)))
+            candidates.append(
+                ("file_relative", self._safe(referring.parent / raw))
+            )
 
         seen: set[Path] = set()
         return [
@@ -300,26 +280,18 @@ class WorkspaceReferenceResolver:
         if kind == "absolute":
             return resolved.as_posix()
         if kind == "file_relative":
-            return os.path.relpath(resolved, referring.parent).replace(os.sep, "/")
-        if kind == "repository_alias":
-            repository_root = self._repository_root()
-            if repository_root is None:
-                return None
-            try:
-                relative = resolved.relative_to(repository_root).as_posix()
-            except ValueError:
-                return None
-            return "/repo" if not relative else f"/repo/{relative}"
-        if kind in {"default_rooted", "default_relative"}:
+            return os.path.relpath(
+                resolved,
+                referring.parent,
+            ).replace(os.sep, "/")
+        if kind == "default_rooted":
             if self._default_path is None:
                 return None
             try:
                 relative = resolved.relative_to(self._default_path).as_posix()
             except ValueError:
                 return None
-            if kind == "default_rooted":
-                return "/" if not relative else f"/{relative}"
-            return relative
+            return "/" if not relative else f"/{relative}"
         return None
 
     @staticmethod
@@ -346,7 +318,10 @@ class WorkspaceReferenceResolver:
 
         for pattern in (self._HREF, self._MINTED, self._ONE):
             for match in pattern.finditer(source):
-                if any(match.start() < end and match.end() > start for start, end in used):
+                if any(
+                    match.start() < end and match.end() > start
+                    for start, end in used
+                ):
                     continue
                 occurrence = self._single_occurrence(
                     source,
@@ -359,7 +334,10 @@ class WorkspaceReferenceResolver:
                 used.append((match.start(), match.end()))
 
         for match in self._LIST.finditer(source):
-            if any(match.start() < end and match.end() > start for start, end in used):
+            if any(
+                match.start() < end and match.end() > start
+                for start, end in used
+            ):
                 continue
             command = match.group("command")
             target_start, _target_end = match.span("target")
@@ -394,7 +372,10 @@ class WorkspaceReferenceResolver:
                 )
             used.append((match.start(), match.end()))
 
-        return sorted(output, key=lambda item: (item.command_start, item.target_start))
+        return sorted(
+            output,
+            key=lambda item: (item.command_start, item.target_start),
+        )
 
     def _single_occurrence(
         self,
@@ -431,7 +412,10 @@ class WorkspaceReferenceResolver:
         )
 
     @staticmethod
-    def _split_list_targets(value: str, absolute_start: int) -> list[tuple[str, int, int]]:
+    def _split_list_targets(
+        value: str,
+        absolute_start: int,
+    ) -> list[tuple[str, int, int]]:
         result: list[tuple[str, int, int]] = []
         offset = 0
         for raw_item in value.split(","):
@@ -461,7 +445,10 @@ class WorkspaceReferenceResolver:
             return 0
         index = min(line - 1, len(lines) - 1)
         base = sum(len(value) for value in lines[:index])
-        return min(base + column - 1, base + len(lines[index].rstrip("\r\n")))
+        return min(
+            base + column - 1,
+            base + len(lines[index].rstrip("\r\n")),
+        )
 
     def occurrence_at(
         self,
@@ -470,7 +457,11 @@ class WorkspaceReferenceResolver:
         offset: int,
     ) -> ReferenceOccurrence | None:
         cursor = max(0, min(int(offset), len(source)))
-        for occurrence in self.occurrences(source, referring_file, require_exists=True):
+        for occurrence in self.occurrences(
+            source,
+            referring_file,
+            require_exists=True,
+        ):
             if occurrence.click_start <= cursor <= occurrence.click_end:
                 return occurrence
         return None
@@ -483,9 +474,16 @@ class WorkspaceReferenceResolver:
         if referring_file is None or not source:
             return source
         output = source
-        occurrences = self.occurrences(source, referring_file, require_exists=True)
+        occurrences = self.occurrences(
+            source,
+            referring_file,
+            require_exists=True,
+        )
         for occurrence in reversed(occurrences):
-            if occurrence.command not in {"href", "url"} or occurrence.target_path is None:
+            if (
+                occurrence.command not in {"href", "url"}
+                or occurrence.target_path is None
+            ):
                 continue
             output = (
                 output[: occurrence.target_start]
@@ -501,10 +499,22 @@ class WorkspaceReferenceResolver:
     ) -> str:
         """Rewrite non-structural local references to concrete filesystem paths."""
         output = source
-        structural_commands = {"input", "include", "subfile", "includeonly"}
-        occurrences = self.occurrences(source, referring_file, require_exists=True)
+        structural_commands = {
+            "input",
+            "include",
+            "subfile",
+            "includeonly",
+        }
+        occurrences = self.occurrences(
+            source,
+            referring_file,
+            require_exists=True,
+        )
         for occurrence in reversed(occurrences):
-            if occurrence.command in structural_commands or occurrence.target_path is None:
+            if (
+                occurrence.command in structural_commands
+                or occurrence.target_path is None
+            ):
                 continue
             if occurrence.command in {"href", "url"}:
                 replacement = occurrence.target_path.as_uri()
@@ -529,7 +539,9 @@ class WorkspaceReferenceResolver:
         target_path: str | Path,
         ignore_file_path: str | Path | None = None,
     ) -> list[ReferenceOccurrence]:
-        from nd_mind_mirror.core.search.ignore.search_ignore_matcher import SearchIgnoreMatcher
+        from nd_mind_mirror.core.search.ignore.search_ignore_matcher import (
+            SearchIgnoreMatcher,
+        )
 
         root = self._safe(Path(workspace_root).expanduser())
         target = self._safe(Path(target_path).expanduser())
@@ -544,7 +556,11 @@ class WorkspaceReferenceResolver:
                 name
                 for name in dirnames
                 if name not in self._SKIP_DIRECTORIES
-                and not matcher.is_ignored(directory_path / name, root, is_directory=True)
+                and not matcher.is_ignored(
+                    directory_path / name,
+                    root,
+                    is_directory=True,
+                )
             ]
             for name in filenames:
                 candidate = directory_path / name
@@ -558,7 +574,11 @@ class WorkspaceReferenceResolver:
                     text = candidate.read_text(encoding="utf-8")
                 except (OSError, UnicodeError):
                     continue
-                for occurrence in self.occurrences(text, candidate, require_exists=False):
+                for occurrence in self.occurrences(
+                    text,
+                    candidate,
+                    require_exists=False,
+                ):
                     match = self.match_candidate(
                         occurrence.raw_target,
                         candidate,
@@ -579,7 +599,11 @@ class WorkspaceReferenceResolver:
         target = self._safe(Path(target_path).expanduser())
         matches = [
             occurrence
-            for occurrence in self.occurrences(source, referring_file, require_exists=False)
+            for occurrence in self.occurrences(
+                source,
+                referring_file,
+                require_exists=False,
+            )
             if self.match_candidate(
                 occurrence.raw_target,
                 referring_file,
@@ -592,15 +616,27 @@ class WorkspaceReferenceResolver:
             return source
 
         edits: list[tuple[int, int, str]] = []
-        list_groups: dict[tuple[int, int], list[ReferenceOccurrence]] = {}
+        list_groups: dict[
+            tuple[int, int],
+            list[ReferenceOccurrence],
+        ] = {}
         for occurrence in matches:
             if occurrence.command in self._LIST_COMMANDS:
                 list_groups.setdefault(
-                    (occurrence.command_start, occurrence.command_end), []
+                    (occurrence.command_start, occurrence.command_end),
+                    [],
                 ).append(occurrence)
                 continue
-            figure = self._figure_span(source, referring_file, target, occurrence)
-            start, end = figure or (occurrence.command_start, occurrence.command_end)
+            figure = self._figure_span(
+                source,
+                referring_file,
+                target,
+                occurrence,
+            )
+            start, end = figure or (
+                occurrence.command_start,
+                occurrence.command_end,
+            )
             edits.append((start, end, ""))
 
         for command_span, command_matches in list_groups.items():
@@ -609,10 +645,20 @@ class WorkspaceReferenceResolver:
                 command_span,
                 command_matches,
             )
-            edits.append((command_span[0], command_span[1], replacement))
+            edits.append(
+                (
+                    command_span[0],
+                    command_span[1],
+                    replacement,
+                )
+            )
 
         output = source
-        for start, end, replacement in sorted(edits, key=lambda item: item[0], reverse=True):
+        for start, end, replacement in sorted(
+            edits,
+            key=lambda item: item[0],
+            reverse=True,
+        ):
             output = output[:start] + replacement + output[end:]
         output = re.sub(r"(?m)^[ \t]+$", "", output)
         return re.sub(r"\n{3,}", "\n\n", output)
@@ -659,7 +705,11 @@ class WorkspaceReferenceResolver:
     ) -> tuple[int, int] | None:
         if occurrence.command != "includegraphics":
             return None
-        begin = source.rfind(r"\begin{figure", 0, occurrence.command_start)
+        begin = source.rfind(
+            r"\begin{figure",
+            0,
+            occurrence.command_start,
+        )
         end_marker = r"\end{figure}"
         end = source.find(end_marker, occurrence.command_end)
         if begin < 0 or end < 0:
@@ -668,7 +718,11 @@ class WorkspaceReferenceResolver:
         block = source[begin:block_end]
         graphics = [
             item
-            for item in self.occurrences(block, referring_file, False)
+            for item in self.occurrences(
+                block,
+                referring_file,
+                False,
+            )
             if item.command == "includegraphics"
         ]
         if len(graphics) != 1:
@@ -682,4 +736,7 @@ class WorkspaceReferenceResolver:
             return None
         start = source.rfind("\n", 0, begin) + 1
         line_end = source.find("\n", block_end)
-        return start, len(source) if line_end < 0 else line_end + 1
+        return (
+            start,
+            len(source) if line_end < 0 else line_end + 1,
+        )
