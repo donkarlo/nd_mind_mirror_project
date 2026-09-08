@@ -1,0 +1,54 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+\usepackage{adjustbox}
+
+\usetikzlibrary{graphs,graphdrawing}
+\usegdlibrary{layered}
+
+% for external graphviz
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/external_graphviz.tex}
+
+% for tags
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/part/control_sequence/kind/semtag/semtag.tex}
+
+% for links
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/seehere.tex}
+
+% for nested lists and sections
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/deep_structure.tex}
+
+\title{Double-Shift Search Focus Handoff}
+\date{2026-09-08}
+\author{Mohammad Rahmani}
+
+\begin{document}
+   \maketitle
+
+   \section{Bug fix}
+   Double Shift could open the Search window while keyboard focus still belonged
+   to the Source editor. Fast typing immediately after the shortcut could
+   therefore modify Source text or lose the first characters of the query.
+
+   The Double-Shift input layer now arms a bounded activation handoff before the
+   Search signal is emitted. Keystrokes received during the top-level-window
+   focus transition are captured, prevented from reaching the old editor, and
+   replayed in original order as soon as the Search line edit receives focus.
+   The handoff automatically cancels after 1200 ms if focus is not transferred.
+
+   \bibliographystyle{plainnat}
+   \bibliography{/home/donkarlo/Dropbox/repo/nd_shared_research/bibliography/bibliography.bib}
+\end{document}

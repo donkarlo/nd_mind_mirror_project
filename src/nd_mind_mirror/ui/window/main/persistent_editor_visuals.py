@@ -7,6 +7,12 @@ from collections.abc import Callable
 from PySide6.QtGui import QColor, QTextCursor
 from PySide6.QtWidgets import QTextEdit
 
+from nd_mind_mirror.ui.editor.bookmark.selection_bookmark_context_controller import (
+    SelectionBookmarkContextController,
+)
+from nd_mind_mirror.ui.editor.bookmark.source_bookmark_position_resolver import (
+    SourceBookmarkPositionResolver,
+)
 from nd_mind_mirror.ui.editor.generic.generic_text_editor import GenericTextEditor
 from nd_mind_mirror.ui.editor.latex.latex_editor import LatexEditor
 from nd_mind_mirror.ui.editor.yaml.yaml_editor import YamlEditor
@@ -19,6 +25,7 @@ class PersistentEditorVisuals:
     """Attach editor visuals and shared source behavior before document tabs are created."""
 
     _installed = False
+    _bookmark_position_resolver = SourceBookmarkPositionResolver()
 
     @classmethod
     def install(cls) -> None:
@@ -120,14 +127,32 @@ class PersistentEditorVisuals:
             locations = cls._bookmark_locations(bookmark)
             if locations is None:
                 continue
+
             anchor, position = locations
-            first = editor._source_position_for_location(anchor)
-            second = editor._source_position_for_location(position)
-            if first == second:
+            first = cls._bookmark_position_resolver.resolve(
+                editor,
+                anchor,
+            )
+            second = cls._bookmark_position_resolver.resolve(
+                editor,
+                position,
+            )
+
+            # A selection that is outside the currently materialized Source
+            # window must not be represented by a QTextCursor in that window.
+            if (
+                first is None
+                or second is None
+                or first == second
+            ):
                 continue
+
             cursor = QTextCursor(editor.document())
             cursor.setPosition(first)
-            cursor.setPosition(second, QTextCursor.MoveMode.KeepAnchor)
+            cursor.setPosition(
+                second,
+                QTextCursor.MoveMode.KeepAnchor,
+            )
             selection = QTextEdit.ExtraSelection()
             selection.cursor = cursor
             selection.format.setBackground(color)
@@ -148,7 +173,14 @@ class PersistentEditorVisuals:
             anchor, position = locations
             first = visual.visual_position_for_source_location(*anchor)
             second = visual.visual_position_for_source_location(*position)
-            if first == second:
+            maximum = max(int(visual.document().characterCount()) - 1, 0)
+            if (
+                first == second
+                or first < 0
+                or second < 0
+                or first > maximum
+                or second > maximum
+            ):
                 continue
             cursor = QTextCursor(visual.document())
             cursor.setPosition(first)
@@ -272,11 +304,23 @@ class PersistentEditorVisuals:
             cls._hide_bookmark_gutters(editor)
 
         def append_bookmark_action(menu, editor, line: int, column: int) -> None:
+            del line, column
+            controller = SelectionBookmarkContextController(editor)
+            locations = controller.capture_selection()
+            if locations is None:
+                return
+            anchor, position = locations
             menu.addSeparator()
-            action = menu.addAction("Bookmark")
+            action = menu.addAction("Bookmark Selection")
             action.triggered.connect(
-                lambda _checked=False, item=editor, row=int(line), col=int(column):
-                item._toggle_bookmark(row, col)
+                lambda _checked=False,
+                item=controller,
+                saved_anchor=anchor,
+                saved_position=position:
+                item.toggle_captured_selection(
+                    saved_anchor,
+                    saved_position,
+                )
             )
 
         def create_actions(window: MainWindow) -> None:

@@ -1,0 +1,75 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+
+\usetikzlibrary{graphs,graphdrawing}
+\usegdlibrary{layered}
+
+% for external graphviz
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/external_graphviz.tex}
+
+% for tags
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/part/control_sequence/kind/semtag/semtag.tex}
+
+% for links
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/seehere.tex}
+
+% for nested lists and sections
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/deep_structure.tex}
+
+\title{Navigator, Preview Diagnostics, and Bookmark Consistency}
+\date{2026-09-08}
+\author{Mohammad Rahmani}
+
+\begin{document}
+   \maketitle
+
+   \section{Navigator rename refresh}
+
+   Background rename/move completion now triggers an explicit Navigator
+   filesystem-model refresh. The QFileSystemModel root watcher/cache is rebound,
+   the stored expansion state is restored, and the renamed path is revealed
+   again. This prevents the old filename from remaining visible after the file
+   was already renamed successfully on disk.
+
+   \section{Preview diagnostic panel}
+
+   The vertical splitter between the last valid PDF and the LaTeX diagnostic
+   panel now has a wider, visible horizontal handle with a resize cursor and
+   tooltip. The diagnostic header also exposes a copy control that copies the
+   complete diagnostic, including raw compiler output and the structured trace,
+   as either readable plain text or YAML.
+
+   \section{Bookmark consistency}
+
+   Source and Visual context-menu bookmark actions capture the canonical
+   selection before the menu action is invoked, restore that same selection,
+   and then call the same \verb|toggle_bookmark_at_cursor| path used by the main
+   Bookmarks action. Context-menu bookmarking therefore uses the same stored
+   selection/highlight behavior as the top editor/menu action.
+
+   \section{Architecture}
+
+   The changes use focused controllers and serializers:
+   \begin{itemize}
+      \item \verb|NavigatorFilesystemModelRefreshController| owns Navigator model refreshes.
+      \item \verb|SelectionBookmarkContextController| owns captured selection replay.
+      \item \verb|LatexDiagnosticSerializer| owns text/YAML diagnostic export.
+   \end{itemize}
+
+   \bibliographystyle{plainnat}
+   \bibliography{/home/donkarlo/Dropbox/repo/nd_shared_research/bibliography/bibliography.bib}
+\end{document}

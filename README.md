@@ -26,6 +26,7 @@ This README describes the active functional project: desktop Python/PySide6 sour
 - Multi-delete and drag/move remain available independently of the clipboard workflow.
 - **F2** renames the selected Navigator file/folder.
 - File/folder rename and drag/move remap open editor tabs and renderer paths; stale queued/running Preview work against the old path is stopped before the filesystem move.
+- After a successful background rename/move, Navigator explicitly refreshes its `QFileSystemModel` cache/watcher and restores expansion/selection, so an old filename cannot remain visible after the filesystem has already changed.
 - Managed PNG/JPG/JPEG graphics move or rename together with their neighboring `.ndgraphic` sidecar. If that graphic is active in the iPad bridge, the bridge remaps its live identity to the new path/name without reloading the active iPad canvas or resetting Undo/Redo history.
 - Deleting a managed raster through the Navigator also deletes its neighboring `.ndgraphic` companion so the project does not leave a stale editable sidecar behind.
 - Rename/move detects a stale orphan destination sidecar: when the destination raster no longer exists but its old `.ndgraphic` remains and belongs to that managed graphic workflow, the new raster/sidecar pair can safely replace the orphan instead of failing with an `already exists` collision.
@@ -97,7 +98,7 @@ This README describes the active functional project: desktop Python/PySide6 sour
 - Clipboard and iPad image insertion use one collision-safe `img_N.png` sequence per folder.
 - Image insertion keeps the complete LaTeX `figure`/`\includegraphics` source visible.
 - The LaTeX toolbar provides grouped Unicode character insertion, an `\iffalse … \fi` helper, and a `_ → \_` action that escapes unescaped underscores in the current Source selection.
-- Standard Source context-menu editing remains available; when text is selected, **Bookmark Here** is added and records the selected source range/text.
+- Standard Source context-menu editing remains available; when text is selected, **Bookmark Selection** records the same canonical source range through the same bookmark toggle path used by the main Bookmarks action.
 - Dragging an image from Navigator into Source inserts the exact image path into a LaTeX figure rather than substituting a different clipboard image.
 - Source graphic references can show the managed graphic preview/edit workflow without replacing the canonical `\includegraphics` source.
 
@@ -115,7 +116,7 @@ Visual is an editable projection of the same canonical LaTeX source; it is not a
 - Visual normal prose/list blocks use LaTeX-like full justification while preserving the Source as canonical.
 - Visual edits are committed back with a minimal Source diff; a pending Visual edit is flushed before returning to Source, where full formatting can run.
 - Clipboard images pasted in Visual are routed through the same managed-image insertion workflow as Source.
-- Selected Visual text exposes **Bookmark Here** and maps the bookmark back to the represented Source range.
+- Selected Visual text exposes **Bookmark Selection** and replays the captured canonical Source range through the same bookmark action as Source/top-menu bookmarking.
 - Graphic context actions in Visual can target the represented image for the iPad editing workflow.
 
 ### Render-performance settings
@@ -141,6 +142,7 @@ The controller handles Qt standard-key matching and German/Swiss QWERTZ layouts.
 - Source and Visual share one persisted bookmark model.
 - Source bookmark ribbons are drawn in the logical line-number gutter.
 - A bookmark created while text is selected stores the selected source range together with readable selected text; ordinary bookmarks continue to work as line anchors.
+- Source/Visual context-menu bookmarking captures the current canonical selection before the menu action fires, restores that same selection, and then executes the same `toggle_bookmark_at_cursor()` path used by the Bookmarks menu/shortcut.
 - Clicking an existing bookmark restores its saved selection in both Source and Visual and requests the corresponding Preview text highlight; clicking an empty gutter location creates a bookmark, while rename/remove remain available from the bookmark context menu.
 - Bookmark labels prefer a custom name, then the saved selected text, then the source anchor, so the Bookmarks menu and **Manage Bookmarks…** show what was highlighted.
 - Bookmarks keep line/column information, can be renamed/removed, are persisted, and relocate when preceding content changes. Saved selection endpoints move with the relocated bookmark anchor.
@@ -152,6 +154,7 @@ The controller handles Qt standard-key matching and German/Swiss QWERTZ layouts.
 - LuaLaTeX live rendering.
 - Multi-pass bibliography/citation rendering when required.
 - The last valid PDF remains visible during transient compile failures.
+- LaTeX compile failures open a structured diagnostics tree below the last valid PDF; the divider has a clearly visible drag handle, and the complete diagnostic (raw compiler output plus dependency/error tree) can be copied as plain text or YAML for ChatGPT/debugging.
 - PDF text remains selectable/copyable.
 - Ctrl+mouse-wheel zoom and panning are supported.
 - Zoom percentage and page information are displayed.
@@ -319,10 +322,10 @@ Each desktop application session starts a bridge process from the current projec
 
 The active source/tests/settings currently cover these functional areas:
 
-1. Workspace root configuration, ignored-path policy, deterministic Navigator reveal/centering, horizontal scrolling, multi-selection, grouped context menus, copy/cut/paste, collision naming, create/rename/delete/drag/move, path copying/sharing, and iPad image actions.
+1. Workspace root configuration, ignored-path policy, deterministic Navigator reveal/centering, explicit post-rename filesystem-model refresh, horizontal scrolling, multi-selection, grouped context menus, copy/cut/paste, collision naming, create/rename/delete/drag/move, path copying/sharing, and iPad image actions.
 2. Semantic repository reference discovery/rewrite across relative, workspace-relative, absolute, `/repo/...`, extensionless LaTeX, graphics, bibliography, listing/verbatim, minted, URL/href, and supported document-link contexts.
 3. Background reference scanning/maintenance and responsive filesystem workers, including managed raster + `.ndgraphic` lifecycle rules.
-4. LaTeX Source editing, completion/snippets, indentation/formatting, RTL/LTR direction, logical line numbers, wrapping, bookmarks, image insertion, special-character helpers, line deletion, and selection-aware context actions.
+4. LaTeX Source editing, completion/snippets, indentation/formatting, RTL/LTR direction, logical line numbers, wrapping, selection-consistent bookmarks, image insertion, special-character helpers, line deletion, and selection-aware context actions.
 5. LaTeX Visual projection/editing, source mapping, graphics, nested fractions, justified prose/lists, Persian typography, image paste, bookmarks, and bounded large-document windowing.
 6. YAML editing, syntax highlighting, hierarchical Structure parsing, smart/shared indentation, and formatting that preserves YAML content structure.
 7. Generic text/code editing with the shared source editor infrastructure.
@@ -330,7 +333,7 @@ The active source/tests/settings currently cover these functional areas:
 9. Double-Shift file search with exact/prefix/substring/fuzzy matching, ordered `>` hierarchy queries, keyboard navigation, live workspace indexing, and folder reveal.
 10. Pinned/Open two-row tab management, drag ordering, persisted order, max-tab/LRU behavior, recent-file switching, `Ctrl+Tab`, `Ctrl+W`, path remapping, and session restoration.
 11. Undo/Redo, current-line deletion, Find/Replace, bold, bookmarks, editor zoom reset, configurable application shortcuts, and user-editable LaTeX shorthand expansion.
-12. LuaLaTeX live Preview, recursive input resolution, graphic dependencies, bibliography passes, generation cancellation, selectable PDF text, zoom/pan, Fit/Auto Fit, reverse SyncTeX, selection highlight/caret mapping, Lock, Extend, Detach/Attach, toggle, and PDF export.
+12. LuaLaTeX live Preview, recursive input resolution, graphic dependencies, bibliography passes, generation cancellation, selectable PDF text, zoom/pan, Fit/Auto Fit, reverse SyncTeX, structured/copyable diagnostics, selection highlight/caret mapping, Lock, Extend, Detach/Attach, toggle, and PDF export.
 13. Autosave, external-file synchronization, local autosave staging, persisted UI/editor state, settings reload, and per-feature performance/debounce controls.
 14. Native iPad PencilKit drawing with saved Pencil/Highlighter/Eraser tools, colors/thickness/opacity, lasso feedback/move/resize, Undo/Redo, two-finger Undo, photo/image objects, raster editing, canvas resize/presets, zoom/pan, grid/rulers, recent graphics, Close image, and live-sync settings.
 15. Ubuntu↔iPad bridge transport, open/update/save acknowledgements, revision tracking, managed sidecars, background preservation, stale-path rename aliases, current-session bridge process ownership, and Source/Visual/Preview refresh after accepted graphic updates.

@@ -657,23 +657,114 @@ class RecursiveInputResolver(InputResolver):
         self,
         source: str,
     ) -> tuple[str, str | None, str]:
+        structural_parts = []
+        for line in source.splitlines(keepends=True):
+            code, comment = self._split_comment(line)
+            structural_parts.append(code)
+            structural_parts.append(
+                "".join(
+                    character
+                    if character in "\r\n"
+                    else " "
+                    for character in comment
+                )
+            )
+        structural_source = "".join(structural_parts)
+
+        document_classes = list(
+            self._DOCUMENT_CLASS_PATTERN.finditer(
+                structural_source
+            )
+        )
+        candidates = []
+
+        for index, document_class in enumerate(
+            document_classes
+        ):
+            segment_start = document_class.start()
+            if index + 1 < len(document_classes):
+                segment_end = document_classes[
+                    index + 1
+                ].start()
+            else:
+                segment_end = len(source)
+
+            structural_segment = structural_source[
+                segment_start:segment_end
+            ]
+            begin_match = self._DOCUMENT_BEGIN_PATTERN.search(
+                structural_segment
+            )
+            if begin_match is None:
+                continue
+
+            end_match = self._DOCUMENT_END_PATTERN.search(
+                structural_segment,
+                begin_match.end(),
+            )
+            if end_match is None:
+                continue
+
+            preamble_start = segment_start
+            preamble_end = segment_start + begin_match.start()
+            body_start = segment_start + begin_match.end()
+            body_end = segment_start + end_match.start()
+            suffix_start = segment_start + end_match.end()
+            suffix_end = segment_end
+
+            meaningful_body = structural_source[
+                body_start:body_end
+            ]
+            meaningful_body = re.sub(
+                r"\\maketitle\b",
+                "",
+                meaningful_body,
+            )
+            meaningful_body = re.sub(
+                r"\s+",
+                "",
+                meaningful_body,
+            )
+
+            candidates.append(
+                (
+                    len(meaningful_body),
+                    index,
+                    source[preamble_start:preamble_end],
+                    source[body_start:body_end],
+                    source[suffix_start:suffix_end],
+                )
+            )
+
+        if candidates:
+            (
+                _score,
+                _index,
+                preamble,
+                body,
+                suffix,
+            ) = max(
+                candidates,
+                key=lambda item: (
+                    item[0],
+                    item[1],
+                ),
+            )
+            return preamble, body, suffix
+
         begin_match = self._DOCUMENT_BEGIN_PATTERN.search(
-            source
+            structural_source
         )
 
         if begin_match is None:
             return source, None, ""
 
-        end_matches = list(
-            self._DOCUMENT_END_PATTERN.finditer(source)
+        end_match = self._DOCUMENT_END_PATTERN.search(
+            structural_source,
+            begin_match.end(),
         )
 
-        if not end_matches:
-            return source, None, ""
-
-        end_match = end_matches[-1]
-
-        if end_match.start() < begin_match.end():
+        if end_match is None:
             return source, None, ""
 
         preamble = source[:begin_match.start()]

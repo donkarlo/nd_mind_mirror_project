@@ -1,0 +1,34 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+
+\usetikzlibrary{graphs,graphdrawing}
+\usegdlibrary{layered}
+
+\title{PDF Preview Page Boundary Scrolling}
+\date{2026-09-08}
+\author{Mohammad Rahmani}
+
+\begin{document}
+   \maketitle
+
+   PDF Preview scrolling, panning, zoom anchoring, and explicit scroll bars now use the rendered PDF page rectangle as their movement boundary instead of the larger internal \texttt{PdfMultiPageView} content extent. This prevents the viewport from stopping before the true left, right, top, or bottom edge of a tight-page PDF and prevents movement beyond the actual page geometry.
+
+   The boundary calculation maps all four corners of the current rendered page into the scrollable content coordinate system and derives one shared horizontal and vertical range for manual panning, scroll-bar positioning, view restoration, and zoom-anchor restoration.
+
+   \bibliographystyle{plainnat}
+   \bibliography{/home/donkarlo/Dropbox/repo/nd_shared_research/bibliography/bibliography.bib}
+\end{document}

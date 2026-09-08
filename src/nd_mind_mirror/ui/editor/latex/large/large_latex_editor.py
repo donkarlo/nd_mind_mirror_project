@@ -7,6 +7,9 @@ from nd_mind_mirror.core.document.latex.large.latex_source_buffer import (
 from nd_mind_mirror.ui.editor.latex.large.large_latex_editor_incremental_core import (
     LargeLatexEditor as IncrementalLargeLatexEditor,
 )
+from nd_mind_mirror.ui.editor.latex.large.source_typing_burst_controller import (
+    SourceTypingBurstController,
+)
 
 
 class LargeLatexEditor(IncrementalLargeLatexEditor):
@@ -41,6 +44,76 @@ class LargeLatexEditor(IncrementalLargeLatexEditor):
             max(threshold, 1),
             window_chars,
         )
+
+        self._deferred_window_shift_value: int | None = None
+        self._typing_burst_controller = SourceTypingBurstController(
+            idle_ms=max(
+                120,
+                min(
+                    int(self._source_large_document_debounce_ms),
+                    240,
+                ),
+            ),
+            parent=self,
+        )
+        self._typing_burst_controller.became_idle.connect(
+            self._resume_deferred_source_window_shift
+        )
+
+    def _synchronize_visible_change(
+        self,
+        position: int,
+        chars_removed: int,
+        chars_added: int,
+    ) -> None:
+        """Update the canonical buffer and mark real character edits as typing."""
+        is_character_edit = (
+            not self._source_window_loading
+            and (
+                int(chars_removed) != 0
+                or int(chars_added) != 0
+            )
+        )
+        super()._synchronize_visible_change(
+            position,
+            chars_removed,
+            chars_added,
+        )
+        if is_character_edit:
+            self._typing_burst_controller.note_activity()
+
+    def _maybe_shift_source_window(self, value: int) -> None:
+        """Never replace the materialized QTextDocument inside a typing burst."""
+        if self._typing_burst_controller.is_active:
+            self._deferred_window_shift_value = int(value)
+            return
+        super()._maybe_shift_source_window(value)
+
+    def _apply_pending_source_window_shift(self) -> None:
+        """Keep a queued edge shift pending until all ordered key events settle."""
+        if self._typing_burst_controller.is_active:
+            self._deferred_window_shift_value = int(
+                self.verticalScrollBar().value()
+            )
+            return
+        super()._apply_pending_source_window_shift()
+
+    def _resume_deferred_source_window_shift(self) -> None:
+        """Resume one pending edge re-window after Source input becomes idle."""
+        if self._edit_mode != "source" or not self.source_is_windowed:
+            self._deferred_window_shift_value = None
+            return
+
+        if int(self._pending_source_window_shift) != 0:
+            self._deferred_window_shift_value = None
+            super()._apply_pending_source_window_shift()
+            return
+
+        value = self._deferred_window_shift_value
+        self._deferred_window_shift_value = None
+        if value is None:
+            value = int(self.verticalScrollBar().value())
+        super()._maybe_shift_source_window(int(value))
 
     def _load_complete_source(
         self,

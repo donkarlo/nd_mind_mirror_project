@@ -55,6 +55,31 @@ def test_recursive_preview_never_finds_unrelated_suffix_match(tmp_path: Path) ->
     )
 
 
+def test_recursive_preview_resolves_file_relative_input(tmp_path: Path) -> None:
+    """A path without a leading slash resolves beside the referring file."""
+    default_root = tmp_path / "repo"
+    master_dir = default_root / "project" / "chapter"
+    master_dir.mkdir(parents=True)
+
+    target = master_dir / "part" / "body.tex"
+    target.parent.mkdir(parents=True)
+    target.write_text("\\section{Relative body}\n", encoding="utf-8")
+
+    master = master_dir / "chapter.tex"
+    source = (
+        "\\documentclass{article}\n"
+        "\\begin{document}\n"
+        "\\input{part/body.tex}\n"
+        "\\end{document}\n"
+    )
+
+    resolver = WorkspaceRecursiveInputResolver(default_root)
+    rendered = resolver.resolve(source, master)
+
+    assert "Relative body" in rendered
+    assert target.resolve() in resolver.resolved_paths
+
+
 def test_recursive_preview_resolves_default_rooted_input(tmp_path: Path) -> None:
     """A leading slash is rooted at search.default_path before OS absolute fallback."""
     default_root = tmp_path / "repo"
@@ -88,17 +113,59 @@ def test_recursive_preview_resolves_default_rooted_input(tmp_path: Path) -> None
     assert target.resolve() in resolver.resolved_paths
 
 
-def test_application_wires_workspace_recursive_resolver() -> None:
-    """The launched window must replace the generic resolver with the workspace resolver."""
-    application_source = (
+def test_recursive_preview_resolves_true_system_absolute_input(tmp_path: Path) -> None:
+    """A true OS absolute path remains the fallback after default-rooted lookup."""
+    default_root = tmp_path / "repo"
+    default_root.mkdir(parents=True)
+    master = default_root / "master.tex"
+
+    target = tmp_path / "external" / "absolute.tex"
+    target.parent.mkdir(parents=True)
+    target.write_text("\\section{Absolute body}\n", encoding="utf-8")
+
+    source = (
+        "\\documentclass{article}\n"
+        "\\begin{document}\n"
+        f"\\input{{{target.as_posix()}}}\n"
+        "\\end{document}\n"
+    )
+
+    resolver = WorkspaceRecursiveInputResolver(default_root)
+    rendered = resolver.resolve(source, master)
+
+    assert "Absolute body" in rendered
+    assert target.resolve() in resolver.resolved_paths
+
+
+def test_renderer_owns_workspace_resolvers_from_construction() -> None:
+    """Preview renderer must never begin life with the generic path resolver."""
+    renderer_source = (
         PROJECT_ROOT
-        / "src/nd_mind_mirror/app/mind_mirror_application.py"
-    ).read_text(encoding="utf-8")
-    enhanced_window_source = (
-        PROJECT_ROOT
-        / "src/nd_mind_mirror/ui/window/main/enhanced_main_window.py"
+        / "src/nd_mind_mirror/core/render/latex/latex_renderer.py"
     ).read_text(encoding="utf-8")
 
-    assert "window = EnhancedMainWindow()" in application_source
-    assert "self._configure_workspace_input_resolver()" in enhanced_window_source
-    assert "WorkspaceRecursiveInputResolver(" in enhanced_window_source
+    assert "WorkspaceRecursiveInputResolver()" in renderer_source
+    assert "WorkspaceGraphicDependencyResolver()" in renderer_source
+    assert "def set_workspace_default_path(" in renderer_source
+
+
+def test_session_restore_configures_workspace_root_before_restored_preview() -> None:
+    """Restored tabs must receive search.default_path before they can request Preview."""
+    enhanced_source = (
+        PROJECT_ROOT
+        / "src/nd_mind_mirror/ui/window/main/enhanced_main_window_base.py"
+    ).read_text(encoding="utf-8")
+
+    restore_method = enhanced_source.split(
+        "    def _restore_session(self) -> None:", 1
+    )[1].split(
+        "    def _save_session(self) -> None:", 1
+    )[0]
+
+    assert (
+        restore_method.index("self._configure_workspace_input_resolver()")
+        < restore_method.index("super()._restore_session()")
+    )
+    assert "renderer.set_workspace_default_path(" in enhanced_source
+    assert "renderer._input_resolver =" not in enhanced_source
+    assert "renderer._graphic_dependency_resolver =" not in enhanced_source

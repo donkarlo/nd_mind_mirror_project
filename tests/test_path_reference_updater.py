@@ -92,7 +92,7 @@ def test_rewrites_extensionless_input_relative_to_referring_file(
 
     source_file = docs / "main.tex"
     source_file.write_text(
-        "\\input{../parts/old_section}\n",
+        "\\input{../part/old_section}\n",
         encoding="utf-8",
     )
 
@@ -103,7 +103,7 @@ def test_rewrites_extensionless_input_relative_to_referring_file(
     )
 
     assert source_file.read_text(encoding="utf-8") == (
-        "\\input{../parts/new_section}\n"
+        "\\input{../part/new_section}\n"
     )
 
 

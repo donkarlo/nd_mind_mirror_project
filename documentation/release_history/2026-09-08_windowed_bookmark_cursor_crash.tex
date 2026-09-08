@@ -1,0 +1,59 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+
+\usetikzlibrary{graphs,graphdrawing}
+\usegdlibrary{layered}
+
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/external_graphviz.tex}
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/part/control_sequence/kind/semtag/semtag.tex}
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/seehere.tex}
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/deep_structure.tex}
+
+\title{Windowed Source Bookmark Cursor Crash}
+\date{2026-09-08}
+\author{Mohammad Rahmani}
+
+\begin{document}
+   \maketitle
+
+   \section{Fixed behavior}
+
+   Persistent selection bookmarks no longer pass canonical full-file character
+   offsets into the bounded QTextDocument used by a windowed large LaTeX
+   Source editor.
+
+   \begin{itemize}
+      \item Normal Source editors continue to use their ordinary document
+      position mapping.
+      \item Windowed large Source editors resolve bookmark endpoints to local
+      window positions.
+      \item Bookmarks that are outside the currently materialized Source window
+      are not converted to QTextCursor selections until their source region is
+      visible.
+      \item Every resolved position is checked against the active
+      QTextDocument character range before QTextCursor receives it.
+      \item Visual bookmark highlights are also range-checked before cursor
+      construction.
+   \end{itemize}
+
+   This removes the repeated
+   \verb|QTextCursor::setPosition: Position ... out of range| calls observed
+   immediately before the native process exit code \verb|-11|.
+
+   \bibliographystyle{plainnat}
+   \bibliography{/home/donkarlo/Dropbox/repo/nd_shared_research/bibliography/bibliography.bib}
+\end{document}

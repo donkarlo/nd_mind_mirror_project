@@ -1,0 +1,36 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+
+\usetikzlibrary{graphs,graphdrawing}
+\usegdlibrary{layered}
+
+\title{LaTeX Preview Profiles and Per-File PDF Cache}
+\date{2026-09-08}
+\author{Mohammad Rahmani}
+
+\begin{document}
+   \maketitle
+
+   LaTeX Preview now has four independent wrapper loads: Default, Graph, German, and Beamer. The active load is persisted in \texttt{settings.yaml}, each wrapper has its own template path, and the Settings menu exposes both load selection and template editing.
+
+   The accidental duplicate Beamer setting that could point the Beamer loader at the German learning document template is repaired. The German learning document remains available only as a new-file template, while the German Preview loader uses a generic wrapper without worksheet content.
+
+   Preview also keeps the last valid PDF per source file. Switching to another source cannot reuse a different document's last valid PDF; a failed compilation retains only the valid preview belonging to the same source file.
+
+   \bibliographystyle{plainnat}
+   \bibliography{/home/donkarlo/Dropbox/repo/nd_shared_research/bibliography/bibliography.bib}
+\end{document}

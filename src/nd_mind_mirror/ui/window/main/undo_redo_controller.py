@@ -19,7 +19,7 @@ class UndoRedoController(QObject):
     _MAX_HISTORY_STEPS = 120
 
     def __init__(self, parent=None) -> None:
-        """Install application-level key/context routing and initialize per-document histories lazily."""
+        """Install application-level key/context routing and initialize histories lazily."""
         super().__init__(parent)
         self._histories: dict[int, dict[str, object]] = {}
         self._bound_editors: dict[int, weakref.ReferenceType] = {}
@@ -34,7 +34,7 @@ class UndoRedoController(QObject):
                 self._bind_view(editor)
 
     def eventFilter(self, watched, event) -> bool:
-        """Route Ctrl+Z/Ctrl+Y and editor context menus through canonical text history."""
+        """Route Ctrl+Z/Ctrl+Y and editor context menus through canonical history."""
         if event.type() == QEvent.Type.FocusIn:
             view = self._supported_view(watched)
             if view is not None:
@@ -69,7 +69,7 @@ class UndoRedoController(QObject):
         return True
 
     def _bind_view(self, view: TextEditor | LatexVisualEditor) -> TextEditor:
-        """Bind the canonical Source editor once and return it for Source/Visual history operations."""
+        """Bind the canonical Source editor once and return it for history operations."""
         canonical = self._canonical_editor(view)
         identity = id(canonical)
         if identity in self._bound_editors:
@@ -101,7 +101,7 @@ class UndoRedoController(QObject):
         self._applying.discard(identity)
 
     def _on_canonical_text_changed(self, editor_ref: weakref.ReferenceType) -> None:
-        """Record actual text changes while ignoring formatting-only QTextDocument notifications."""
+        """Record actual text changes while ignoring formatting-only notifications."""
         editor = editor_ref()
         if editor is None:
             return
@@ -128,7 +128,7 @@ class UndoRedoController(QObject):
         history["current"] = text
 
     def _on_content_changed(self, editor_ref: weakref.ReferenceType) -> None:
-        """Adopt blocked-signal file loads without erasing history for identical autosave content."""
+        """Adopt blocked-signal file loads without erasing identical autosave history."""
         editor = editor_ref()
         if editor is None:
             return
@@ -169,7 +169,7 @@ class UndoRedoController(QObject):
         view: TextEditor | LatexVisualEditor,
         command: str,
     ) -> None:
-        """Execute one undo or redo step against the shared canonical source history."""
+        """Execute one undo or redo step against shared canonical source history."""
         canonical = self._bind_view(view)
         self._flush_pending_visual_edit(view, canonical)
 
@@ -202,7 +202,7 @@ class UndoRedoController(QObject):
         view: TextEditor | LatexVisualEditor,
         canonical: TextEditor,
     ) -> None:
-        """Serialize pending Visual typing before undoing so the newest keystrokes are part of history."""
+        """Serialize pending Visual typing before undoing the newest keystrokes."""
         if not isinstance(view, LatexVisualEditor):
             return
         if not isinstance(canonical, LatexEditor):
@@ -214,7 +214,7 @@ class UndoRedoController(QObject):
         view._emit_serialized_source()
 
     def _apply_text(self, editor: TextEditor, target: str) -> None:
-        """Restore one snapshot without calling set_content, which would clear editor history and view state."""
+        """Restore one snapshot without clearing editor history and view state."""
         identity = id(editor)
         history = self._histories.get(identity)
         if history is None:
@@ -270,8 +270,8 @@ class UndoRedoController(QObject):
             self._applying.discard(identity)
 
     def _patch_context_menu(self, menu: QMenu) -> None:
-        """Replace standard Undo/Redo actions with canonical-history actions for the focused editor."""
-        view = self._supported_view(menu)
+        """Replace Undo/Redo only inside a real Source or Visual context menu."""
+        view = self._supported_menu_view(menu)
         if view is None:
             return
         canonical = self._bind_view(view)
@@ -311,7 +311,7 @@ class UndoRedoController(QObject):
 
     @classmethod
     def _trim_history(cls, stack: list[str]) -> None:
-        """Bound memory use while retaining enough undo steps for a long writing session."""
+        """Bound memory use while retaining enough undo steps for a long session."""
         overflow = len(stack) - cls._MAX_HISTORY_STEPS
         if overflow > 0:
             del stack[:overflow]
@@ -320,7 +320,7 @@ class UndoRedoController(QObject):
     def _canonical_editor(
         view: TextEditor | LatexVisualEditor,
     ) -> TextEditor:
-        """Map Visual back to its owning LaTeX Source editor so both modes share one history."""
+        """Map Visual back to its owning LaTeX Source editor."""
         if isinstance(view, LatexVisualEditor):
             parent = view.parentWidget()
             while parent is not None:
@@ -330,8 +330,20 @@ class UndoRedoController(QObject):
         return view
 
     @staticmethod
+    def _supported_menu_view(menu: QMenu) -> TextEditor | LatexVisualEditor | None:
+        """Resolve a context menu only through its owning widget hierarchy."""
+        current = menu.parentWidget()
+        while current is not None:
+            if isinstance(current, LatexVisualEditor):
+                return current
+            if isinstance(current, TextEditor):
+                return current
+            current = current.parentWidget()
+        return None
+
+    @staticmethod
     def _supported_view(watched) -> TextEditor | LatexVisualEditor | None:
-        """Resolve an event target, menu parent, or focused child to a supported Source/Visual widget."""
+        """Resolve key/focus event targets, falling back to the focused editor."""
         candidates = []
         if isinstance(watched, QWidget):
             candidates.append(watched)

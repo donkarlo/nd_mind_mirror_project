@@ -1,0 +1,55 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+\usepackage{adjustbox}
+
+\usetikzlibrary{graphs,graphdrawing}
+\usegdlibrary{layered}
+
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/external_graphviz.tex}
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/part/control_sequence/kind/semtag/semtag.tex}
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/seehere.tex}
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/deep_structure.tex}
+
+\title{Preview Splitter Contrast and Ordered Large Source Typing}
+\date{2026-09-08}
+\author{Mohammad Rahmani}
+
+\begin{document}
+   \maketitle
+
+   \section{Bug fixes}
+
+   \begin{itemize}
+      \item The LaTeX diagnostics splitter handle now has a dark visible idle
+      state, with distinct hover and pressed states, so the resize affordance
+      remains visible before the pointer grabs it.
+      \item Windowed large LaTeX Source editors no longer replace their
+      materialized QTextDocument while a character-input burst is active.
+      Re-window operations requested near a Source window edge are deferred
+      until the typing burst becomes idle, then resumed once.
+      \item Canonical source-buffer edits still happen immediately for every
+      QTextDocument character edit; only the disruptive visible-window reload
+      is delayed.
+   \end{itemize}
+
+   This protects ordered key input during fast typing such as
+   \verb|include| while preserving the existing bounded large-document Source
+   architecture.
+
+   \bibliographystyle{plainnat}
+   \bibliography{/home/donkarlo/Dropbox/repo/nd_shared_research/bibliography/bibliography.bib}
+\end{document}

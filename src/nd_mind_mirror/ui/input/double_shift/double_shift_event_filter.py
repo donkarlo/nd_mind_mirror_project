@@ -1,3 +1,5 @@
+"""Detect Double Shift and protect Search activation from focus races."""
+
 import time
 
 from PySide6.QtCore import (
@@ -5,6 +7,10 @@ from PySide6.QtCore import (
     QObject,
     Qt,
     Signal,
+)
+
+from nd_mind_mirror.ui.input.double_shift.activation_key_handoff_buffer import (
+    ActivationKeyHandoffBuffer,
 )
 
 
@@ -24,6 +30,10 @@ class DoubleShiftEventFilter(QObject):
         self._last_shift_tap_time = 0.0
         self._shift_pressed = False
         self._shift_used_as_modifier = False
+        self._activation_handoff = ActivationKeyHandoffBuffer(
+            timeout_ms=1200,
+            parent=self,
+        )
 
     def set_interval_ms(
         self,
@@ -40,6 +50,12 @@ class DoubleShiftEventFilter(QObject):
         watched,
         event,
     ) -> bool:
+        # Once Double Shift has fired, the handoff owns keyboard input until
+        # Search's QLineEdit really receives focus. This prevents early text
+        # from entering Source or disappearing during window activation.
+        if self._activation_handoff.intercept(watched, event):
+            return True
+
         event_type = event.type()
 
         if event_type not in {
@@ -114,8 +130,14 @@ class DoubleShiftEventFilter(QObject):
             <= self._interval_seconds
         ):
             self._last_shift_tap_time = 0.0
+
+            # Arm before emitting: the signal synchronously opens Search, while
+            # a top-level window manager may complete focus transfer later.
+            self._activation_handoff.begin()
             self.activated.emit()
-            return False
+
+            # The second Shift release belongs to the shortcut itself.
+            return True
 
         self._last_shift_tap_time = now
         return False

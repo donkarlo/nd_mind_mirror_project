@@ -202,7 +202,7 @@ def test_recursive_preview_resolves_default_rooted_input(tmp_path: Path) -> None
     source = (
         "\\documentclass{article}\n"
         "\\begin{document}\n"
-        "\\input{/nd_research_publication/parts/child}\n"
+        "\\input{/nd_research_publication/part/child}\n"
         "\\end{document}\n"
     )
 

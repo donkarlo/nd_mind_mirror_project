@@ -25,39 +25,25 @@ editor:
   source_large_document_threshold_chars: 120000
   source_large_document_debounce_ms: 180
   # Delay before incremental QTextDocument block layout is recomputed.
-  # 40 ms coalesces fast typing better while remaining visually immediate.
   source_layout_update_debounce_ms: 40
-  # Visual serialization is coalesced so large documents remain responsive.
   visual_update_debounce_ms: 180
   visual_large_document_threshold_chars: 120000
   visual_large_document_debounce_ms: 650
-  # Cursor-centered Visual render window. Four pages on each side keeps the
-  # active projection small without making ordinary scrolling feel sparse.
   visual_window_pages_above: 4
   visual_window_pages_below: 4
   visual_window_estimated_chars_per_page: 2400
   visual_window_min_lines_per_page: 12
   visual_window_max_lines_per_page: 45
-  # Hard upper bound for one large Visual projection. This prevents long prose
-  # paragraphs or environments from expanding the projection back to megabytes.
   visual_window_max_chars: 40000
   visual_window_rewindow_delay_ms: 90
   visual_window_scroll_edge_ratio: 0.14
-  # auto: LaTeX control/setup lines stay LTR; Persian prose becomes RTL.
-  # rtl: force ordinary prose RTL while still keeping LaTeX control lines LTR.
-  # ltr: keep every source line LTR.
   latex_text_direction: "auto"
-  # In auto mode, an ordinary prose line becomes RTL when this fraction of
-  # strong alphabetic characters belongs to an RTL script (Persian/Arabic).
   latex_rtl_persian_ratio: 0.35
   max_open_tabs: 20
-  # Shared source indentation width. Tab/Shift+Tab, LaTeX formatting, YAML
-  # smart indentation, tab rendering, structure parsing, and guides use it.
   tab_size: 3
   indent_guides_enabled: true
   indent_guide_color: "#d0d0d0"
   indent_guide_width: 1.0
-  # Cursor thickness in pixels, shared by Source, Visual and non-focus caret.
   cursor_width: 2
   cursor_flash_time_ms: 650
   soft_wrap: true
@@ -76,26 +62,17 @@ autosave:
 
 external_file_sync:
   enabled: true
-  # Fast enough for live TikZ files edited from the iPad bridge.
   interval_ms: 350
 
 search:
-  # This path is also the File System workspace root and the root for local
-  # references that BEGIN with "/". For example, with default_path set to
-  # "~/Dropbox/repo", "/project/file.tex" means
-  # "~/Dropbox/repo/project/file.tex" first; if that does not exist, the same
-  # token is tried as an operating-system absolute path. Tokens without a
-  # leading slash are resolved only relative to the file that contains them.
   default_path: "~/Dropbox/repo"
   ignore_file: "search_ignore.yaml"
   max_results: 100
-  # Wait for a short typing pause so fast typing never launches a search per key.
   debounce_ms: 280
   fuzzy_threshold: 0.86
   window_width: 900
   window_height: 620
   tree_indent_width: 10
-  # Search query tokens may match different ancestor/descendant path parts.
   hierarchical_path_matching: true
 
 input:
@@ -104,59 +81,41 @@ input:
 ui:
   splitter_handle_width: 9
   navigator_indent_width: 10
-  # Slightly taller rows in both File System and Structure trees.
   navigator_row_height: 24
 
 preview:
-  # Used when auto_fit_on_open is false.
   default_zoom_percent: 100
-  # Safe PDF zoom bounds. Lower max zoom reduces the largest page texture Qt
-  # can request; raise it only when very deep zoom is actually needed.
   min_zoom_percent: 20
   max_zoom_percent: 500
-  # Manual Fit uses a deliberately small sampled raster. Auto Fit uses the
-  # physical page width and does not need this raster scan.
   fit_raster_width_px: 480
   fit_raster_sample_step_px: 4
-  # Fit a newly opened LaTeX source to the preview width automatically.
   auto_fit_on_open: true
-  # Fit makes the widest rendered content use this percentage of the preview
-  # width; unused white A4 margins are cropped horizontally and height is ignored.
   fit_width_percent: 95
   debounce_ms: 120
-  # Large documents are coalesced more aggressively so LuaLaTeX is not
-  # killed/restarted repeatedly while typing.
   large_document_threshold_chars: 120000
   large_document_debounce_ms: 420
   cursor_sync_enabled: true
   cursor_sync_debounce_ms: 120
-  # Only explicit Source/Visual selections use the PDF text highlight.
-  # With no selection, SyncTeX shows a bold purple caret marker instead.
   edit_location_highlight_enabled: true
   edit_location_highlight_debounce_ms: 220
+  # Active wrapper for LaTeX fragments: default, graph, german, or beamer.
+  latex_profile: "default"
   latex_template_path: "templates/latex_preview_template.tex"
+  latex_graph_template_path: "templates/latex_preview_graph_template.tex"
+  latex_german_template_path: "templates/latex_preview_german_template.tex"
   latex_beamer_template_path: "templates/latex_preview_beamer_template.tex"
   shell_escape: true
 
 new_latex_file:
-  # Add future templates here (for example a German-language template).
-  # Relative paths are resolved from ~/Desktop/repo/data/nd_mind_mirror_project.
   templates:
-    Article (standard): "templates/latex_preview_template.tex"
-    Beamer: "templates/latex_preview_beamer_template.tex"
+    Article (standard): "templates/latex_document_article_template.tex"
+    Beamer: "templates/latex_document_beamer_template.tex"
 
 graphic:
-  # New iPad graphics are ordinary PNG files in the same directory as the .tex
-  # source, next to an editable .ndgraphic sidecar.
   directory: "."
   latex_width_ratio: 0.90
-  # Logical size used only when Insert image creates a new iPad canvas.
-  # Existing images opened with Edit keep their native image dimensions.
   canvas_width: 760
   canvas_height: 980
-  # The native iPad app talks to the Ubuntu bridge on port 8766. The desktop
-  # writes a durable open request into the workspace and nudges this local URL.
   bridge_http_url: "http://127.0.0.1:8766"
   bridge_token: ""
-  # Start/stop nd_graphic_bridge automatically with the Ubuntu application.
   auto_start_bridge: true

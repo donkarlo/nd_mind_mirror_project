@@ -492,13 +492,17 @@ class FileSystemPanel(Panel):
                     else self._root_path
                 )
                 destination = target if target.is_dir() else target.parent
-                if self._move_path_by_drop(source, destination):
-                    event.acceptProposedAction()
-                else:
-                    event.ignore()
+                self._move_path_by_drop(source, destination)
+                self._consume_custom_drop(event)
                 return True
 
         return super().eventFilter(watched, event)
+
+    @staticmethod
+    def _consume_custom_drop(event) -> None:
+        """Consume a handled drop without authorizing QFileSystemModel to move it again."""
+        event.setDropAction(Qt.DropAction.IgnoreAction)
+        event.ignore()
 
     def _drag_source_path(self) -> Path | None:
         selected = self.selected_path()

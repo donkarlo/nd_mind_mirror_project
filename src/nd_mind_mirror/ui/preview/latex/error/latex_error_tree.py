@@ -1,3 +1,5 @@
+"""Interactive tree for structured LaTeX Preview diagnostics."""
+
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QBrush, QColor, QPalette
 from PySide6.QtWidgets import QHeaderView, QStyle, QTreeWidget, QTreeWidgetItem
@@ -30,8 +32,19 @@ class LatexErrorTree(QTreeWidget):
         self.setIndentation(22)
         self.setAnimated(True)
         self.setSelectionMode(QTreeWidget.SelectionMode.SingleSelection)
-        self.header().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        self.header().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+
+        header = self.header()
+        header.setSectionsMovable(False)
+        header.setStretchLastSection(True)
+        header.setMinimumSectionSize(120)
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        header.resizeSection(0, 420)
+        header.setToolTip(
+            "Drag the divider between Trace / problem and Location / details "
+            "left or right to reveal more of either column."
+        )
+
         self.itemDoubleClicked.connect(self._activate_item)
         self._apply_style()
 
@@ -115,6 +128,7 @@ class LatexErrorTree(QTreeWidget):
         border = palette.color(QPalette.ColorRole.Mid).name()
         highlight = palette.color(QPalette.ColorRole.Highlight).name()
         highlighted_text = palette.color(QPalette.ColorRole.HighlightedText).name()
+        header_background = palette.color(QPalette.ColorRole.Midlight).name()
         self.setStyleSheet(
             "QTreeWidget {"
             f"background: {base};"
@@ -132,5 +146,11 @@ class LatexErrorTree(QTreeWidget):
             "QTreeWidget::item:selected {"
             f"background: {highlight};"
             f"color: {highlighted_text};"
+            "}"
+            "QHeaderView::section {"
+            f"background: {header_background};"
+            f"color: {text};"
+            f"border: 0; border-right: 1px solid {border};"
+            "padding: 5px 8px;"
             "}"
         )
