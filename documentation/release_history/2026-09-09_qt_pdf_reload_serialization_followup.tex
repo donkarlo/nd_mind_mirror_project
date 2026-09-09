@@ -1,0 +1,69 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+\usepackage{adjustbox}
+\usepackage[active,tightpage]{preview}
+
+\PreviewBorder=4pt
+
+\usetikzlibrary{graphs,graphdrawing}
+\usegdlibrary{layered}
+
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/external_graphviz.tex}
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/part/control_sequence/kind/semtag/semtag.tex}
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/seehere.tex}
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/deep_structure.tex}
+
+\title{Qt PDF Reload Serialization Follow-up}
+\date{2026-09-09}
+\author{Mohammad Rahmani}
+
+\begin{document}
+   \maketitle
+
+   \begin{preview}
+      \section{Fixed behavior}
+
+      Qt Quick PDF preview reloads are now serialized against the real
+      \verb|PdfDocument| lifecycle instead of relying only on a fixed time
+      interval.
+
+      \begin{itemize}
+         \item A new generated PDF is not assigned while the current
+         \verb|PdfDocument| is in \verb|Loading| or \verb|Unloading|.
+         \item If several previews arrive during a native PDF load, only the
+         newest source remains queued.
+         \item Reloading no longer detaches the document through an empty
+         \verb|source| before assigning the next unique preview PDF.
+         \item Scroll-bar refresh and scroll/zoom restoration are deferred
+         until the document reaches \verb|Ready|, so stale page delegates from
+         the previous document are not traversed while Qt is rebuilding the
+         PDF view.
+      \end{itemize}
+
+      \section{Reason}
+
+      The earlier rate limiter reduced reload bursts but did not guarantee
+      serialization: observed native loads could take longer than the fixed
+      handoff interval. During large page-count transitions, Qt could still
+      keep page/link work from the previous document alive while the next
+      document was being attached, which could terminate the application with
+      native exit code \verb|-11|.
+   \end{preview}
+
+   \bibliographystyle{plainnat}
+   \bibliography{/home/donkarlo/Dropbox/repo/nd_shared_research/bibliography/bibliography.bib}
+\end{document}

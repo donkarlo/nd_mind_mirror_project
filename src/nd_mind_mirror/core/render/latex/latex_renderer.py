@@ -7,6 +7,12 @@ from PySide6.QtCore import Signal
 from nd_mind_mirror.core.latex.input.recursive.workspace_recursive_input_resolver import (
     WorkspaceRecursiveInputResolver,
 )
+from nd_mind_mirror.core.render.latex.diagnostic.latex_bibliography_process_result_classifier import (
+    LatexBibliographyProcessResultClassifier,
+)
+from nd_mind_mirror.core.render.latex.diagnostic.latex_compiler_diagnostic_extractor import (
+    LatexCompilerDiagnosticExtractor,
+)
 from nd_mind_mirror.core.render.latex.latex_renderer_base import (
     LatexRenderer as BaseLatexRenderer,
 )
@@ -28,6 +34,10 @@ class LatexRenderer(BaseLatexRenderer):
         # restore, but the renderer owns workspace-aware resolvers from birth.
         self._input_resolver = WorkspaceRecursiveInputResolver()
         self._graphic_dependency_resolver = WorkspaceGraphicDependencyResolver()
+        self._diagnostic_extractor = LatexCompilerDiagnosticExtractor()
+        self._bibliography_process_result_classifier = (
+            LatexBibliographyProcessResultClassifier()
+        )
         self._source_preview_cache_dir = self._temp_dir / "source_preview_cache"
         self._source_preview_cache_dir.mkdir(parents=True, exist_ok=True)
         self._last_valid_pdf_by_source: dict[Path, Path] = {}
@@ -100,6 +110,20 @@ class LatexRenderer(BaseLatexRenderer):
             source_path=source_path,
             immediate=immediate,
         )
+
+    def _extract_useful_error(self, output: str) -> str:
+        """Return actionable compiler diagnostics without dropping error context."""
+        return self._diagnostic_extractor.extract(output)
+
+    def _emit_compile_failure(self) -> None:
+        """Continue past warning-only bibliography exits; fail on real errors."""
+        if self._bibliography_process_result_classifier.is_recoverable_warning_exit(
+            phase=self._phase,
+            output=self._last_process_output,
+        ):
+            self._start_lualatex("latex2")
+            return
+        super()._emit_compile_failure()
 
     def _publish_current_pdf(self) -> bool:
         published = super()._publish_current_pdf()

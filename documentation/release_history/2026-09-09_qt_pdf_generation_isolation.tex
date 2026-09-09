@@ -1,0 +1,72 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+\usepackage{adjustbox}
+\usepackage[active,tightpage]{preview}
+
+\PreviewBorder=4pt
+
+\usetikzlibrary{graphs,graphdrawing}
+\usegdlibrary{layered}
+
+% for external graphviz
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/external_graphviz.tex}
+
+% for tags
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/part/control_sequence/kind/semtag/semtag.tex}
+
+% for links
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/seehere.tex}
+
+% for nested lists and sections
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/deep_structure.tex}
+
+\title{Qt PDF generation isolation}
+\date{2026-09-09}
+\author{Mohammad Rahmani}
+
+\begin{document}
+   \maketitle
+
+   \begin{preview}
+      Fixed a remaining native Qt Quick PDF crash that could terminate Mind
+      Mirror with exit code \texttt{-11} during rapid live-preview changes with
+      large page-count transitions.
+
+      \begin{itemize}
+         \item The PDF currently displayed by \texttt{PdfMultiPageView} is no
+         longer reloaded in place.
+         \item Every successful render is loaded into a freshly instantiated
+         generation viewer while the last known-good generation remains visible.
+         \item Promotion happens only after the fresh generation reports a ready
+         \texttt{PdfDocument} with pages.
+         \item Intermediate successful renders are collapsed to the newest
+         generation without mutating the active PDF document.
+         \item The previous generation is retained as the inactive slot until a
+         later generation needs that slot, at which point the complete QML view
+         is destroyed and recreated before loading another PDF.
+         \item Native fit-document resources and the preview status timer are
+         explicitly released when the Qt widget closes.
+      \end{itemize}
+
+      This isolates page/link delegates from document source changes and avoids
+      the stale-page condition observed as \texttt{qt.pdf.links: failed to load
+      page} immediately before native segmentation faults.
+   \end{preview}
+
+   \bibliographystyle{plainnat}
+   \bibliography{/home/donkarlo/Dropbox/repo/nd_shared_research/bibliography/bibliography.bib}
+\end{document}

@@ -4,8 +4,13 @@ from PySide6.QtCore import QTimer
 
 from nd_mind_mirror.ui.editor.base.text_editor import TextEditor
 from nd_mind_mirror.ui.editor.generic.generic_text_editor import GenericTextEditor
-from nd_mind_mirror.ui.editor.latex.large.large_latex_editor import LargeLatexEditor
 from nd_mind_mirror.ui.editor.latex.latex_editor import LatexEditor
+from nd_mind_mirror.ui.editor.bookmark.selection_large_latex_editor import (
+    SelectionLargeLatexEditor,
+)
+from nd_mind_mirror.ui.editor.bookmark.selection_latex_editor import (
+    SelectionLatexEditor,
+)
 from nd_mind_mirror.ui.editor.yaml.yaml_editor import YamlEditor
 from nd_mind_mirror.ui.panel.editor.editor_panel_core import EditorPanel as EditorPanelCore
 
@@ -61,9 +66,9 @@ class EditorPanel(EditorPanelCore):
                 1,
             )
             latex_editor_type = (
-                LargeLatexEditor
+                SelectionLargeLatexEditor
                 if len(content) >= large_document_threshold
-                else LatexEditor
+                else SelectionLatexEditor
             )
             editor = latex_editor_type(
                 completions=self._completions,

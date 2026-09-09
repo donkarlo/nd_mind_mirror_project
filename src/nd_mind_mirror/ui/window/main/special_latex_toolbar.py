@@ -1,4 +1,4 @@
-"""Provide compact LaTeX insertion controls shared by Source and Visual modes."""
+"""Provide compact LaTeX insertion controls only while Source is active."""
 
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QHBoxLayout, QMenu, QPushButton, QToolButton, QWidget
@@ -6,6 +6,7 @@ from PySide6.QtWidgets import QHBoxLayout, QMenu, QPushButton, QToolButton, QWid
 from nd_mind_mirror.ui.editor.bookmark.bookmark_lifecycle_controller import (
     BookmarkLifecycleController,
 )
+from nd_mind_mirror.ui.editor.latex.latex_editor import LatexEditor
 from nd_mind_mirror.ui.editor.latex.source_graphic_preview_controller import (
     SourceGraphicPreviewController,
 )
@@ -13,6 +14,9 @@ from nd_mind_mirror.ui.editor.latex.visual_graphic_context_controller import (
     VisualGraphicContextController,
 )
 from nd_mind_mirror.ui.search.search_typing_controller import SearchTypingController
+from nd_mind_mirror.ui.window.main.bookmark_selection_menu_controller import (
+    BookmarkSelectionMenuController,
+)
 from nd_mind_mirror.ui.window.main.fix11_desktop_controller import Fix11DesktopController
 from nd_mind_mirror.ui.window.main.source_edit_command_controller import (
     SourceEditCommandController,
@@ -22,7 +26,7 @@ Fix11DesktopController.install()
 
 
 class SpecialLatexToolbar(QWidget):
-    """Expose a character palette and Source-oriented LaTeX insertion actions."""
+    """Expose Source-only LaTeX insertion controls and shared UI controllers."""
 
     character_requested = Signal(str)
     iffalse_requested = Signal()
@@ -67,8 +71,12 @@ class SpecialLatexToolbar(QWidget):
         self._source_graphic_preview_controller = None
         self._visual_graphic_context_controller = None
         self._bookmark_lifecycle_controller = None
+        self._bookmark_selection_menu_controller = None
         self._search_typing_controller = None
         if parent is not None:
+            parent.current_view_changed.connect(
+                lambda *_args: self.setVisible(True)
+            )
             self._source_graphic_preview_controller = SourceGraphicPreviewController(
                 parent,
                 self,
@@ -85,12 +93,37 @@ class SpecialLatexToolbar(QWidget):
                     file_system_panel,
                     self,
                 )
+            bookmarks_menu = getattr(window, "_bookmarks_menu", None)
+            if bookmarks_menu is not None:
+                self._bookmark_selection_menu_controller = (
+                    BookmarkSelectionMenuController(
+                        parent,
+                        bookmarks_menu,
+                        self,
+                    )
+                )
             search_window = getattr(window, "_search_window", None)
             if search_window is not None:
                 self._search_typing_controller = SearchTypingController(
                     search_window,
                     self,
                 )
+
+    def setVisible(self, visible: bool) -> None:
+        """Never expose the Source-special toolbar while Visual is active."""
+        if visible:
+            editor_panel = self.parent()
+            current_editor = (
+                editor_panel.current_editor()
+                if editor_panel is not None
+                and hasattr(editor_panel, "current_editor")
+                else None
+            )
+            visible = (
+                isinstance(current_editor, LatexEditor)
+                and current_editor.edit_mode == "source"
+            )
+        super().setVisible(bool(visible))
 
     def _build_character_menu(self) -> QMenu:
         menu = QMenu(self)

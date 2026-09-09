@@ -1,0 +1,66 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+
+\usetikzlibrary{graphs,graphdrawing}
+\usegdlibrary{layered}
+
+% for external graphviz
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/external_graphviz.tex}
+
+% for tags
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/part/control_sequence/kind/semtag/semtag.tex}
+
+% for links
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/seehere.tex}
+
+\title{Selection Bookmark UI Repair}
+\date{2026-09-09}
+\author{Mohammad Rahmani}
+
+\begin{document}
+   \maketitle
+
+   \section{Bookmark Selection}
+
+   Selection bookmarking is now an actual editor capability rather than an
+   isolated controller test.  The Bookmarks menu exposes a dedicated
+   \textbf{Bookmark Selection} action, Source right-click exposes the same
+   action whenever text is selected, and Visual selected text uses the same
+   canonical Source-range bookmark path.
+
+   Selection bookmarks persist both source endpoints and readable selected
+   text.  Their endpoints relocate together with the bookmarked source line
+   when content is inserted or removed above them.  The regular
+   \verb|Ctrl+Shift+B| bookmark action also becomes selection-aware whenever an
+   explicit selection is active.
+
+   \section{Visual toolbar}
+
+   The special LaTeX insertion toolbar is now Source-only.  It is completely
+   hidden while Visual mode is active and returns when Source mode becomes
+   active again.
+
+   \section{Architecture}
+
+   Selection-specific behavior is isolated in focused editor, relocation,
+   context-menu, and menu controllers.  The existing regular and large LaTeX
+   editors are composed through selection-aware subclasses rather than
+   duplicating the complete editor implementation.
+
+   \bibliographystyle{plainnat}
+   \bibliography{/home/donkarlo/Dropbox/repo/nd_shared_research/bibliography/bibliography.bib}
+\end{document}

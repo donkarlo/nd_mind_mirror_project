@@ -45,6 +45,11 @@ Rectangle {
     property int highlightSearchAttempts: 0
     property bool resetPositionOnReload: false
     property bool restorePositionPending: false
+    property bool documentReloadPending: false
+    property bool activeReloadResetPosition: false
+    property bool pendingResetPositionOnReload: false
+    property bool reloadScrollStateCaptured: false
+    property url pendingDocumentSource: ""
     property real savedContentX: 0
     property real savedContentY: 0
     property real savedOriginX: 0
@@ -68,7 +73,19 @@ Rectangle {
                         Math.min(root.maxSafeZoomScale, value))
     }
 
+    function documentIsBusy() {
+        return pdfDocument.status === PdfDocument.Loading
+            || pdfDocument.status === PdfDocument.Unloading
+    }
+
+    function documentIsReady() {
+        return pdfDocument.status === PdfDocument.Ready
+    }
+
     function captureScrollState() {
+        if (!root.documentIsReady())
+            return
+
         var target = findBestScrollable(pdfView)
         if (!target) {
             root.restorePositionPending = false
@@ -88,7 +105,7 @@ Rectangle {
     }
 
     function restoreScrollState() {
-        if (!root.restorePositionPending)
+        if (!root.documentIsReady() || !root.restorePositionPending)
             return
 
         var target = findBestScrollable(pdfView)
@@ -115,6 +132,9 @@ Rectangle {
     }
 
     function resetScrollPosition() {
+        if (!root.documentIsReady())
+            return
+
         var target = findBestScrollable(pdfView)
         if (!target)
             return
@@ -128,19 +148,61 @@ Rectangle {
         }
     }
 
-    function reloadDocument() {
-        if (root.resetPositionOnReload) {
+    function queueDocumentReload() {
+        // A reset request remains active until the final Ready generation has
+        // actually applied it. A newer generation can arrive after Ready but
+        // before the restore timer runs, so carry the intent across that gap.
+        var carryReset = root.activeReloadResetPosition
+        var queuedReset = root.documentReloadPending
+            ? root.pendingResetPositionOnReload
+            : carryReset
+
+        root.pendingDocumentSource = root.source
+        root.pendingResetPositionOnReload = queuedReset
+            || root.resetPositionOnReload
+        root.documentReloadPending = true
+
+        if (!root.documentIsBusy())
+            documentReloadDispatch.restart()
+    }
+
+    function startPendingDocumentReload() {
+        if (!root.documentReloadPending || root.documentIsBusy())
+            return
+
+        var target = root.pendingDocumentSource
+        var shouldReset = root.pendingResetPositionOnReload
+
+        root.documentReloadPending = false
+        root.pendingResetPositionOnReload = false
+
+        if (String(target).length === 0) {
+            root.activeReloadResetPosition = false
+            return
+        }
+
+        root.activeReloadResetPosition = shouldReset
+        if (shouldReset) {
             root.restorePositionPending = false
-        } else {
+            root.reloadScrollStateCaptured = false
+        } else if (
+            !root.reloadScrollStateCaptured
+            && root.documentIsReady()
+        ) {
             root.captureScrollState()
+            root.reloadScrollStateCaptured = root.restorePositionPending
         }
 
         pdfView.renderScale = root.safeScale(pdfView.renderScale)
-        var target = root.source
-        pdfDocument.source = ""
+
+        // Every generated preview uses a unique file URL. Assign the new URL
+        // directly: an intermediate empty source creates an unnecessary
+        // Unloading/Null cycle while PdfMultiPageView still owns old delegates.
         pdfDocument.source = target
-        scrollBarRefresh.restart()
-        viewRestore.restart()
+    }
+
+    function reloadDocument() {
+        root.queueDocumentReload()
     }
 
     function scrollCandidateScore(item) {
@@ -265,6 +327,10 @@ Rectangle {
 
     function mapReverseClick() {
         root.reverseClickPage = -1
+        if (!root.documentIsReady()) {
+            root.reverseClickResultToken = root.reverseClickToken
+            return
+        }
         root.reverseClickPdfX = 0
         root.reverseClickPdfY = 0
         try {
@@ -288,6 +354,9 @@ Rectangle {
     }
 
     function panBy(dx, dy) {
+        if (!root.documentIsReady())
+            return
+
         var target = findBestScrollable(pdfView)
         if (!target)
             return
@@ -307,8 +376,13 @@ Rectangle {
     }
 
     function zoomAroundAnchor(viewX, viewY, requestedScale) {
-        var target = findBestScrollable(pdfView)
         var boundedScale = root.safeScale(requestedScale)
+        if (!root.documentIsReady()) {
+            pdfView.renderScale = boundedScale
+            return
+        }
+
+        var target = findBestScrollable(pdfView)
         if (!target) {
             pdfView.renderScale = boundedScale
             scrollBarRefresh.restart()
@@ -341,7 +415,7 @@ Rectangle {
     }
 
     function restoreZoomAnchor() {
-        if (!root.zoomAnchorPending)
+        if (!root.documentIsReady() || !root.zoomAnchorPending)
             return
 
         var target = findBestScrollable(pdfView)
@@ -373,6 +447,9 @@ Rectangle {
     }
 
     function centerHorizontally() {
+        if (!root.documentIsReady())
+            return
+
         var target = findBestScrollable(pdfView)
         if (!target)
             return
@@ -417,6 +494,9 @@ Rectangle {
     }
 
     function fitToPanel() {
+        if (!root.documentIsReady())
+            return
+
         try {
             if (pdfDocument.pageCount <= 0)
                 return
@@ -457,6 +537,9 @@ Rectangle {
     }
 
     function goToSourceLocation() {
+        if (!root.documentIsReady())
+            return
+
         try {
             var target = findBestScrollable(pdfView)
             var previousX = 0
@@ -511,6 +594,12 @@ Rectangle {
     }
 
     function updateExplicitScrollBars() {
+        if (!root.documentIsReady()) {
+            root.explicitHorizontalOverflow = false
+            root.explicitVerticalOverflow = false
+            return
+        }
+
         var target = findBestScrollable(pdfView)
         if (!target) {
             root.explicitHorizontalOverflow = false
@@ -575,6 +664,9 @@ Rectangle {
     }
 
     function refreshScrollBars() {
+        if (!root.documentIsReady())
+            return
+
         keepNativeScrollBarsVisible(pdfView)
         updateExplicitScrollBars()
     }
@@ -596,7 +688,9 @@ Rectangle {
     }
 
     function chooseNearestHighlightResult() {
-        if (!root.editHighlightText || !pdfView.searchModel)
+        if (!root.documentIsReady()
+                || !root.editHighlightText
+                || !pdfView.searchModel)
             return false
         var count = pdfView.searchModel.count
         if (!count || count <= 0)
@@ -639,15 +733,24 @@ Rectangle {
     }
 
     onReloadTokenChanged: reloadDocument()
-    onPanTokenChanged: panBy(root.panDeltaX, root.panDeltaY)
-    onZoomTokenChanged: zoomAroundAnchor(
-        root.zoomAnchorX,
-        root.zoomAnchorY,
-        root.zoomTargetScale
-    )
+    onPanTokenChanged: {
+        if (root.documentIsReady())
+            panBy(root.panDeltaX, root.panDeltaY)
+    }
+    onZoomTokenChanged: {
+        if (root.documentIsReady()) {
+            zoomAroundAnchor(
+                root.zoomAnchorX,
+                root.zoomAnchorY,
+                root.zoomTargetScale
+            )
+        }
+    }
     onSyncTokenChanged: {
-        sourceLocationRetry.restart()
-        scheduleHighlightResultChoice()
+        if (root.documentIsReady()) {
+            sourceLocationRetry.restart()
+            scheduleHighlightResultChoice()
+        }
     }
     onReverseClickTokenChanged: mapReverseClick()
     onEditHighlightTextChanged: scheduleHighlightResultChoice()
@@ -667,12 +770,37 @@ Rectangle {
         }
     }
 
+    Timer {
+        id: documentReloadDispatch
+        interval: 0
+        repeat: false
+        onTriggered: root.startPendingDocumentReload()
+    }
+
     PdfDocument {
         id: pdfDocument
         source: ""
         onStatusChanged: {
-            scrollBarRefresh.restart()
-            viewRestore.restart()
+            if (pdfDocument.status === PdfDocument.Ready) {
+                if (root.documentReloadPending) {
+                    // Leave the just-finished intermediate generation alone.
+                    // The queued newest generation is started outside this
+                    // native status callback to avoid re-entrant QtPdf reloads.
+                    documentReloadDispatch.restart()
+                    return
+                }
+
+                scrollBarRefresh.restart()
+                viewRestore.restart()
+                if (root.editHighlightText)
+                    root.scheduleHighlightResultChoice()
+            } else if (
+                pdfDocument.status === PdfDocument.Error
+                || pdfDocument.status === PdfDocument.Null
+            ) {
+                if (root.documentReloadPending)
+                    documentReloadDispatch.restart()
+            }
         }
     }
 
@@ -710,7 +838,7 @@ Rectangle {
         policy: ScrollBar.AlwaysOn
         size: root.explicitHorizontalSize
         onPositionChanged: {
-            if (pressed)
+            if (pressed && root.documentIsReady())
                 root.setExplicitHorizontalPosition(position)
         }
     }
@@ -729,7 +857,7 @@ Rectangle {
         policy: ScrollBar.AlwaysOn
         size: root.explicitVerticalSize
         onPositionChanged: {
-            if (pressed)
+            if (pressed && root.documentIsReady())
                 root.setExplicitVerticalPosition(position)
         }
     }
@@ -739,7 +867,10 @@ Rectangle {
         interval: 200
         repeat: true
         running: true
-        onTriggered: root.updateExplicitScrollBars()
+        onTriggered: {
+            if (root.documentIsReady())
+                root.updateExplicitScrollBars()
+        }
     }
 
     Timer {
@@ -747,6 +878,8 @@ Rectangle {
         interval: 0
         repeat: false
         onTriggered: {
+            if (!root.documentIsReady())
+                return
             root.centerHorizontally()
             syncHorizontalCenterDelayed.restart()
         }
@@ -757,6 +890,8 @@ Rectangle {
         interval: 55
         repeat: false
         onTriggered: {
+            if (!root.documentIsReady())
+                return
             root.centerHorizontally()
             syncHorizontalCenterFinal.restart()
         }
@@ -766,7 +901,10 @@ Rectangle {
         id: syncHorizontalCenterFinal
         interval: 150
         repeat: false
-        onTriggered: root.centerHorizontally()
+        onTriggered: {
+            if (root.documentIsReady())
+                root.centerHorizontally()
+        }
     }
 
     Timer {
@@ -791,13 +929,20 @@ Rectangle {
         interval: 90
         repeat: false
         onTriggered: {
-            if (root.resetPositionOnReload) {
+            if (!root.documentIsReady())
+                return
+
+            if (root.activeReloadResetPosition) {
                 root.resetScrollPosition()
                 root.resetPositionOnReload = false
                 root.restorePositionPending = false
             } else {
                 root.restoreScrollState()
             }
+
+            root.activeReloadResetPosition = false
+            root.reloadScrollStateCaptured = false
+
             if (root.syncRecenterHorizontal)
                 root.centerHorizontally()
         }
@@ -807,7 +952,10 @@ Rectangle {
         id: zoomAnchorRestore
         interval: 35
         repeat: false
-        onTriggered: root.restoreZoomAnchor()
+        onTriggered: {
+            if (root.documentIsReady())
+                root.restoreZoomAnchor()
+        }
     }
 
     Timer {
@@ -815,6 +963,8 @@ Rectangle {
         interval: 35
         repeat: false
         onTriggered: {
+            if (!root.documentIsReady())
+                return
             root.centerHorizontally()
             fitCenterRestoreDelayed.restart()
         }
@@ -824,7 +974,10 @@ Rectangle {
         id: fitCenterRestoreDelayed
         interval: 120
         repeat: false
-        onTriggered: root.centerHorizontally()
+        onTriggered: {
+            if (root.documentIsReady())
+                root.centerHorizontally()
+        }
     }
 
     Timer {
@@ -836,3 +989,4 @@ Rectangle {
 
     Component.onCompleted: scrollBarRefresh.start()
 }
+

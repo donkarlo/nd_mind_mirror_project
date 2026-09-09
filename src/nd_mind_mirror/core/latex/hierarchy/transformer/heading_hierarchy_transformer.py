@@ -33,6 +33,10 @@ class HeadingHierarchyTransformer:
         "revtex4-2",
     }
 
+    _BEAMER_LIKE_CLASSES = {
+        "beamer",
+    }
+
     _HEADING_PATTERN = re.compile(
         r"\\(?P<heading>"
         r"part|chapter|section|subsection|subsubsection|"
@@ -65,6 +69,18 @@ class HeadingHierarchyTransformer:
                 "subsubsection",
                 "paragraph",
                 "subparagraph",
+            )
+            return
+
+        if self._document_class in self._BEAMER_LIKE_CLASSES:
+            # Beamer does not define paragraph/subparagraph sectioning commands.
+            # Deep recursive preview hierarchies therefore clamp at
+            # subsubsection instead of emitting undefined control sequences.
+            self._allowed_headings = (
+                "part",
+                "section",
+                "subsection",
+                "subsubsection",
             )
             return
 

@@ -13,6 +13,8 @@ from nd_mind_mirror.core.workspace.path.workspace_reference_resolver import (
 class WorkspaceRecursiveInputResolver(RecursiveInputResolver):
     """Apply the canonical workspace path modes to recursive Preview expansion."""
 
+    _STRUCTURAL_PREVIEW_COMMANDS = {"input", "include"}
+
     def __init__(self, default_path: str | Path | None = None) -> None:
         super().__init__()
         self._workspace_reference_resolver = WorkspaceReferenceResolver(default_path)
@@ -49,7 +51,7 @@ class WorkspaceRecursiveInputResolver(RecursiveInputResolver):
         source: str,
         containing_file: Path,
     ) -> str:
-        rewritten = self._workspace_reference_resolver.rewrite_paths_for_preview(
+        rewritten = self._rewrite_paths_for_preview(
             source,
             containing_file,
         )
@@ -64,7 +66,7 @@ class WorkspaceRecursiveInputResolver(RecursiveInputResolver):
         inherited_heading: str | None,
         heading_mapping: dict[str, str],
     ) -> tuple[str, str | None]:
-        rewritten = self._workspace_reference_resolver.rewrite_paths_for_preview(
+        rewritten = self._rewrite_paths_for_preview(
             source,
             containing_file,
         )
@@ -76,3 +78,50 @@ class WorkspaceRecursiveInputResolver(RecursiveInputResolver):
             inherited_heading=inherited_heading,
             heading_mapping=heading_mapping,
         )
+
+    def _rewrite_paths_for_preview(
+        self,
+        source: str,
+        containing_file: Path,
+    ) -> str:
+        """Materialize every local Preview path before temporary compilation.
+
+        ``WorkspaceReferenceResolver.rewrite_paths_for_preview`` intentionally
+        leaves structural commands untouched because normal workspace editing
+        must preserve their authored path style. Preview compilation is
+        different: a default-rooted reference such as ``/project/file.tex``
+        must become its concrete filesystem path before the generated document
+        is handed to LaTeX.
+        """
+        structural = self._rewrite_structural_paths_for_preview(
+            source,
+            containing_file,
+        )
+        return self._workspace_reference_resolver.rewrite_paths_for_preview(
+            structural,
+            containing_file,
+        )
+
+    def _rewrite_structural_paths_for_preview(
+        self,
+        source: str,
+        containing_file: Path,
+    ) -> str:
+        output = source
+        occurrences = self._workspace_reference_resolver.occurrences(
+            source,
+            containing_file,
+            require_exists=True,
+        )
+        for occurrence in reversed(occurrences):
+            if (
+                occurrence.command not in self._STRUCTURAL_PREVIEW_COMMANDS
+                or occurrence.target_path is None
+            ):
+                continue
+            output = (
+                output[: occurrence.target_start]
+                + occurrence.target_path.as_posix()
+                + output[occurrence.target_end :]
+            )
+        return output
