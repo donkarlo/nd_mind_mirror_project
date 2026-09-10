@@ -1,19 +1,15 @@
 """Coordinate preview render policy without replacing renderer methods at runtime."""
 
 from pathlib import Path
-import re
 
 from PySide6.QtCore import QObject, QTimer
 
 
 class PreviewRenderPolicyController(QObject):
-    """Handle immediate first-open rendering and fast absolute-input validation."""
+    """Handle immediate first-open rendering and fast structural-input validation."""
 
     _SMALL_SOURCE_CHARS = 60_000
     _LATEX_SUFFIXES = {".tex", ".tikz"}
-    _ABSOLUTE_INPUT_PATTERN = re.compile(
-        r"\\(?:input|include)\s*\{(?P<path>/[^{}]+)\}"
-    )
 
     def __init__(self, editor_panel, renderer, parent=None) -> None:
         super().__init__(parent)
@@ -50,7 +46,7 @@ class PreviewRenderPolicyController(QObject):
             return
 
         source = str(content or "")
-        self._validate_absolute_inputs(source)
+        self._validate_structural_inputs(source, resolved)
 
         first_small_open = (
             len(source) < self._SMALL_SOURCE_CHARS
@@ -72,17 +68,26 @@ class PreviewRenderPolicyController(QObject):
         if path is None or editor is None:
             self._last_missing_input = ""
             return
-        if self._resolve_latex_path(str(path)) is None:
+        resolved = self._resolve_latex_path(str(path))
+        if resolved is None:
             self._last_missing_input = ""
             return
         try:
             source = editor.toPlainText()
         except AttributeError:
             return
-        self._validate_absolute_inputs(str(source))
+        self._validate_structural_inputs(str(source), resolved)
 
-    def _validate_absolute_inputs(self, source: str) -> None:
-        missing = self._first_missing_absolute_input(source)
+    def _validate_structural_inputs(
+        self,
+        source: str,
+        source_path: Path,
+    ) -> None:
+        """Validate through the renderer's canonical workspace-aware resolver."""
+        missing = self._renderer.first_missing_latex_input(
+            source=source,
+            source_path=source_path,
+        )
         if missing is None:
             self._last_missing_input = ""
             return
@@ -90,18 +95,6 @@ class PreviewRenderPolicyController(QObject):
             return
         self._last_missing_input = missing
         self._renderer.failed.emit(f"Missing LaTeX input: {missing}")
-
-    @classmethod
-    def _first_missing_absolute_input(cls, source: str) -> str | None:
-        for match in cls._ABSOLUTE_INPUT_PATTERN.finditer(source):
-            raw_path = match.group("path").strip()
-            candidate = Path(raw_path).expanduser()
-            options = [candidate]
-            if not candidate.suffix:
-                options.append(candidate.with_suffix(".tex"))
-            if not any(option.is_file() for option in options):
-                return raw_path
-        return None
 
     @classmethod
     def _resolve_latex_path(cls, path: str) -> Path | None:

@@ -43,10 +43,11 @@ class LatexPreviewProfileController:
 
     def _connect_renderer_state(self) -> None:
         renderer = self._window._renderer
-        renderer.cached_preview_available.connect(
+        signals = renderer.preview_cache_signals
+        signals.cached_preview_available.connect(
             self._window._preview_panel.show_pdf
         )
-        renderer.preview_source_empty.connect(self._show_rendering_message)
+        signals.preview_source_empty.connect(self._show_rendering_message)
 
     def _install_settings_menu(self) -> None:
         settings_menu = self._find_settings_menu()

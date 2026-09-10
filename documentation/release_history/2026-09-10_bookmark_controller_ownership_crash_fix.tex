@@ -1,0 +1,53 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+
+\usetikzlibrary{graphs,graphdrawing}
+\usegdlibrary{layered}
+
+% for external graphviz
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/external_graphviz.tex}
+
+% for tags
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/part/control_sequence/kind/semtag/semtag.tex}
+
+% for links
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/seehere.tex}
+
+\title{Bookmark Controller Ownership Crash Fix}
+\date{2026-09-10}
+\author{Mohammad Rahmani}
+
+\begin{document}
+   \maketitle
+
+   \section{Crash fix}
+
+   The Source-special LaTeX toolbar no longer creates a second
+   \verb|BookmarkSelectionMenuController| with the toolbar object passed in
+   place of the bookmark \verb|QAction|.  Bookmark menu ownership remains in
+   \verb|EnhancedMainWindow|, where the controller receives the canonical
+   \verb|_toggle_bookmark_action|.
+
+   This removes the startup \verb|AttributeError| on
+   \verb|SpecialLatexToolbar.triggered| and prevents duplicate event-filter and
+   signal ownership.  Selection bookmarking in the Bookmarks menu and the
+   Source/Visual context menus continues to use the existing canonical
+   selection-bookmark controllers.
+
+   \bibliographystyle{plainnat}
+   \bibliography{/home/donkarlo/Dropbox/repo/nd_shared_research/bibliography/bibliography.bib}
+\end{document}

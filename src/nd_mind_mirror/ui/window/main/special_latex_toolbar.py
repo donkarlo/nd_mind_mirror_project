@@ -14,9 +14,6 @@ from nd_mind_mirror.ui.editor.latex.visual_graphic_context_controller import (
     VisualGraphicContextController,
 )
 from nd_mind_mirror.ui.search.search_typing_controller import SearchTypingController
-from nd_mind_mirror.ui.window.main.bookmark_selection_menu_controller import (
-    BookmarkSelectionMenuController,
-)
 from nd_mind_mirror.ui.window.main.fix11_desktop_controller import Fix11DesktopController
 from nd_mind_mirror.ui.window.main.source_edit_command_controller import (
     SourceEditCommandController,
@@ -71,7 +68,6 @@ class SpecialLatexToolbar(QWidget):
         self._source_graphic_preview_controller = None
         self._visual_graphic_context_controller = None
         self._bookmark_lifecycle_controller = None
-        self._bookmark_selection_menu_controller = None
         self._search_typing_controller = None
         if parent is not None:
             parent.current_view_changed.connect(
@@ -92,15 +88,6 @@ class SpecialLatexToolbar(QWidget):
                     parent,
                     file_system_panel,
                     self,
-                )
-            bookmarks_menu = getattr(window, "_bookmarks_menu", None)
-            if bookmarks_menu is not None:
-                self._bookmark_selection_menu_controller = (
-                    BookmarkSelectionMenuController(
-                        parent,
-                        bookmarks_menu,
-                        self,
-                    )
                 )
             search_window = getattr(window, "_search_window", None)
             if search_window is not None:

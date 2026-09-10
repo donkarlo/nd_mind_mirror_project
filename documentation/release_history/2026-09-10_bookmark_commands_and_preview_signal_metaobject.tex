@@ -1,0 +1,44 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+
+\title{Release History: Bookmark Commands and Preview Signal Meta-Object}
+\date{2026-09-10}
+\author{}
+
+\begin{document}
+\maketitle
+
+\section{Bookmark command routing}
+Bookmark commands are now owned by one controller.  The Bookmarks menu,
+Source right-click menu, Visual right-click menu, and
+\texttt{Ctrl+Shift+B} route through the selection-aware bookmark behavior.
+When text is selected the selected source range is bookmarked; otherwise the
+current source location is toggled.
+
+\section{Preview shutdown stability}
+Per-source preview-cache signals were moved from the
+\texttt{LatexRenderer} subclass to a dedicated
+\texttt{LatexPreviewCacheSignalBus} QObject.  This avoids extending a Qt
+meta-object with signals after inherited slots, removing the Qt
+``Sort Warning'' observed before a native \texttt{exit code -11} shutdown.
+
+\section{Regression coverage}
+Regression tests cover selection-first bookmark toggling,
+\texttt{Ctrl+Shift+B} matching, and ownership of preview-cache signals by the
+dedicated signal bus.
+
+\end{document}

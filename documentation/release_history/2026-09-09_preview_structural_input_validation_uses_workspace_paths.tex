@@ -1,0 +1,43 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+\usepackage{adjustbox}
+\usepackage[active,tightpage]{preview}
+
+\PreviewBorder=4pt
+
+\usetikzlibrary{graphs,graphdrawing}
+\usegdlibrary{layered}
+
+\title{Preview structural input validation uses workspace path semantics}
+\date{2026-09-09}
+\author{Mohammad Rahmani}
+
+\begin{document}
+   \maketitle
+
+   \begin{preview}
+      Fixed a false \texttt{Missing LaTeX input} diagnostic in Preview. The
+      Preview render policy previously checked references beginning with
+      \texttt{/} directly against the operating-system root, even though Mind
+      Mirror defines those references as rooted at \texttt{search.default\_path}
+      first. Structural \texttt{\textbackslash input} and
+      \texttt{\textbackslash include} validation now delegates to the same
+      workspace-aware resolver used by recursive Preview expansion, so
+      references such as \texttt{/nd\_language\_ai\_project/...} are validated
+      consistently.
+   \end{preview}
+\end{document}

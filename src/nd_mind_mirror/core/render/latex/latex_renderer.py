@@ -2,16 +2,20 @@ from hashlib import sha256
 from pathlib import Path
 import shutil
 
-from PySide6.QtCore import Signal
-
 from nd_mind_mirror.core.latex.input.recursive.workspace_recursive_input_resolver import (
     WorkspaceRecursiveInputResolver,
+)
+from nd_mind_mirror.core.latex.input.latex_input_reference_validator import (
+    LatexInputReferenceValidator,
 )
 from nd_mind_mirror.core.render.latex.diagnostic.latex_bibliography_process_result_classifier import (
     LatexBibliographyProcessResultClassifier,
 )
 from nd_mind_mirror.core.render.latex.diagnostic.latex_compiler_diagnostic_extractor import (
     LatexCompilerDiagnosticExtractor,
+)
+from nd_mind_mirror.core.render.latex.latex_preview_cache_signal_bus import (
+    LatexPreviewCacheSignalBus,
 )
 from nd_mind_mirror.core.render.latex.latex_renderer_base import (
     LatexRenderer as BaseLatexRenderer,
@@ -24,25 +28,41 @@ from nd_mind_mirror.graphic.core.workspace_graphic_dependency_resolver import (
 class LatexRenderer(BaseLatexRenderer):
     """Add profile-aware configuration and a last-valid-PDF cache per source file."""
 
-    cached_preview_available = Signal(str)
-    preview_source_empty = Signal(str)
-
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         # Preview must always use the same path modes as workspace navigation
         # and refactoring. The configured root is injected before session
         # restore, but the renderer owns workspace-aware resolvers from birth.
         self._input_resolver = WorkspaceRecursiveInputResolver()
+        self._input_reference_validator = LatexInputReferenceValidator(
+            self._input_resolver
+        )
         self._graphic_dependency_resolver = WorkspaceGraphicDependencyResolver()
         self._diagnostic_extractor = LatexCompilerDiagnosticExtractor()
         self._bibliography_process_result_classifier = (
             LatexBibliographyProcessResultClassifier()
         )
+        self._preview_cache_signals = LatexPreviewCacheSignalBus(self)
         self._source_preview_cache_dir = self._temp_dir / "source_preview_cache"
         self._source_preview_cache_dir.mkdir(parents=True, exist_ok=True)
         self._last_valid_pdf_by_source: dict[Path, Path] = {}
         self._visible_source_path: Path | None = None
         self._preview_profile_signature: tuple[str, ...] | None = None
+
+    @property
+    def preview_cache_signals(self) -> LatexPreviewCacheSignalBus:
+        """Return the QObject that owns cache-state signals."""
+        return self._preview_cache_signals
+
+    @property
+    def cached_preview_available(self):
+        """Compatibility accessor for older cache-signal consumers."""
+        return self._preview_cache_signals.cached_preview_available
+
+    @property
+    def preview_source_empty(self):
+        """Compatibility accessor for older cache-signal consumers."""
+        return self._preview_cache_signals.preview_source_empty
 
     def set_workspace_default_path(
         self,
@@ -51,6 +71,17 @@ class LatexRenderer(BaseLatexRenderer):
         """Keep Preview input and graphic lookup rooted at search.default_path."""
         self._input_resolver.set_default_path(default_path)
         self._graphic_dependency_resolver.set_default_path(default_path)
+
+    def first_missing_latex_input(
+        self,
+        source: str,
+        source_path: str | Path,
+    ) -> str | None:
+        """Validate rooted input/include references with Preview path semantics."""
+        return self._input_reference_validator.first_missing_absolute_input(
+            source=source,
+            containing_file=source_path,
+        )
 
     def configure_preview_profiles(
         self,
@@ -100,9 +131,11 @@ class LatexRenderer(BaseLatexRenderer):
                 else None
             )
             if cached is not None and cached.is_file():
-                self.cached_preview_available.emit(str(cached))
+                self._preview_cache_signals.cached_preview_available.emit(
+                    str(cached)
+                )
             else:
-                self.preview_source_empty.emit(
+                self._preview_cache_signals.preview_source_empty.emit(
                     str(target) if target is not None else ""
                 )
         super().render(

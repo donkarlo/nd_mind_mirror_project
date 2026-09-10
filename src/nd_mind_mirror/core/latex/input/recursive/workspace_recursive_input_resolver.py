@@ -26,6 +26,22 @@ class WorkspaceRecursiveInputResolver(RecursiveInputResolver):
     def set_default_path(self, default_path: str | Path | None) -> None:
         self._workspace_reference_resolver.set_default_path(default_path)
 
+    def resolve_reference(
+        self,
+        containing_file: str | Path,
+        target: str,
+        *,
+        command: str = "input",
+        require_exists: bool = True,
+    ) -> Path | None:
+        """Resolve one structural reference with canonical workspace semantics."""
+        return self._workspace_reference_resolver.resolve(
+            target,
+            Path(containing_file).expanduser().resolve(strict=False),
+            command=command,
+            require_exists=require_exists,
+        )
+
     def _resolve_target(
         self,
         containing_file: Path,
@@ -39,9 +55,9 @@ class WorkspaceRecursiveInputResolver(RecursiveInputResolver):
         must never search the rest of the repository for a suffix match,
         because that can silently include an unrelated file.
         """
-        return self._workspace_reference_resolver.resolve(
-            target,
+        return self.resolve_reference(
             containing_file,
+            target,
             command="input",
             require_exists=True,
         )

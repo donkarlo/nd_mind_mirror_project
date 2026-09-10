@@ -63,6 +63,7 @@ class SelectionBookmarkEditorMixin:
         self._update_bookmark_gutters()
 
     def toggle_bookmark_at_cursor(self) -> None:
+        """Use the active selection when present, otherwise preserve line bookmarks."""
         captured = self._selection_bookmark_context.capture_selection()
         if captured is None:
             super().toggle_bookmark_at_cursor()
@@ -103,13 +104,20 @@ class SelectionBookmarkEditorMixin:
         return True
 
     def contextMenuEvent(self, event) -> None:
-        captured = self._selection_bookmark_context.capture_selection()
-        if captured is None:
-            super().contextMenuEvent(event)
-            return
-
+        """Expose the same bookmark command on Source right-click at all times."""
         click_cursor = self.cursorForPosition(event.pos())
         click_position = click_cursor.position()
+        selection_cursor = self.textCursor()
+
+        captured = None
+        if (
+            selection_cursor.hasSelection()
+            and selection_cursor.selectionStart()
+            <= click_position
+            <= selection_cursor.selectionEnd()
+        ):
+            captured = self._selection_bookmark_context.capture_selection()
+
         existing = self._graphic_manager.find_reference(
             self.toPlainText(),
             self._source_path,
@@ -117,8 +125,13 @@ class SelectionBookmarkEditorMixin:
         )
 
         menu = self.createStandardContextMenu()
+        self._remove_legacy_bookmark_actions(menu)
         menu.addSeparator()
-        bookmark_action = menu.addAction("Bookmark Selection")
+        bookmark_action = menu.addAction(
+            "Bookmark Selection"
+            if captured is not None
+            else "Toggle Bookmark Here"
+        )
         menu.addSeparator()
         graphic_action = menu.addAction(
             "Edit image in iPad…"
@@ -128,7 +141,13 @@ class SelectionBookmarkEditorMixin:
 
         chosen = menu.exec(event.globalPos())
         if chosen == bookmark_action:
-            self._selection_bookmark_context.toggle_captured_selection(*captured)
+            if captured is not None:
+                self._selection_bookmark_context.toggle_captured_selection(
+                    *captured
+                )
+            else:
+                line, column = self._source_location_for_position(click_position)
+                self._toggle_bookmark(line, column)
             return
         if chosen != graphic_action:
             return
@@ -138,6 +157,22 @@ class SelectionBookmarkEditorMixin:
             self.setTextCursor(click_cursor)
         line, column = self.active_source_location()
         self._handle_graphic_request(line, column)
+
+    @staticmethod
+    def _remove_legacy_bookmark_actions(menu) -> None:
+        """Remove runtime-patched bookmark items so only the canonical action remains."""
+        legacy_labels = {
+            "Bookmark Here",
+            "Bookmark Selection",
+            "Toggle Bookmark Here",
+        }
+        for action in list(menu.actions()):
+            label = action.text().replace("&", "").strip()
+            if label not in legacy_labels:
+                continue
+            menu.removeAction(action)
+            if action.parent() is menu:
+                action.deleteLater()
 
     def _toggle_selection_bookmark(
         self,
