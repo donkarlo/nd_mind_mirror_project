@@ -21,6 +21,11 @@ class LatexDiagnosticSeverityClassifier:
         "i couldn't open database file",
         "i couldn't open style file",
         "i found no database files",
+        "repeated entry",
+        "illegal, another \\bibstyle command",
+        "illegal, another \\bibdata command",
+        "i was expecting a",
+        "i'm skipping whatever remains of this entry",
         "error--",
         "error -",
     )

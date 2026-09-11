@@ -51,15 +51,19 @@ This README describes the active functional project: desktop Python/PySide6 sour
 - Clicking Structure moves the editor to the corresponding source location.
 - Only the deepest active structure row is semantically highlighted.
 
-### Fast file search
+### Workspace search
 
-- Double Shift opens file search.
-- Previous query is preserved and selected on reopen.
-- Exact, prefix, substring, fuzzy, and hierarchical-path matching are supported.
-- `parent > child` queries explicitly search an ordered ancestor/descendant hierarchy rather than treating the whole query as one filename.
+- The Search window has two tabs: **Files & Folders** and **Text in Files**. Double Shift always opens **Files & Folders**.
+- Both tabs have a read-only recursive search-root field backed by a native folder chooser; the initial root is `search.default_path`.
+- The last query and root are persisted independently for each tab in the normal session state and restored on later use.
+- File/folder search keeps the existing exact, prefix, substring, fuzzy, and hierarchical-path matching. `parent > child` queries search an ordered ancestor/descendant hierarchy rather than treating the whole query as one filename.
 - Folder search hits close the Search window and reveal/scroll/highlight the folder in the main Navigator; file hits open the file.
+- Text search runs in a cancellable background worker, respects `search_ignore.yaml`, and searches supported source/text file types recursively without blocking the GUI.
+- Text-search results are grouped as filesystem folders → file → active LaTeX `part`/`chapter`/`section`/`subsection`/`subsubsection`/`paragraph`/`subparagraph` hierarchy → every matching occurrence.
+- Multiple occurrences in one file are preserved as separate result rows. Enter or double-click opens the file and places the editor cursor at the exact matched line and column.
+- Navigator folder context menus expose scoped **Search Files / Folders Here** and **Search Text in Files Here** actions; each opens the matching Search tab with that folder already selected as the recursive root.
 - Up/Down and Enter support keyboard-only navigation.
-- Search rebuilds against the current workspace so external Dropbox/git/terminal changes appear without restarting.
+- File/folder search rebuilds against the current workspace so external Dropbox/git/terminal changes appear without restarting.
 - Search and rename-reference scanning both use the configured `search_ignore.yaml` rules.
 
 ### Tabs and session
@@ -330,7 +334,7 @@ The active source/tests/settings currently cover these functional areas:
 6. YAML editing, syntax highlighting, hierarchical Structure parsing, smart/shared indentation, and formatting that preserves YAML content structure.
 7. Generic text/code editing with the shared source editor infrastructure.
 8. Structure parsing/navigation/highlighting for LaTeX and YAML, including `\includegraphics` entries and caption-aware graphic labels.
-9. Double-Shift file search with exact/prefix/substring/fuzzy matching, ordered `>` hierarchy queries, keyboard navigation, live workspace indexing, and folder reveal.
+9. Two-tab workspace search: Double-Shift file/folder search with exact/prefix/substring/fuzzy and ordered `>` hierarchy matching, plus recursive text-in-files search with selectable roots, persisted per-tab state, LaTeX structural grouping, exact occurrence navigation, and Navigator folder-scoped search actions.
 10. Pinned/Open two-row tab management, drag ordering, persisted order, max-tab/LRU behavior, recent-file switching, `Ctrl+Tab`, `Ctrl+W`, path remapping, and session restoration.
 11. Undo/Redo, current-line deletion, Find/Replace, bold, bookmarks, editor zoom reset, configurable application shortcuts, and user-editable LaTeX shorthand expansion.
 12. LuaLaTeX live Preview, recursive input resolution, graphic dependencies, bibliography passes, generation cancellation, selectable PDF text, zoom/pan, Fit/Auto Fit, reverse SyncTeX, structured/copyable diagnostics, selection highlight/caret mapping, Lock, Extend, Detach/Attach, toggle, and PDF export.

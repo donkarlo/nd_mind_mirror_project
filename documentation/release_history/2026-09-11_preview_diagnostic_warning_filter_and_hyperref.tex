@@ -1,0 +1,63 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+\usepackage{adjustbox}
+\usepackage[active,tightpage]{preview}
+
+\PreviewBorder=4pt
+
+\usetikzlibrary{graphs,graphdrawing}
+\usegdlibrary{layered}
+
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/external_graphviz.tex}
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/part/control_sequence/kind/semtag/semtag.tex}
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/seehere.tex}
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/deep_structure.tex}
+
+\title{Preview diagnostic warning filter and hyperref cleanup}
+\date{2026-09-11}
+\author{Mohammad Rahmani}
+
+\begin{document}
+   \maketitle
+
+   \begin{preview}
+      \section*{Bug fix}
+
+      Preview diagnostics no longer interpret ordinary TeX package-loading
+      paths as warnings merely because the path contains the word
+      \verb|package| or \verb|packages|.
+
+      \begin{itemize}
+         \item The compiler diagnostic extractor now delegates severity
+         decisions to the existing \verb|LatexDiagnosticSeverityClassifier|.
+         \item Warning-only output therefore starts with an actual warning, so
+         the existing diagnostic-node normalization keeps it at warning
+         severity instead of presenting a false compilation error.
+         \item Additional BibTeX syntax failures, including repeated entries,
+         are classified as hard errors so they cannot be hidden behind citation
+         warnings.
+         \item The shared \verb|seehere.tex| helper no longer reapplies the
+         load-time \verb|colorlinks| option through \verb|\hypersetup| after
+         \verb|hyperref| has already been loaded.
+         \item Regression tests cover package-loading lines and BibTeX repeated
+         entries.
+      \end{itemize}
+   \end{preview}
+
+   \bibliographystyle{plainnat}
+   \bibliography{/home/donkarlo/Dropbox/repo/nd_shared_research/bibliography/bibliography.bib}
+\end{document}
