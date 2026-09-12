@@ -19,7 +19,15 @@ class ManagedGraphicWorkspaceFilesystemOperationController(
 ):
     """Move/delete a raster image and its .ndgraphic sidecar as one managed document."""
 
-    _IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg"}
+    _IMAGE_SUFFIXES = {
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".webp",
+        ".bmp",
+        ".tif",
+        ".tiff",
+    }
 
     def request_moves(self, mappings: list[tuple[Path, Path]]) -> bool:
         """Add companion sidecar moves before delegating to the background worker."""

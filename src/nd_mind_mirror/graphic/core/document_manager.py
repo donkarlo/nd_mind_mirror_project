@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from pathlib import Path
+import base64
 import binascii
+from dataclasses import dataclass
 import json
+from pathlib import Path
 import re
 import struct
 import zlib
@@ -30,16 +31,17 @@ class GraphicReference:
 class GraphicDocumentManager:
     """Create and locate source-backed raster graphics used by LaTeX.
 
-    The editable PencilKit state is stored in a small ``.ndgraphic`` JSON
-    sidecar. LaTeX only sees the neighboring PNG, so the generated document
-    remains ordinary portable LaTeX and the iPad editor can preserve strokes
-    for later editing.
+    The editable PencilKit state is stored in a neighboring ``.ndgraphic``
+    sidecar. The raster remains the file seen by LaTeX, Source, Visual, and
+    Preview, while the sidecar is the authoritative editable iPad document.
     """
 
     _INCLUDE_GRAPHICS = re.compile(
         r"\\includegraphics(?:\s*\[[^\]]*\])?\s*\{(?P<path>[^}]+)\}",
         re.MULTILINE,
     )
+    _LATEX_EDITABLE_IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg"}
+    _SIDECAR_VERSION = 2
 
     def __init__(
         self,
@@ -61,11 +63,31 @@ class GraphicDocumentManager:
         directory.mkdir(parents=True, exist_ok=True)
 
         image_path = self._next_image_path(directory)
-        sidecar_path = image_path.with_suffix(".ndgraphic")
         self._write_blank_png(image_path, self.canvas_width, self.canvas_height)
-        self._write_sidecar(sidecar_path, image_path, source)
+        sidecar_path = self.ensure_for_image(image_path, source)
         relative = image_path.relative_to(source.parent).as_posix()
         return GraphicDocument(image_path, sidecar_path, relative)
+
+    def ensure_for_image(
+        self,
+        image_path: str | Path,
+        source_path: str | Path | None = None,
+    ) -> Path:
+        """Return a self-contained editable sidecar for one existing raster image."""
+        image = Path(image_path).expanduser().resolve()
+        sidecar = image.with_suffix(".ndgraphic")
+        if not sidecar.exists():
+            self._write_sidecar(sidecar, image, source_path)
+            return sidecar
+
+        if source_path is not None:
+            self._ensure_source_name(
+                sidecar,
+                Path(source_path).expanduser().resolve(),
+            )
+        self._ensure_image_canvas_size(sidecar, image)
+        self._ensure_background_snapshot(sidecar, image)
+        return sidecar
 
     def find_reference(
         self,
@@ -116,14 +138,9 @@ class GraphicDocumentManager:
         if not image.is_absolute():
             image = source_file.parent / image
         image = image.resolve()
-        if image.suffix.lower() not in {".png", ".jpg", ".jpeg"}:
+        if image.suffix.lower() not in self._LATEX_EDITABLE_IMAGE_SUFFIXES:
             return None
-        sidecar = image.with_suffix(".ndgraphic")
-        if not sidecar.exists():
-            self._write_sidecar(sidecar, image, source_file)
-        else:
-            self._ensure_source_name(sidecar, source_file)
-            self._ensure_image_canvas_size(sidecar, image)
+        sidecar = self.ensure_for_image(image, source_file)
         return GraphicReference(
             image_path=image,
             sidecar_path=sidecar,
@@ -152,28 +169,64 @@ class GraphicDocumentManager:
         source_name = ""
         if source_path is not None:
             source_name = Path(source_path).expanduser().name
-        # ND_MIGRATION4_NATIVE_IMAGE_CANVAS
         native_width, native_height = self._image_dimensions(image_path)
         canvas_width = native_width if native_width > 0 else self.canvas_width
         canvas_height = native_height if native_height > 0 else self.canvas_height
+        background = self._encoded_image_snapshot(image_path)
         payload = {
-            "version": 1,
+            "version": self._SIDECAR_VERSION,
             "image_name": image_path.name,
             "source_name": source_name,
             "canvas_width": canvas_width,
             "canvas_height": canvas_height,
             "drawing_data_base64": "",
-            "background_image_base64": "",
+            "background_image_base64": background,
+            "background_is_authoritative": bool(background),
             "web_strokes": [],
             "pencil": {
                 "width": 6.0,
                 "color": "#202020",
             },
         }
-        sidecar.parent.mkdir(parents=True, exist_ok=True)
-        temp = sidecar.with_suffix(sidecar.suffix + ".tmp")
-        temp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-        temp.replace(sidecar)
+        self._write_sidecar_payload(sidecar, payload)
+
+    @staticmethod
+    def _encoded_image_snapshot(image_path: Path) -> str:
+        """Return the exact paired raster bytes as base64 for editable background use."""
+        try:
+            raw = Path(image_path).read_bytes()
+        except OSError:
+            return ""
+        if not raw:
+            return ""
+        return base64.b64encode(raw).decode("ascii")
+
+    @classmethod
+    def _ensure_background_snapshot(cls, sidecar: Path, image_path: Path) -> None:
+        """Migrate only untouched legacy sidecars to an authoritative background."""
+        payload = cls._read_sidecar_payload(sidecar)
+        if payload is None:
+            return
+        if str(payload.get("background_image_base64", "") or "").strip():
+            return
+        if str(payload.get("drawing_data_base64", "") or "").strip():
+            return
+        image_objects = payload.get("image_objects")
+        if isinstance(image_objects, list) and image_objects:
+            return
+        if payload.get("web_strokes"):
+            return
+
+        background = cls._encoded_image_snapshot(image_path)
+        if not background:
+            return
+        payload["version"] = max(
+            int(payload.get("version", 1) or 1),
+            cls._SIDECAR_VERSION,
+        )
+        payload["background_image_base64"] = background
+        payload["background_is_authoritative"] = True
+        cls._write_sidecar_payload(sidecar, payload)
 
     @staticmethod
     def _image_dimensions(image_path: Path) -> tuple[int, int]:
@@ -187,12 +240,9 @@ class GraphicDocumentManager:
 
     @classmethod
     def _ensure_image_canvas_size(cls, sidecar: Path, image_path: Path) -> None:
-        """Use native JPG/PNG size until editable drawing/background data exists."""
-        try:
-            payload = json.loads(sidecar.read_text(encoding="utf-8"))
-        except (OSError, ValueError, TypeError):
-            return
-        if not isinstance(payload, dict):
+        """Use native raster size until editable drawing/background data exists."""
+        payload = cls._read_sidecar_payload(sidecar)
+        if payload is None:
             return
         if str(payload.get("drawing_data_base64", "") or "").strip():
             return
@@ -210,30 +260,34 @@ class GraphicDocumentManager:
             return
         payload["canvas_width"] = width
         payload["canvas_height"] = height
-        try:
-            temporary = sidecar.with_suffix(sidecar.suffix + ".tmp")
-            temporary.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-            temporary.replace(sidecar)
-        except OSError:
-            return
+        cls._write_sidecar_payload(sidecar, payload)
 
-    @staticmethod
-    def _ensure_source_name(sidecar: Path, source_path: Path) -> None:
+    @classmethod
+    def _ensure_source_name(cls, sidecar: Path, source_path: Path) -> None:
         """Backfill the owning LaTeX filename into older editable sidecars."""
-        try:
-            payload = json.loads(sidecar.read_text(encoding="utf-8"))
-        except (OSError, ValueError, TypeError):
+        payload = cls._read_sidecar_payload(sidecar)
+        if payload is None:
             return
         source_name = source_path.name
         if str(payload.get("source_name", "")).strip() == source_name:
             return
         payload["source_name"] = source_name
+        cls._write_sidecar_payload(sidecar, payload)
+
+    @staticmethod
+    def _read_sidecar_payload(sidecar: Path) -> dict[str, object] | None:
         try:
-            temp = sidecar.with_suffix(sidecar.suffix + ".tmp")
-            temp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-            temp.replace(sidecar)
-        except OSError:
-            return
+            payload = json.loads(sidecar.read_text(encoding="utf-8"))
+        except (OSError, ValueError, TypeError):
+            return None
+        return payload if isinstance(payload, dict) else None
+
+    @staticmethod
+    def _write_sidecar_payload(sidecar: Path, payload: dict[str, object]) -> None:
+        sidecar.parent.mkdir(parents=True, exist_ok=True)
+        temporary = sidecar.with_suffix(sidecar.suffix + ".tmp")
+        temporary.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        temporary.replace(sidecar)
 
     @staticmethod
     def _png_chunk(kind: bytes, data: bytes) -> bytes:

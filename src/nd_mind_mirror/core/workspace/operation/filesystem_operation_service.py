@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import shutil
 
@@ -13,10 +14,23 @@ from nd_mind_mirror.graphic.core.sidecar_replacement_policy import (
 class WorkspaceFilesystemOperationService:
     """Apply validated move/delete requests and report each result independently."""
 
+    _MANAGED_IMAGE_SUFFIXES = {
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".webp",
+        ".bmp",
+        ".tif",
+        ".tiff",
+    }
+
     def execute(self, request: dict[str, object]) -> dict[str, object]:
         """Execute one serialized operation batch without raising per-entry failures."""
+        raw_moves = request.get("moves")
+        move_results = self._execute_moves(raw_moves)
+        self._synchronize_managed_graphic_bindings(raw_moves, move_results)
         return {
-            "moves": self._execute_moves(request.get("moves")),
+            "moves": move_results,
             "deletes": self._execute_deletes(request.get("deletes")),
         }
 
@@ -98,6 +112,71 @@ class WorkspaceFilesystemOperationService:
             source,
             destination,
         )
+
+    @classmethod
+    def _synchronize_managed_graphic_bindings(
+        cls,
+        raw_moves: object,
+        results: list[dict[str, object]],
+    ) -> None:
+        """Rebind moved sidecar metadata to the raster's new basename.
+
+        A managed graphic is represented by two sibling files. The filesystem
+        operation already moves them in one batch; this step keeps the internal
+        ``image_name`` field consistent with that new pair identity as well.
+        """
+        if not isinstance(raw_moves, list):
+            return
+
+        successful_moves: dict[Path, Path] = {}
+        result_index = 0
+        for item in raw_moves:
+            if not isinstance(item, dict):
+                continue
+            if result_index >= len(results):
+                break
+            result = results[result_index]
+            result_index += 1
+            if not bool(result.get("success")):
+                continue
+            source = Path(str(item.get("source", ""))).expanduser().resolve(strict=False)
+            destination = Path(str(item.get("destination", ""))).expanduser().resolve(strict=False)
+            successful_moves[source] = destination
+
+        for source_image, destination_image in tuple(successful_moves.items()):
+            if source_image.suffix.lower() not in cls._MANAGED_IMAGE_SUFFIXES:
+                continue
+            source_sidecar = source_image.with_suffix(".ndgraphic")
+            destination_sidecar = successful_moves.get(source_sidecar)
+            if destination_sidecar is None or not destination_sidecar.is_file():
+                continue
+            cls._rewrite_sidecar_image_name(
+                destination_sidecar,
+                destination_image.name,
+            )
+
+    @staticmethod
+    def _rewrite_sidecar_image_name(sidecar: Path, image_name: str) -> None:
+        """Atomically store the moved raster basename in one companion sidecar."""
+        try:
+            payload = json.loads(sidecar.read_text(encoding="utf-8"))
+        except (OSError, TypeError, ValueError, json.JSONDecodeError):
+            return
+        if not isinstance(payload, dict):
+            return
+        if str(payload.get("image_name", "")).strip() == image_name:
+            return
+
+        payload["image_name"] = image_name
+        temporary = sidecar.with_suffix(sidecar.suffix + ".tmp")
+        try:
+            temporary.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+            temporary.replace(sidecar)
+        except OSError:
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError:
+                pass
 
     def _execute_deletes(self, raw_deletes: object) -> list[dict[str, object]]:
         """Delete each requested file/folder while reporting failures independently."""

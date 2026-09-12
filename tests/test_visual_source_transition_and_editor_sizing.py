@@ -25,4 +25,4 @@ def test_moderate_latex_documents_do_not_use_chunked_source_editor() -> None:
 
     assert "_SOURCE_VIRTUALIZATION_THRESHOLD_CHARS = 1_000_000" in source
     assert "if len(content) >= self._SOURCE_VIRTUALIZATION_THRESHOLD_CHARS" in source
-    assert "else LatexEditor" in source
+    assert "else SelectionLatexEditor" in source

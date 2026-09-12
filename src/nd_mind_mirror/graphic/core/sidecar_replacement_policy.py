@@ -9,7 +9,15 @@ from pathlib import Path
 class ManagedGraphicSidecarReplacementPolicy:
     """Recognize duplicate or orphan sidecars that are safe managed-graphic destinations."""
 
-    _IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg"}
+    _IMAGE_SUFFIXES = {
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".webp",
+        ".bmp",
+        ".tif",
+        ".tiff",
+    }
 
     @classmethod
     def can_replace(cls, source_sidecar: Path, destination_sidecar: Path) -> bool:
@@ -34,10 +42,6 @@ class ManagedGraphicSidecarReplacementPolicy:
         if source_image == destination_image:
             return True
 
-        # A previous buggy raster-only delete could leave foo.ndgraphic after
-        # foo.png/jpg vanished.  Such an orphan is replaceable during a rename
-        # into that exact managed graphic name, but an intact destination image
-        # must never be overwritten implicitly.
         destination_image_path = cls._managed_image_path(
             destination_path,
             destination_image,

@@ -1,0 +1,75 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+\usepackage{adjustbox}
+\usepackage[active,tightpage]{preview}
+
+\PreviewBorder=4pt
+
+\usetikzlibrary{graphs,graphdrawing}
+\usegdlibrary{layered}
+
+% for external graphviz
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/external_graphviz.tex}
+
+% for tags
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/part/control_sequence/kind/semtag/semtag.tex}
+
+% for links
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/seehere.tex}
+
+% for nested lists and sections
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/deep_structure.tex}
+
+\title{}
+\date{}
+\author{Mohammad Rahmani}
+
+\begin{document}
+   \maketitle
+
+   \begin{preview}
+      \section*{Large Source integrity and Navigator startup crash}
+
+      Fixed a destructive Source/Visual synchronization regression in large LaTeX documents.
+      Moderate documents now remain fully materialized until the dedicated Source virtualization
+      threshold is reached. The threshold is independent from the lower performance/debounce
+      threshold.
+
+      For genuinely virtualized Source documents, Visual commits now replace the canonical
+      \texttt{LatexSourceBuffer} directly. A complete Visual serialization is never inserted into
+      the bounded local \texttt{QTextDocument} window. The Source window is then reselected around
+      the Visual cursor and rematerialized from the canonical buffer.
+
+      Restored the intended default bounded Source window size to 40,000 characters and separated
+      \texttt{editor\_source\_virtualization\_threshold\_chars} from
+      \texttt{editor\_source\_large\_document\_threshold\_chars}.
+
+      Removed startup execution of \texttt{Fix11DesktopController} from the special LaTeX toolbar.
+      That runtime class patch changed \texttt{FileSystemPanel} context-menu methods after Qt had
+      already connected bound slots, which produced failed disconnect warnings and unstable native
+      Qt signal ownership. Explicit \texttt{parent > child} file search is now implemented directly
+      in \texttt{FileSearchThread} instead of being injected at runtime.
+
+      Regression tests now verify the one-million-character moderate-document boundary, the
+      40,000-character Source window, canonical Visual-to-Source replacement, absence of the
+      unsafe full-window \texttt{QTextCursor} replacement path, and startup without runtime
+      \texttt{Fix11DesktopController} installation.
+   \end{preview}
+
+   \bibliographystyle{plainnat}
+   \bibliography{/home/donkarlo/Dropbox/repo/nd_shared_research/bibliography/bibliography.bib}
+\end{document}

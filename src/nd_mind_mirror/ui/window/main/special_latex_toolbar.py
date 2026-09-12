@@ -14,12 +14,9 @@ from nd_mind_mirror.ui.editor.latex.visual_graphic_context_controller import (
     VisualGraphicContextController,
 )
 from nd_mind_mirror.ui.search.search_typing_controller import SearchTypingController
-from nd_mind_mirror.ui.window.main.fix11_desktop_controller import Fix11DesktopController
 from nd_mind_mirror.ui.window.main.source_edit_command_controller import (
     SourceEditCommandController,
 )
-
-Fix11DesktopController.install()
 
 
 class SpecialLatexToolbar(QWidget):

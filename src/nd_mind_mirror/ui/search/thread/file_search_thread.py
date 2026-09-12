@@ -24,7 +24,21 @@ class FileSearchThread(QThread):
 
         self._generation = generation
         self._entries = entries
-        self._query = self._normalize(query)
+        raw_query = str(query)
+        hierarchy_chain = [
+            part.strip().casefold()
+            for part in raw_query.split(">")
+            if part.strip()
+        ]
+        self._hierarchy_chain = (
+            hierarchy_chain if len(hierarchy_chain) >= 2 else []
+        )
+        effective_query = (
+            hierarchy_chain[-1]
+            if self._hierarchy_chain
+            else raw_query
+        )
+        self._query = self._normalize(effective_query)
         self._tokens = [
             token
             for token in re.split(r"\s+", self._query)
@@ -65,19 +79,26 @@ class FileSearchThread(QThread):
             if self.isInterruptionRequested():
                 return
 
-            score = self._score_name(
-                name_text=name_text,
-                stem_text=stem_text,
-                name=normalized_name,
-                stem=normalized_stem,
-            )
-            if (
-                score is None
-                and self._hierarchical_path_matching
-                and not self._strict_filename_query
-                and len(self._tokens) >= 2
-            ):
-                score = self._score_hierarchical_path(relative_path)
+            if self._hierarchy_chain:
+                score = self._score_explicit_hierarchy(
+                    relative_path=relative_path,
+                    name_text=name_text,
+                    stem_text=stem_text,
+                )
+            else:
+                score = self._score_name(
+                    name_text=name_text,
+                    stem_text=stem_text,
+                    name=normalized_name,
+                    stem=normalized_stem,
+                )
+                if (
+                    score is None
+                    and self._hierarchical_path_matching
+                    and not self._strict_filename_query
+                    and len(self._tokens) >= 2
+                ):
+                    score = self._score_hierarchical_path(relative_path)
             if score is None:
                 continue
 
@@ -168,6 +189,64 @@ class FileSearchThread(QThread):
 
         return sum(token_scores) / len(token_scores)
 
+    def _score_explicit_hierarchy(
+        self,
+        relative_path: str,
+        name_text: str,
+        stem_text: str,
+    ) -> float | None:
+        """Score an ordered ``parent > child`` chain without runtime patching."""
+        components = [
+            component
+            for component in Path(relative_path).parts
+            if component
+        ]
+        if not components:
+            return None
+
+        leaf = self._hierarchy_chain[-1]
+        leaf_score = self._score_token(
+            token=leaf,
+            name=name_text.casefold(),
+            stem=stem_text.casefold(),
+            name_text=name_text,
+            stem_text=stem_text,
+        )
+        if leaf_score is None:
+            return None
+
+        ancestors = components[:-1]
+        search_from = 0
+        parent_score = 0.0
+        for token in self._hierarchy_chain[:-1]:
+            matched: tuple[int, float] | None = None
+            for index in range(search_from, len(ancestors)):
+                component = ancestors[index]
+                stem = Path(component).stem
+                score = self._score_token(
+                    token=token,
+                    name=component.casefold(),
+                    stem=stem.casefold(),
+                    name_text=component,
+                    stem_text=stem,
+                )
+                if score is None:
+                    score = self._family_prefix_score(
+                        token,
+                        stem.casefold(),
+                    )
+                if score is not None:
+                    matched = (index, score)
+                    break
+            if matched is None:
+                return None
+            search_from = matched[0] + 1
+            parent_score += matched[1]
+
+        return min(
+            5.0,
+            3.6 + leaf_score * 0.25 + parent_score * 0.08,
+        )
 
     def _score_hierarchical_path(self, relative_path: str) -> float | None:
         components = [
@@ -210,8 +289,6 @@ class FileSearchThread(QThread):
         indices = [index for _, index in token_matches]
         distinct_bonus = 0.35 if len(set(indices)) > 1 else 0.0
         ordered_bonus = 0.20 if indices == sorted(indices) else 0.0
-        # Keep hierarchical hits below a direct filename substring, but above
-        # weak unrelated fuzzy matches.
         return min(3.45, base + distinct_bonus + ordered_bonus)
 
     def _family_prefix_score(self, token: str, candidate: str) -> float | None:

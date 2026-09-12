@@ -35,13 +35,27 @@ def test_large_source_uses_rich_window_and_incremental_buffer() -> None:
 
     assert "IncrementalLargeLatexEditor" in wrapper
     assert "QTextEdit.setPlainText" in wrapper
-    assert "editor_source_large_document_threshold_chars" in wrapper
+    assert "editor_source_virtualization_threshold_chars" in wrapper
     assert "_DEFAULT_SOURCE_WINDOW_CHARS = 40_000" in wrapper
 
     assert "contentsChange.connect(" in incremental_core
     assert "self._synchronize_visible_change" in incremental_core
     assert "self._source_buffer.apply_edit(" in incremental_core
     assert "textChanged.connect(self._synchronize_visible_window)" not in incremental_core
+
+
+def test_windowed_visual_commit_replaces_canonical_source_not_qtextdocument() -> None:
+    wrapper = _project_file(
+        "src/nd_mind_mirror/ui/editor/latex/large/large_latex_editor.py"
+    ).read_text(encoding="utf-8")
+
+    method = wrapper.split("def _apply_visual_source", 1)[1].split(
+        "def _synchronize_visible_change", 1
+    )[0]
+    assert "self._source_buffer.replace_source(canonical_source)" in method
+    assert "self._load_visible_window(canonical_modified=True)" in method
+    assert "QTextCursor(self.document())" not in method
+    assert "cursor.select(QTextCursor.SelectionType.Document)" not in method
 
 
 def test_incremental_buffer_matches_reference_string() -> None:

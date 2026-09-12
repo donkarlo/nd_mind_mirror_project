@@ -15,12 +15,12 @@ from nd_mind_mirror.ui.editor.latex.large.source_typing_burst_controller import 
 class LargeLatexEditor(IncrementalLargeLatexEditor):
     """Edit a bounded rich Source window backed by the complete source buffer.
 
-    QTextEdit is retained only for the small visible Persian/Arabic layout
-    window. LatexSourceBuffer remains the canonical complete document and normal
-    typing splices edits incrementally without materializing the complete file.
+    QTextEdit owns only the materialized window. LatexSourceBuffer remains the
+    canonical complete document, including when Visual mode commits a full
+    serialized source back to the editor.
     """
 
-    _DEFAULT_SOURCE_WINDOW_CHARS = 8_000
+    _DEFAULT_SOURCE_WINDOW_CHARS = 40_000
     _FULL_DOCUMENT_IDLE_MS = 2_000
 
     def __init__(self, *args, app_settings, **kwargs) -> None:
@@ -29,8 +29,8 @@ class LargeLatexEditor(IncrementalLargeLatexEditor):
         threshold = int(
             getattr(
                 app_settings,
-                "editor_source_large_document_threshold_chars",
-                120_000,
+                "editor_source_virtualization_threshold_chars",
+                self._DEFAULT_VIRTUALIZATION_THRESHOLD_CHARS,
             )
         )
         window_chars = int(
@@ -41,7 +41,7 @@ class LargeLatexEditor(IncrementalLargeLatexEditor):
             )
         )
         self._source_buffer = LatexSourceBuffer(
-            max(threshold, 1),
+            max(threshold, 120_000),
             window_chars,
         )
 
@@ -59,6 +59,44 @@ class LargeLatexEditor(IncrementalLargeLatexEditor):
         self._typing_burst_controller.became_idle.connect(
             self._resume_deferred_source_window_shift
         )
+
+    def _apply_visual_source(self, source: str) -> None:
+        """Commit Visual output to the canonical buffer, never to a local window."""
+        if not self.source_is_windowed:
+            super()._apply_visual_source(source)
+            return
+
+        canonical_source = str(source)
+        if self._syncing_from_visual or canonical_source == self.toPlainText():
+            return
+
+        visual_anchor, visual_position = (
+            self._visual_editor.source_selection_locations()
+        )
+        self._syncing_from_visual = True
+        self._syncing_cursor_views = True
+        try:
+            self._source_buffer.replace_source(canonical_source)
+            focus_position = self._source_buffer.full_position_for_location(
+                *visual_position
+            )
+            self._source_buffer.select_around_position(focus_position)
+            self._change_generation += 1
+            self._canonical_modified = True
+            self._load_visible_window(canonical_modified=True)
+            self._set_source_selection_from_locations(
+                visual_anchor,
+                visual_position,
+            )
+            self._visual_dirty = False
+        finally:
+            self._syncing_cursor_views = False
+            self._syncing_from_visual = False
+
+        self.content_changed.emit(canonical_source)
+        self.modification_changed.emit(True)
+        if self._edit_mode == "visual":
+            self.active_cursor_changed.emit()
 
     def _synchronize_visible_change(
         self,

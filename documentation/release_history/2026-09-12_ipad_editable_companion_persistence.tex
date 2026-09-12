@@ -1,0 +1,58 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+
+\title{iPad editable graphic companion persistence}
+\date{2026-09-12}
+\author{Mohammad Rahmani}
+
+\begin{document}
+\maketitle
+
+\section{Problem}
+Mind Mirror already stored PencilKit drawing data in a neighboring
+\texttt{.ndgraphic} file, while LaTeX Source, Visual, and Preview used the raster
+image. However, a newly associated ordinary raster initially received an empty
+stored background. The bridge therefore had to infer the editable background
+from the flattened raster when the document was reopened. In particular, a
+legitimate white or transparent original background could later be mistaken for
+an invalid legacy background after visible strokes had been flattened into the
+paired image. Rename and move operations also moved both files but did not make
+the sidecar's internal \texttt{image\_name} follow the raster's new basename.
+
+\section{Fix}
+\begin{itemize}
+   \item The raster remains the canonical file referenced by LaTeX and displayed by Source, Visual, and Preview.
+   \item The neighboring \texttt{.ndgraphic} remains the canonical editable iPad state containing PencilKit/vector data and canvas metadata.
+   \item On the first iPad association, the companion now snapshots the exact original raster as its authoritative background before any flattened edit can replace the raster output.
+   \item Version-2 companions carry an explicit \texttt{background\_is\_authoritative} marker, so valid white or transparent backgrounds are not replaced by a later flattened raster and editable strokes are not discarded.
+   \item Untouched legacy companions can be migrated safely when they have no drawing/object data. Existing ambiguous legacy companions keep the previous recovery policy instead of being trusted blindly.
+   \item Managed image/sidecar moves keep the two filenames paired and atomically rewrite the moved sidecar's internal \texttt{image\_name} to the new raster basename.
+   \item Managed sidecar lifecycle recognition covers the raster formats already exposed by the Navigator iPad-edit command.
+   \item Existing semantic source-reference/search path rules are unchanged: source references continue to target only the raster file, while the companion follows the raster internally.
+\end{itemize}
+
+\section{Regression coverage}
+Regression checks verify first-association background persistence, preservation of
+editable strokes over an authoritative white background, and metadata rebinding
+when a raster/sidecar pair is renamed or moved.
+
+\section{Repository hygiene}
+The change extends the existing managed-graphic document model and filesystem
+operation service. It does not add a second competing image workflow or a
+runtime hotfix.
+
+\end{document}

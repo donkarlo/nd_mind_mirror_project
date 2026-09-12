@@ -3,11 +3,14 @@ from __future__ import annotations
 from pathlib import Path
 import re
 
-from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtCore import QMimeData, Qt, QTimer, Signal
 from PySide6.QtGui import QKeyEvent
 
 from nd_mind_mirror.core.settings.yaml.yaml_settings import YamlSettings
 from nd_mind_mirror.ui.editor.base.text_editor import TextEditor
+from nd_mind_mirror.ui.editor.bibliography.bibtex_integrity_controller import (
+    BibtexIntegrityController,
+)
 from nd_mind_mirror.ui.editor.generic.large_text_document_controller import (
     LargeTextDocumentController,
 )
@@ -37,6 +40,10 @@ class GenericTextEditor(TextEditor):
         self._content_emit_timer.setSingleShot(True)
         self._content_emit_timer.timeout.connect(self._flush_content)
         self._large_document_controller: LargeTextDocumentController | None = None
+        self._bibtex_integrity_controller = BibtexIntegrityController(
+            self,
+            self._source_path,
+        )
         self.apply_settings(app_settings)
         self._highlighter = PygmentsSyntaxHighlighter(
             self.document(),
@@ -58,6 +65,8 @@ class GenericTextEditor(TextEditor):
     def set_source_path(self, source_path: str | Path) -> None:
         self._source_path = Path(source_path).expanduser().resolve()
         self._highlighter.set_source_path(self._source_path)
+        self._bibtex_integrity_controller.set_source_path(self._source_path)
+        self._bibtex_integrity_controller.validate_document(self.toPlainText())
 
     def apply_settings(self, app_settings: YamlSettings) -> None:
         self._source_update_debounce_ms = app_settings.editor_source_update_debounce_ms
@@ -117,9 +126,25 @@ class GenericTextEditor(TextEditor):
             return
         super().keyPressEvent(event)
 
+    def insertFromMimeData(self, source: QMimeData) -> None:
+        """Block only BibTeX pastes that would introduce duplicate entry keys."""
+        if source.hasText():
+            selection_start, selection_end = self.source_selection_range()
+            if not self._bibtex_integrity_controller.allow_paste(
+                self.toPlainText(),
+                selection_start,
+                selection_end,
+                source.text(),
+            ):
+                return
+        super().insertFromMimeData(source)
+
     def set_content(self, content: str) -> None:
         controller = self._large_document_controller
         if controller is not None and controller.set_content(content):
+            self._bibtex_integrity_controller.validate_document(
+                controller.full_source
+            )
             self.content_changed.emit(controller.full_source)
             self.modification_changed.emit(False)
             return
@@ -129,6 +154,7 @@ class GenericTextEditor(TextEditor):
         self.apply_line_height(self._line_height_percent)
         self.document().setModified(False)
         self.blockSignals(False)
+        self._bibtex_integrity_controller.validate_document(content)
         self.content_changed.emit(content)
         self.modification_changed.emit(False)
 
@@ -137,6 +163,25 @@ class GenericTextEditor(TextEditor):
         if controller is not None and controller.active:
             return controller.full_source
         return super().toPlainText()
+
+    def source_selection_range(self) -> tuple[int, int]:
+        """Return the active selection as offsets in the complete canonical source."""
+        cursor = self.textCursor()
+        start = int(cursor.selectionStart())
+        end = int(cursor.selectionEnd())
+
+        controller = self._large_document_controller
+        if controller is not None and controller.active:
+            state = controller.view_state()
+            global_cursor = int(state.get("cursor", cursor.position()))
+            window_start = global_cursor - int(cursor.position())
+            start += window_start
+            end += window_start
+
+        source_length = len(self.toPlainText())
+        start = max(0, min(start, source_length))
+        end = max(start, min(end, source_length))
+        return start, end
 
     def view_state(self) -> dict[str, int]:
         controller = self._large_document_controller
@@ -198,4 +243,6 @@ class GenericTextEditor(TextEditor):
         self._content_emit_timer.start()
 
     def _flush_content(self) -> None:
-        self.content_changed.emit(self.toPlainText())
+        content = self.toPlainText()
+        self._bibtex_integrity_controller.validate_document(content)
+        self.content_changed.emit(content)

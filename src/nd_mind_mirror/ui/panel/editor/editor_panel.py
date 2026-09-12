@@ -18,10 +18,13 @@ from nd_mind_mirror.ui.panel.editor.editor_panel_core import EditorPanel as Edit
 class EditorPanel(EditorPanelCore):
     """Create editors and expose non-blocking autosave snapshots.
 
-    Small LaTeX documents use the regular editor. Documents at or above the
-    configured large-source threshold use LargeLatexEditor, whose source view
-    keeps only a bounded QTextEdit window while preserving the canonical source.
+    Moderate LaTeX documents keep one complete canonical QTextDocument. Only
+    genuinely large documents use SelectionLargeLatexEditor and its bounded
+    Source window. This separation prevents the performance threshold from
+    changing document ownership semantics.
     """
+
+    _SOURCE_VIRTUALIZATION_THRESHOLD_CHARS = 1_000_000
 
     def open_file(
         self,
@@ -59,15 +62,9 @@ class EditorPanel(EditorPanelCore):
                 parent=self,
             )
         elif file_path.suffix.lower() in {".tex", ".tikz"}:
-            large_document_threshold = max(
-                int(
-                    self._app_settings.editor_source_large_document_threshold_chars
-                ),
-                1,
-            )
             latex_editor_type = (
                 SelectionLargeLatexEditor
-                if len(content) >= large_document_threshold
+                if len(content) >= self._SOURCE_VIRTUALIZATION_THRESHOLD_CHARS
                 else SelectionLatexEditor
             )
             editor = latex_editor_type(

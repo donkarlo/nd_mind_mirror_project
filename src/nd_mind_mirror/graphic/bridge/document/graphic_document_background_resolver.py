@@ -22,14 +22,22 @@ class GraphicDocumentBackgroundResolver:
     ) -> tuple[dict[str, Any], bool]:
         """Return an iPad-safe document and whether the paired image was recovered."""
         resolved = dict(document)
-        paired_image = self.decode_base64_image(paired_image_base64)
-        if paired_image is None:
-            return resolved, False
-
         stored_background_base64 = str(
             document.get("background_image_base64", "") or ""
         )
         stored_background = self.decode_base64_image(stored_background_base64)
+
+        # Version-2 companions explicitly record that their stored background is
+        # intentional. A white/transparent page is a valid editable background
+        # and must never be mistaken for a broken legacy snapshot merely because
+        # the flattened paired image now contains dark PencilKit strokes.
+        if bool(document.get("background_is_authoritative")) and stored_background is not None:
+            return resolved, False
+
+        paired_image = self.decode_base64_image(paired_image_base64)
+        if paired_image is None:
+            return resolved, False
+
         if not self._should_recover_from_paired_image(
             stored_background,
             paired_image,
@@ -38,7 +46,7 @@ class GraphicDocumentBackgroundResolver:
 
         resolved["background_image_base64"] = paired_image_base64
 
-        # The paired PNG is already the authoritative flattened visual result.
+        # The paired image is already the authoritative flattened visual result.
         # Legacy editable layers must not be drawn again over those same pixels.
         drawing = str(document.get("drawing_data_base64", "") or "")
         image_objects = document.get("image_objects")
