@@ -1,0 +1,57 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+
+\title{Visual existing graphic iPad edit context}
+\date{2026-09-13}
+\author{Mohammad Rahmani}
+
+\begin{document}
+\maketitle
+
+\section{Problem}
+Right-clicking an already rendered image in the Visual LaTeX editor could show
+\texttt{Insert image in iPad} instead of \texttt{Edit image in iPad}. The Visual
+context menu intentionally identifies an existing image only when the clicked
+block carries the canonical \texttt{\_BlockMeta} metadata type with
+\texttt{kind=graphic}. The context-normalization controller previously changed
+only the \texttt{kind} attribute of whatever user-data object happened to be on
+the block. If that object was absent or was a compatible non-canonical metadata
+object, the menu's type check still rejected it and displayed the insertion
+label.
+
+\section{Fix}
+\begin{itemize}
+   \item Existing Visual image blocks are normalized to the exact \texttt{\_BlockMeta} type expected by the context-menu contract before the menu is built.
+   \item Existing canonical metadata is retained in place and only normalized to \texttt{kind=graphic}.
+   \item Compatible legacy/non-canonical metadata is copied into a new canonical graphic metadata object so source-line and source-segment information are preserved.
+   \item If the source line is missing, the controller recovers it from the Visual source-position mapping so the existing backend \texttt{find\_reference} lookup still opens the correct image for editing.
+   \item Detection works both from an \texttt{\textbackslash includegraphics} raw block and from the QText image character format.
+   \item The underlying Insert/Edit request handler and iPad bridge workflow are unchanged.
+\end{itemize}
+
+\section{Regression coverage}
+A regression test verifies that the controller normalizes image metadata to the
+canonical type, preserves/reconstructs the source location needed by the edit
+lookup, and leaves the existing Visual menu contract for both Edit and Insert in
+place.
+
+\section{Repository hygiene}
+The correction stays inside the existing Visual graphic context controller,
+which already owns this normalization responsibility. No runtime patch or
+parallel image workflow was introduced.
+
+\end{document}

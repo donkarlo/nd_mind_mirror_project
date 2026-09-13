@@ -1,9 +1,12 @@
-"""Compose the final enhanced window with scoped workspace search integration."""
+"""Compose the final enhanced window with scoped search and TikZ bridge integration."""
 
 from pathlib import Path
 
 from PySide6.QtCore import QTimer
 
+from nd_mind_mirror.graphic.tikz.tikz_bridge_session_controller import (
+    TikZBridgeSessionController,
+)
 from nd_mind_mirror.ui.window.main.bookmark_selection_menu_controller import (
     BookmarkSelectionMenuController,
 )
@@ -19,11 +22,16 @@ from nd_mind_mirror.ui.window.main.search_aware_navigator_multi_path_context_con
 
 
 class EnhancedMainWindow(BaseEnhancedMainWindow):
-    """Compose the enhanced window with search-aware Navigator and Preview controllers."""
+    """Compose search-aware desktop features and the separate TikZ iPad bridge."""
 
     def __init__(self, parent=None) -> None:
-        """Initialize final window controllers and text-result navigation."""
+        """Initialize final window controllers, including the isolated TikZ bridge."""
         super().__init__(parent)
+        self._tikz_bridge_session_controller = TikZBridgeSessionController(
+            workspace_root=self._app_settings.search_default_path,
+            parent=self,
+        )
+        self._tikz_bridge_session_controller.start()
         self._search_window.text_location_selected.connect(
             self._open_search_text_location
         )

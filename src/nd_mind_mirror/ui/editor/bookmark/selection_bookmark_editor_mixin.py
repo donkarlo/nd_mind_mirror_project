@@ -1,9 +1,14 @@
-"""Add persistent selection-aware bookmarks to a LaTeX editor."""
+"""Add persistent selection-aware bookmarks and TikZ context actions to LaTeX."""
 
 from __future__ import annotations
 
 from nd_mind_mirror.core.bookmark.selection_bookmark_relocator import (
     SelectionBookmarkRelocator,
+)
+from nd_mind_mirror.graphic.tikz.tikz_bridge_notifier import TikZBridgeNotifier
+from nd_mind_mirror.graphic.tikz.tikz_document_manager import (
+    TikZDocumentManager,
+    TikZReference,
 )
 from nd_mind_mirror.ui.editor.bookmark.selection_bookmark_context_controller import (
     SelectionBookmarkContextController,
@@ -14,12 +19,18 @@ from nd_mind_mirror.ui.editor.bookmark.selection_bookmark_visual_context_control
 
 
 class SelectionBookmarkEditorMixin:
-    """Extend Source/Visual bookmarks with a canonical selected source range."""
+    """Extend Source/Visual bookmarks and context menus over canonical LaTeX source."""
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self._bookmark_relocator = SelectionBookmarkRelocator()
         self._selection_bookmark_context = SelectionBookmarkContextController(self)
+        self._tikz_document_manager = TikZDocumentManager(
+            self._app_settings.search_default_path
+        )
+        self._tikz_bridge_notifier = TikZBridgeNotifier(
+            workspace_root=self._app_settings.search_default_path
+        )
         self._selection_bookmark_visual_context = (
             SelectionBookmarkVisualContextController(
                 self,
@@ -104,7 +115,7 @@ class SelectionBookmarkEditorMixin:
         return True
 
     def contextMenuEvent(self, event) -> None:
-        """Expose the same bookmark command on Source right-click at all times."""
+        """Expose bookmark, image, and context-sensitive TikZ actions on Source."""
         click_cursor = self.cursorForPosition(event.pos())
         click_position = click_cursor.position()
         selection_cursor = self.textCursor()
@@ -118,8 +129,14 @@ class SelectionBookmarkEditorMixin:
         ):
             captured = self._selection_bookmark_context.capture_selection()
 
+        source = self.toPlainText()
         existing = self._graphic_manager.find_reference(
-            self.toPlainText(),
+            source,
+            self._source_path,
+            click_position,
+        )
+        tikz_reference = self._tikz_document_manager.find_reference(
+            source,
             self._source_path,
             click_position,
         )
@@ -138,6 +155,11 @@ class SelectionBookmarkEditorMixin:
             if existing is not None
             else "Insert image in iPad…"
         )
+        tikz_action = menu.addAction(
+            "Edit TikZ in iPad…"
+            if tikz_reference is not None
+            else "Create TikZ in iPad…"
+        )
 
         chosen = menu.exec(event.globalPos())
         if chosen == bookmark_action:
@@ -149,6 +171,9 @@ class SelectionBookmarkEditorMixin:
                 line, column = self._source_location_for_position(click_position)
                 self._toggle_bookmark(line, column)
             return
+        if chosen == tikz_action:
+            self._handle_tikz_context_request(click_position, tikz_reference)
+            return
         if chosen != graphic_action:
             return
 
@@ -157,6 +182,50 @@ class SelectionBookmarkEditorMixin:
             self.setTextCursor(click_cursor)
         line, column = self.active_source_location()
         self._handle_graphic_request(line, column)
+
+    def _handle_tikz_context_request(
+        self,
+        position: int,
+        reference: TikZReference | None = None,
+    ) -> None:
+        """Open an existing TikZ child or create and insert a new TikZ input."""
+        if reference is None:
+            reference = self._tikz_document_manager.find_reference(
+                self.toPlainText(),
+                self._source_path,
+                position,
+            )
+        if reference is not None:
+            self._tikz_bridge_notifier.open_on_ipad(reference.source_path)
+            return
+
+        document = self._tikz_document_manager.create_for_source(self._source_path)
+        source = self.toPlainText()
+        position = max(0, min(int(position), len(source)))
+        cursor = self.textCursor()
+        cursor.setPosition(position)
+        cursor.insertText(
+            self._tikz_insertion_text(
+                source,
+                position,
+                document.tex_reference,
+            )
+        )
+        self.setTextCursor(cursor)
+
+        if self._edit_mode == "visual":
+            self._visual_dirty = True
+            self._refresh_visual_projection()
+
+        self._tikz_bridge_notifier.open_on_ipad(document.source_path)
+
+    @staticmethod
+    def _tikz_insertion_text(source: str, position: int, tex_reference: str) -> str:
+        """Place a generated TikZ input on its own line at the clicked source position."""
+        position = max(0, min(int(position), len(source)))
+        prefix = "" if position == 0 or source[position - 1] == "\n" else "\n"
+        suffix = "" if position >= len(source) or source[position] == "\n" else "\n"
+        return f"{prefix}{tex_reference}\n{suffix}"
 
     @staticmethod
     def _remove_legacy_bookmark_actions(menu) -> None:

@@ -1,3 +1,5 @@
+// Bootstrap the Mind Mirror iPad companion before opening either graphic workspace.
+
 import Foundation
 import SwiftUI
 
@@ -26,7 +28,7 @@ struct NDGraphicBootstrapView: View {
                 .ignoresSafeArea()
 
             if openWorkspace {
-                ContentView()
+                GraphicWorkspaceTabsView()
                     .background(Color.white)
             } else {
                 VStack(spacing: 24) {

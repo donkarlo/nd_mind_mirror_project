@@ -13,8 +13,8 @@ let package = Package(
             name: "ND Graphic",
             targets: ["AppModule"],
             bundleIdentifier: "com.nd.mindmirror.graphic",
-            displayVersion: "0.31.39",
-            bundleVersion: "69",
+            displayVersion: "0.31.41",
+            bundleVersion: "71",
             appIcon: .placeholder(icon: .pencil),
             accentColor: .presetColor(.blue),
             supportedDeviceFamilies: [

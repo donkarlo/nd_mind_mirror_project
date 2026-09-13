@@ -1,4 +1,4 @@
-"""Add canonical bookmark commands to the Visual editor context menu."""
+"""Add canonical bookmark, image, and TikZ commands to the Visual context menu."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from PySide6.QtCore import QEvent, QObject
 
 
 class SelectionBookmarkVisualContextController(QObject):
-    """Expose selection and line bookmarks without removing Visual actions."""
+    """Expose selection/bookmark and graphic commands without removing Visual actions."""
 
     _INSTALLED_PROPERTY = "nd_selection_bookmark_visual_context"
 
@@ -39,6 +39,21 @@ class SelectionBookmarkVisualContextController(QObject):
         ):
             captured = self._selection_controller.capture_selection()
 
+        try:
+            source_line, source_column = watched.source_location_for_position(
+                click_position
+            )
+        except (AttributeError, RuntimeError, TypeError, ValueError):
+            source_line, source_column = watched.current_source_location()
+        source_position = self._editor._source_position_for_location(
+            (source_line, source_column)
+        )
+        tikz_reference = self._editor._tikz_document_manager.find_reference(
+            self._editor.toPlainText(),
+            self._editor.source_path,
+            source_position,
+        )
+
         menu = watched.createStandardContextMenu()
         self._remove_legacy_bookmark_actions(menu)
         menu.addSeparator()
@@ -61,6 +76,11 @@ class SelectionBookmarkVisualContextController(QObject):
             if is_existing_graphic
             else "Insert image in iPad…"
         )
+        tikz_action = menu.addAction(
+            "Edit TikZ in iPad…"
+            if tikz_reference is not None
+            else "Create TikZ in iPad…"
+        )
         update_action = menu.addAction("Update selected LaTeX source…")
         update_action.setEnabled(selection_cursor.hasSelection())
         insert_action = menu.addAction("Insert raw LaTeX here…")
@@ -70,16 +90,17 @@ class SelectionBookmarkVisualContextController(QObject):
             if captured is not None:
                 self._selection_controller.toggle_captured_selection(*captured)
             else:
-                try:
-                    line, column = watched.source_location_for_position(
-                        click_position
-                    )
-                except (AttributeError, RuntimeError, TypeError, ValueError):
-                    line, column = watched.current_source_location()
-                self._editor._toggle_bookmark(line, column)
+                self._editor._toggle_bookmark(source_line, source_column)
         elif chosen == graphic_action:
+            if not selection_cursor.hasSelection():
+                watched.setTextCursor(click_cursor)
             line, column = watched.current_source_location()
             watched.graphic_requested.emit(line, column)
+        elif chosen == tikz_action:
+            self._editor._handle_tikz_context_request(
+                source_position,
+                tikz_reference,
+            )
         elif chosen == update_action:
             watched._edit_selected_latex_source()
         elif chosen == insert_action:
