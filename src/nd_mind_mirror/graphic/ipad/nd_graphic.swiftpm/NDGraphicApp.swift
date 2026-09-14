@@ -1,4 +1,4 @@
-// Bootstrap the Mind Mirror iPad companion before opening either graphic workspace.
+// Bootstrap the Mind Mirror iPad companion before opening the shared graphic workspace.
 
 import Foundation
 import SwiftUI
@@ -12,9 +12,7 @@ struct NDGraphicApp: App {
     }
 }
 
-/// The first screen intentionally has no PencilKit, URLSession, UserDefaults,
-/// or bridge object. Swift Playgrounds must render this screen before any of
-/// the graphic stack is initialized.
+/// Swift Playgrounds renders a lightweight bootstrap before the bridge/editor stack.
 struct NDGraphicBootstrapView: View {
     @State private var openWorkspace = false
 
@@ -28,7 +26,7 @@ struct NDGraphicBootstrapView: View {
                 .ignoresSafeArea()
 
             if openWorkspace {
-                GraphicWorkspaceTabsView()
+                GraphicWorkspaceRouterView()
                     .background(Color.white)
             } else {
                 VStack(spacing: 24) {

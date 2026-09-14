@@ -1,0 +1,71 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+\usepackage{adjustbox}
+\usepackage[active,tightpage]{preview}
+
+\PreviewBorder=4pt
+
+\usetikzlibrary{graphs,graphdrawing}
+\usegdlibrary{layered}
+
+% for external graphviz
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/external_graphviz.tex}
+
+% for tags
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/part/control_sequence/kind/semtag/semtag.tex}
+
+% for links
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/seehere.tex}
+
+% for nested lists and sections
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/deep_structure.tex}
+
+\title{}
+\date{}
+\author{Mohammad Rahmani}
+
+\begin{document}
+   \maketitle
+
+   \begin{preview}
+      \section*{TikZ iPad open delivery}
+      \textbf{Date:} 2026-09-13
+
+      \textbf{Problem.}
+      Choosing \texttt{Edit TikZ in iPad...} could create the correct durable
+      TikZ-open request while the iPad editor still did not appear.  The bridge
+      delayed the \texttt{open\_tikz} message until LuaLaTeX preview rendering
+      completed, and bridge startup also marked an already-written durable TikZ
+      request as delivered before any iPad had actually received it.
+
+      \textbf{Fix.}
+      The unified bridge now sends \texttt{open\_tikz} immediately with the
+      canonical source and schedules preview rendering separately.  The later
+      preview arrives as \texttt{tikz\_rendered}, so a slow or failed render can
+      no longer prevent the editor from opening.  The newest durable TikZ-open
+      request also remains pending across bridge startup until it is actually
+      delivered to an iPad connection, matching the existing durable image-open
+      semantics.
+
+      \textbf{Regression coverage.}
+      Tests verify that editor opening precedes preview rendering and that the
+      durable request is not marked delivered at startup.
+   \end{preview}
+
+   \bibliographystyle{plainnat}
+   \bibliography{/home/donkarlo/Dropbox/repo/nd_shared_research/bibliography/bibliography.bib}
+\end{document}

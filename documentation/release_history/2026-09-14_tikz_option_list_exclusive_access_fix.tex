@@ -1,0 +1,27 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+\usepackage{adjustbox}
+\usepackage[active,tightpage]{preview}
+
+\PreviewBorder=4pt
+
+\begin{document}
+   \begin{preview}
+      \section*{TikZ option-list exclusive-access fix}
+      Fixed the Swift compile error in \texttt{TikZOptionList.swift} caused by calling an instance helper from inside \texttt{items.removeAll}. The normalization helper is now static and is called through \texttt{Self}, so mutating the array no longer overlaps with an immutable access to the enclosing value.
+   \end{preview}
+\end{document}

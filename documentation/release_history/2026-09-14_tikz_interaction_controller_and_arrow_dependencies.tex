@@ -1,0 +1,23 @@
+\documentclass[a4paper]{article}
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{xcolor}
+\usepackage{tikz}
+
+\title{TikZ interaction controller and arrow dependency fix}
+\date{2026-09-14}
+\author{}
+
+\begin{document}
+\maketitle
+
+\section*{Fixed}
+The iPad TikZ canvas now uses one centralized UIKit interaction layer for single tap, double tap, long-press menus, shape creation, and Pencil connector drags. This removes competing SwiftUI gestures that made selection and connector creation intermittent.
+
+Single tap reliably selects shapes and connectors, double tap edits labels, and Pencil drag from one shape to another creates a connector directly in Select mode. Shape resize and the separate move handle remain independent.
+
+Connector styles now support solid/dashed lines and filled/open arrowheads with source-backed updates. Generated \texttt{Latex} arrowheads automatically add the TikZ \texttt{arrows.meta} library, and generated ellipses add \texttt{shapes.geometric}, preventing the previous PGF ``Unknown arrow tip kind `Latex'`` and ellipse-key compilation failures.
+
+Long press is centralized and provides requested element actions, while the toolbar trash button deletes the currently selected element. Node deletion also removes connected simple edges.
+
+\end{document}

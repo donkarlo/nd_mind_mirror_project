@@ -1,11 +1,11 @@
-"""Compose the final enhanced window with scoped search and TikZ bridge integration."""
+"""Compose the final enhanced window with scoped search and live TikZ integration."""
 
 from pathlib import Path
 
 from PySide6.QtCore import QTimer
 
-from nd_mind_mirror.graphic.tikz.tikz_bridge_session_controller import (
-    TikZBridgeSessionController,
+from nd_mind_mirror.ui.editor.latex.source_tikz_preview_controller import (
+    SourceTikZPreviewController,
 )
 from nd_mind_mirror.ui.window.main.bookmark_selection_menu_controller import (
     BookmarkSelectionMenuController,
@@ -19,19 +19,18 @@ from nd_mind_mirror.ui.window.main.preview.profile.latex_preview_profile_control
 from nd_mind_mirror.ui.window.main.search_aware_navigator_multi_path_context_controller import (
     SearchAwareNavigatorMultiPathContextController,
 )
+from nd_mind_mirror.ui.window.main.tikz_update_event_controller import (
+    TikZUpdateEventController,
+)
 
 
 class EnhancedMainWindow(BaseEnhancedMainWindow):
-    """Compose search-aware desktop features and the separate TikZ iPad bridge."""
+    """Compose search-aware desktop features over the shared image/TikZ bridge."""
 
     def __init__(self, parent=None) -> None:
-        """Initialize final window controllers, including the isolated TikZ bridge."""
         super().__init__(parent)
-        self._tikz_bridge_session_controller = TikZBridgeSessionController(
-            workspace_root=self._app_settings.search_default_path,
-            parent=self,
-        )
-        self._tikz_bridge_session_controller.start()
+        workspace_root = self._app_settings.search_default_path
+        self._renderer.set_workspace_default_path(workspace_root)
         self._search_window.text_location_selected.connect(
             self._open_search_text_location
         )
@@ -42,9 +41,31 @@ class EnhancedMainWindow(BaseEnhancedMainWindow):
             self,
         )
         self._latex_preview_profile_controller = LatexPreviewProfileController(self)
+        self._source_tikz_preview_controller = SourceTikZPreviewController(
+            self._editor_panel,
+            workspace_root,
+            self,
+        )
+        self._tikz_update_event_controller = TikZUpdateEventController(
+            workspace_root,
+            self,
+        )
+        self._tikz_update_event_controller.updated.connect(
+            self._on_tikz_source_updated
+        )
+        QTimer.singleShot(
+            0,
+            lambda: self._refresh_current_preview(immediate=True),
+        )
+
+    def _on_tikz_source_updated(self, path: str) -> None:
+        """Refresh Source, Visual, and PDF Preview from one low-latency TikZ event."""
+        self._source_tikz_preview_controller.notify_tikz_changed(path)
+        self._editor_panel.refresh_current_visual_graphics()
+        if self._preview_enabled:
+            self._refresh_current_preview(immediate=True)
 
     def _replace_navigator_context_controller(self) -> None:
-        """Install one canonical multi-path menu with folder-scoped search actions."""
         existing = getattr(self, "_navigator_context_controller", None)
         self._navigator_context_controller = (
             SearchAwareNavigatorMultiPathContextController.replace(
@@ -57,11 +78,9 @@ class EnhancedMainWindow(BaseEnhancedMainWindow):
         )
 
     def _show_file_search_from_navigator(self, path: Path) -> None:
-        """Open file/folder search scoped to a Navigator folder."""
         self._search_window.show_file_search(path)
 
     def _show_text_search_from_navigator(self, path: Path) -> None:
-        """Open text search scoped to a Navigator folder."""
         self._search_window.show_text_search(path)
 
     def _open_search_text_location(
@@ -70,7 +89,6 @@ class EnhancedMainWindow(BaseEnhancedMainWindow):
         line: int,
         column: int,
     ) -> None:
-        """Open a text-search hit and place the Source cursor on that occurrence."""
         source_path = Path(path).expanduser().resolve(strict=False)
         if not source_path.is_file():
             self.statusBar().showMessage(
@@ -78,7 +96,6 @@ class EnhancedMainWindow(BaseEnhancedMainWindow):
                 5000,
             )
             return
-
         self._open_path(str(source_path))
         QTimer.singleShot(
             0,
@@ -89,10 +106,12 @@ class EnhancedMainWindow(BaseEnhancedMainWindow):
         )
 
     def _reload_yaml_settings(self) -> bool:
-        """Reload settings and refresh the Preview profile controller."""
         loaded = super()._reload_yaml_settings()
         if not loaded:
             return False
+        self._renderer.set_workspace_default_path(
+            self._app_settings.search_default_path
+        )
         controller = getattr(
             self,
             "_latex_preview_profile_controller",

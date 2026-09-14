@@ -5,21 +5,17 @@ import AppleProductTypes
 
 let package = Package(
     name: "ND Graphic",
-    platforms: [
-        .iOS("17.0")
-    ],
+    platforms: [.iOS("17.0")],
     products: [
         .iOSApplication(
             name: "ND Graphic",
             targets: ["AppModule"],
             bundleIdentifier: "com.nd.mindmirror.graphic",
-            displayVersion: "0.31.41",
-            bundleVersion: "71",
+            displayVersion: "0.31.48",
+            bundleVersion: "78",
             appIcon: .placeholder(icon: .pencil),
             accentColor: .presetColor(.blue),
-            supportedDeviceFamilies: [
-                .pad
-            ],
+            supportedDeviceFamilies: [.pad],
             supportedInterfaceOrientations: [
                 .landscapeRight,
                 .landscapeLeft,
@@ -30,9 +26,6 @@ let package = Package(
         )
     ],
     targets: [
-        .executableTarget(
-            name: "AppModule",
-            path: "."
-        )
+        .executableTarget(name: "AppModule", path: ".")
     ]
 )

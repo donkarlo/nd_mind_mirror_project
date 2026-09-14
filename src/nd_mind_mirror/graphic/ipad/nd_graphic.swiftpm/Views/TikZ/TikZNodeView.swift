@@ -1,45 +1,69 @@
-// Draggable visual hit target for one named TikZ node.
+// Passive TikZ node renderer. Canvas interaction is owned by the centralized UIKit layer.
 
 import SwiftUI
 
 struct TikZNodeView: View {
     let node: TikZNode
     let canvasSize: CGSize
-    let selected: Bool
-    let connecting: Bool
-    let onTap: () -> Void
-    let onMove: (CGPoint) -> Void
+    let editingLabel: Binding<String>?
+    let onCommitLabel: () -> Void
 
-    @State private var dragTranslation: CGSize = .zero
     private let mapper = TikZCoordinateMapper()
 
     var body: some View {
         let center = mapper.viewPoint(for: node.position, in: canvasSize)
         let size = mapper.viewSize(width: node.width, height: node.height, in: canvasSize)
-        Group {
-            if node.shape == .ellipse {
-                Ellipse().fill(Color.clear).overlay(Ellipse().stroke(strokeColor, lineWidth: selected ? 3 : 1.5))
-            } else {
-                RoundedRectangle(cornerRadius: 5).fill(Color.clear).overlay(RoundedRectangle(cornerRadius: 5).stroke(strokeColor, lineWidth: selected ? 3 : 1.5))
-            }
+
+        ZStack {
+            shapeBody
+            labelBody
         }
         .frame(width: size.width, height: size.height)
-        .contentShape(Rectangle())
-        .position(x: center.x + dragTranslation.width, y: center.y + dragTranslation.height)
-        .onTapGesture { onTap() }
-        .gesture(
-            DragGesture(minimumDistance: 2)
-                .onChanged { dragTranslation = $0.translation }
-                .onEnded { value in
-                    let moved = CGPoint(x: center.x + value.translation.width, y: center.y + value.translation.height)
-                    dragTranslation = .zero
-                    onMove(mapper.tikzPoint(for: moved, in: canvasSize))
-                }
-        )
+        .position(x: center.x, y: center.y)
+        .allowsHitTesting(editingLabel != nil)
     }
 
-    private var strokeColor: Color {
-        if connecting { return .orange }
-        return selected ? .blue : .clear
+    @ViewBuilder
+    private var shapeBody: some View {
+        if node.shape == .ellipse {
+            Ellipse()
+                .fill(node.fillColor.color)
+                .overlay(
+                    Ellipse().stroke(
+                        node.strokeColor.color,
+                        lineWidth: max(CGFloat(node.lineWidth), 0.7)
+                    )
+                )
+        } else {
+            Rectangle()
+                .fill(node.fillColor.color)
+                .overlay(
+                    Rectangle().stroke(
+                        node.strokeColor.color,
+                        lineWidth: max(CGFloat(node.lineWidth), 0.7)
+                    )
+                )
+        }
+    }
+
+    @ViewBuilder
+    private var labelBody: some View {
+        if let editingLabel {
+            TextField("Label", text: editingLabel)
+                .font(.caption)
+                .foregroundStyle(node.textColor.color)
+                .multilineTextAlignment(.center)
+                .textFieldStyle(.roundedBorder)
+                .padding(5)
+                .onSubmit { onCommitLabel() }
+        } else if !node.label.isEmpty {
+            Text(node.label)
+                .font(.caption)
+                .foregroundStyle(node.textColor.color)
+                .lineLimit(2)
+                .minimumScaleFactor(0.6)
+                .padding(4)
+                .allowsHitTesting(false)
+        }
     }
 }

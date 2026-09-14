@@ -1,30 +1,21 @@
 editor:
   font_family: "DejaVu Sans Mono"
-  # Source editor font size. Changes take effect only after pressing Apply.
   source_font_size: 16
-  # LaTeX Visual mode can use a different base font size from Source mode.
   visual_font_size: 16
-  # Persian/Arabic shaping font shared by LaTeX Source and Visual.
-  # Noto Sans Arabic keeps combining marks such as kasra visually separated.
   persian_font_family: "Noto Sans Arabic"
   font_min_size: 6
   font_max_size: 40
   line_height_percent: 200
-  # LaTeX Visual mode line spacing, independent from Source mode.
   visual_line_height_percent: 200
-  # Source and Visual page-like content padding (pixels).
   source_padding_top: 10
   source_padding_left: 10
   source_padding_right: 10
   visual_padding_top: 14
   visual_padding_left: 16
   visual_padding_right: 16
-  # Source change notifications are coalesced so typing never waits for
-  # preview/structure work on every single key press.
   source_update_debounce_ms: 70
   source_large_document_threshold_chars: 120000
   source_large_document_debounce_ms: 180
-  # Delay before incremental QTextDocument block layout is recomputed.
   source_layout_update_debounce_ms: 40
   visual_update_debounce_ms: 180
   visual_large_document_threshold_chars: 120000
@@ -98,7 +89,6 @@ preview:
   cursor_sync_debounce_ms: 120
   edit_location_highlight_enabled: true
   edit_location_highlight_debounce_ms: 220
-  # Active wrapper for LaTeX fragments: default, graph, german, or beamer.
   latex_profile: "default"
   latex_template_path: "templates/latex_preview_template.tex"
   latex_graph_template_path: "templates/latex_preview_graph_template.tex"
@@ -116,6 +106,9 @@ graphic:
   latex_width_ratio: 0.90
   canvas_width: 760
   canvas_height: 980
+  tikz:
+    canvas_width: 760
+    canvas_height: 980
   bridge_http_url: "http://127.0.0.1:8766"
   bridge_token: ""
   auto_start_bridge: true

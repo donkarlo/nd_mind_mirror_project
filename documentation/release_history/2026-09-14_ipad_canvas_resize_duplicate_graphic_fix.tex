@@ -1,0 +1,69 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+\usepackage{adjustbox}
+\usepackage[active,tightpage]{preview}
+
+\PreviewBorder=4pt
+
+\usetikzlibrary{graphs,graphdrawing,arrows.meta,positioning,calc,fit,shapes.geometric}
+\usegdlibrary{layered}
+
+% for external graphviz
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/external_graphviz.tex}
+
+% for tags
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/part/control_sequence/kind/semtag/semtag.tex}
+
+% for links
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/seehere.tex}
+
+% for nested lists and sections
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/deep_structure.tex}
+
+\title{}
+\date{}
+\author{Mohammad Rahmani}
+
+\begin{document}
+   \maketitle
+
+   \begin{preview}
+      \section*{iPad canvas resize no longer duplicates editable graphic content}
+
+      Fixed a bridge persistence bug in which changing only the logical canvas
+      dimensions could commit the paired rendered PNG as a recovered background
+      while the old editable PencilKit drawing and image objects were still
+      stored in the \texttt{.ndgraphic} document.
+
+      The compatibility bridge now persists an inferred paired-image background
+      only when the same save also replaces all editable layer categories that
+      were flattened into that recovery image. Metadata-only canvas-size updates
+      therefore preserve the existing drawing, image-object identities, and
+      background exactly as stored.
+
+      Regression coverage verifies repeated canvas-height changes, preservation
+      of editable object IDs and object count, bounded serialized file size, and
+      the later safe background migration during a full editable-layer save.
+      The iPad canvas-size operation remains metadata-only.
+
+      This bug fix does not modify the drawing interaction model, PencilKit
+      coordinate behavior, the canvas resize UI, or any TikZ implementation.
+   \end{preview}
+
+   \bibliographystyle{plainnat}
+   \bibliography{/home/donkarlo/Dropbox/repo/nd_shared_research/bibliography/bibliography.bib}
+\end{document}

@@ -1,5 +1,5 @@
 // Runs the native iPad bridge listener, message transport, graphic saves, and diagnostics.
-// ND_MIGRATION4_FIX2_20260828
+// The same reverse TCP connection also carries TikZ editor messages.
 
 import Foundation
 import Network
@@ -45,6 +45,9 @@ final class GraphicBridgeClient: ObservableObject {
         appendDiagnostic("Transport mode=inbound TCP listener; Ubuntu connects to the iPad")
         appendEnvironmentDiagnostics()
         startPathMonitor()
+        GraphicEditorSessionRouter.shared.attachSender { [weak self] payload in
+            self?.send(payload)
+        }
     }
 
     deinit {
@@ -59,6 +62,7 @@ final class GraphicBridgeClient: ObservableObject {
         document = nil
         drawing = PKDrawing()
         documentToken += 1
+        GraphicEditorSessionRouter.shared.closeTikZ()
         UserDefaults.standard.set(token, forKey: "graphic.bridge.token")
         appendDiagnostic("START LISTENER pressed port=\(listenerPort)")
         appendEnvironmentDiagnostics()
@@ -190,6 +194,7 @@ final class GraphicBridgeClient: ObservableObject {
         document = nil
         drawing = PKDrawing()
         documentToken += 1
+        GraphicEditorSessionRouter.shared.closeTikZ()
         disconnect(keepStatus: false)
     }
 
@@ -387,14 +392,12 @@ final class GraphicBridgeClient: ObservableObject {
                 status = "Connected — waiting for Mind Mirror"
                 appendDiagnostic("Ubuntu hello received; reverse connection is READY")
             case "open_graphic":
+                GraphicEditorSessionRouter.shared.activateImageWorkspace()
                 applyRemote(message, statusPrefix: "Live")
             case "graphic_saved":
                 status = "Saved — \(message.path ?? "graphic")"
             case "graphic_updated":
                 if message.path == selectedPath {
-                    // Same-document updates are save acknowledgements. The live
-                    // iPad canvas is authoritative until Ubuntu explicitly sends
-                    // a new open_graphic command for this path.
                     status = "Saved — \(message.path ?? "graphic")"
                     break
                 }
@@ -404,9 +407,35 @@ final class GraphicBridgeClient: ObservableObject {
                     status = "Saved — \(message.path ?? "graphic")"
                     break
                 }
+                GraphicEditorSessionRouter.shared.activateImageWorkspace()
                 applyRemote(message, statusPrefix: "Updated")
+            case "open_tikz":
+                let path = message.path ?? "tikz.tex"
+                GraphicEditorSessionRouter.shared.openTikZ(
+                    path: path,
+                    source: message.source ?? "",
+                    previewPNGBase64: message.previewPNGBase64,
+                    message: message.message
+                )
+                status = "TikZ — \(path)"
+            case "tikz_saved", "tikz_updated", "tikz_rendered":
+                GraphicEditorSessionRouter.shared.applyTikZResponse(
+                    path: message.path,
+                    source: message.source,
+                    previewPNGBase64: message.previewPNGBase64,
+                    clientRevision: message.clientRevision,
+                    message: message.message ?? (message.type == "tikz_saved" ? "TikZ saved" : nil)
+                )
+                status = message.message ?? "TikZ saved"
+            case "tikz_error":
+                let text = message.message ?? "TikZ bridge error"
+                GraphicEditorSessionRouter.shared.showTikZError(text)
+                status = text
             case "error":
                 status = message.message ?? "Bridge error"
+                if GraphicEditorSessionRouter.shared.workspace == .tikz {
+                    GraphicEditorSessionRouter.shared.showTikZError(status)
+                }
                 appendDiagnostic("Bridge error: \(status)")
             default:
                 appendDiagnostic("Ignoring unknown bridge message type=\(message.type)")

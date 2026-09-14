@@ -1,0 +1,59 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+\usepackage{adjustbox}
+\usepackage[active,tightpage]{preview}
+
+\PreviewBorder=4pt
+
+\usetikzlibrary{graphs,graphdrawing,arrows.meta,positioning,calc,fit,shapes.geometric}
+\usegdlibrary{layered}
+
+% for external graphviz
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/external_graphviz.tex}
+
+% for tags
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/part/control_sequence/kind/semtag/semtag.tex}
+
+% for links
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/seehere.tex}
+
+% for nested lists and sections
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/deep_structure.tex}
+
+\title{}
+\date{}
+\author{Mohammad Rahmani}
+
+\begin{document}
+   \maketitle
+
+   \begin{preview}
+      \section*{TikZ live round-trip and persistent iPad bridge}
+
+The iPad TikZ toolbar again exposes a dedicated \textbf{Connector} tool beside Rectangle and Ellipse. The instructional text and toolbar trash button were removed; deletion remains available from the existing long-press context menu. Connector stroke and arrowhead style controls remain visible while the Connector tool is active.
+
+The raster workspace now remains alive but invisible and non-interactive while TikZ is shown. This preserves the long-lived \texttt{GraphicBridgeClient} and its TCP listener across Image/TikZ/waiting transitions, instead of destroying the listener when SwiftUI switches workspaces.
+
+TikZ source saves are now acknowledged immediately after the canonical file write. A small atomic \texttt{tikz\_update\_event.json} is published for Ubuntu, while the iPad PNG preview is rendered asynchronously. Render responses carry the client revision so an old render cannot replace a newer iPad preview.
+
+Ubuntu watches only that small event file. The current Source projection, Visual projection, and PDF Preview are refreshed together after a short coalescing delay. Standalone \verb|\input{...}| and \verb|\include{...}| lines that resolve to TikZ children receive an asynchronous inline render directly below the canonical Source line; the source itself is not rewritten.
+
+   \end{preview}
+
+   \bibliographystyle{plainnat}
+   \bibliography{/home/donkarlo/Dropbox/repo/nd_shared_research/bibliography/bibliography.bib}
+\end{document}

@@ -10,13 +10,19 @@ import shutil
 import subprocess
 import tempfile
 
+from nd_mind_mirror.core.render.latex.reference.latex_preview_reference_materializer import (
+    LatexPreviewReferenceMaterializer,
+)
 
-DEFAULT_LIBRARIES = "arrows.meta,positioning,calc,fit,shapes.geometric,graphs,graphdrawing"
+
+DEFAULT_LIBRARIES = (
+    "arrows.meta,positioning,calc,fit,shapes.geometric,graphs,graphdrawing"
+)
 
 
 @dataclass(frozen=True)
 class TikZRenderResult:
-    """Rendered preview payload returned to the iPad client."""
+    """Rendered preview payload returned to the iPad or Visual client."""
 
     png_base64: str
     log: str
@@ -27,6 +33,7 @@ class TikZRenderer:
 
     def __init__(self, workspace: Path) -> None:
         self.workspace = workspace.expanduser().resolve()
+        self._materializer = LatexPreviewReferenceMaterializer(self.workspace)
 
     def render(self, source: str, source_file: Path) -> TikZRenderResult:
         """Render source with LuaLaTeX and return a PNG preview."""
@@ -37,61 +44,84 @@ class TikZRenderer:
         if not converter:
             raise RuntimeError("pdftocairo/pdftoppm was not found on PATH")
 
-        with tempfile.TemporaryDirectory(prefix="nd_mind_mirror_tikz_") as raw_temp:
+        materialized_source = self._materializer.materialize(source, source_file)
+
+        with tempfile.TemporaryDirectory(
+            prefix="nd_mind_mirror_tikz_"
+        ) as raw_temp:
             temp = Path(raw_temp)
             tex_path = temp / "diagram.tex"
-            tex_path.write_text(self._preview_document(source), encoding="utf-8")
+            tex_path.write_text(
+                self._preview_document(materialized_source),
+                encoding="utf-8",
+            )
 
             env = os.environ.copy()
             existing = env.get("TEXINPUTS", "")
-            texinputs = [str(source_file.parent), f"{self.workspace}//"]
+            texinputs = [str(source_file.parent)]
             if existing:
                 texinputs.append(existing)
             env["TEXINPUTS"] = os.pathsep.join(texinputs) + os.pathsep
 
-            process = subprocess.run(
-                [
-                    lualatex,
-                    "-interaction=nonstopmode",
-                    "-halt-on-error",
-                    "-file-line-error",
-                    str(tex_path),
-                ],
-                cwd=temp,
-                env=env,
-                text=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                timeout=45,
-                check=False,
-            )
+            try:
+                process = subprocess.run(
+                    [
+                        lualatex,
+                        "-interaction=nonstopmode",
+                        "-halt-on-error",
+                        "-file-line-error",
+                        str(tex_path),
+                    ],
+                    cwd=temp,
+                    env=env,
+                    text=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    timeout=20,
+                    check=False,
+                )
+            except subprocess.TimeoutExpired as exc:
+                raise RuntimeError(
+                    f"LuaLaTeX TikZ render timed out after {exc.timeout:g} seconds"
+                ) from exc
+
             log = process.stdout or ""
             pdf_path = temp / "diagram.pdf"
             if process.returncode != 0 or not pdf_path.is_file():
                 raise RuntimeError(self._last_log_lines(log))
 
             png_path = temp / "diagram.png"
-            converted = subprocess.run(
-                [
-                    converter,
-                    "-png",
-                    "-singlefile",
-                    "-r",
-                    "144",
-                    str(pdf_path),
-                    str(temp / "diagram"),
-                ],
-                cwd=temp,
-                text=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                timeout=30,
-                check=False,
-            )
+            try:
+                converted = subprocess.run(
+                    [
+                        converter,
+                        "-png",
+                        "-singlefile",
+                        "-r",
+                        "144",
+                        str(pdf_path),
+                        str(temp / "diagram"),
+                    ],
+                    cwd=temp,
+                    text=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    timeout=20,
+                    check=False,
+                )
+            except subprocess.TimeoutExpired as exc:
+                raise RuntimeError(
+                    f"PDF-to-PNG TikZ conversion timed out after {exc.timeout:g} seconds"
+                ) from exc
+
             if converted.returncode != 0 or not png_path.is_file():
-                raise RuntimeError(converted.stdout or "PDF to PNG conversion failed")
+                raise RuntimeError(
+                    converted.stdout or "PDF to PNG conversion failed"
+                )
             return TikZRenderResult(
-                png_base64=base64.b64encode(png_path.read_bytes()).decode("ascii"),
+                png_base64=base64.b64encode(
+                    png_path.read_bytes()
+                ).decode("ascii"),
                 log=log,
             )
 
@@ -120,7 +150,13 @@ class TikZRenderer:
         if begin in source:
             index = source.find(begin) + len(begin)
             return source[:index] + "\n" + marker + source[index:]
-        return begin + "\n" + marker + source + "\n\\end{tikzpicture}\n"
+        return (
+            begin
+            + "\n"
+            + marker
+            + source
+            + "\n\\end{tikzpicture}\n"
+        )
 
     @staticmethod
     def _last_log_lines(log: str, count: int = 28) -> str:

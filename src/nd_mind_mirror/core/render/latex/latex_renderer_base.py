@@ -1,7 +1,6 @@
 from pathlib import Path
 import re
 import shutil
-import tempfile
 
 from PySide6.QtCore import (
     QProcess,
@@ -17,6 +16,9 @@ from nd_mind_mirror.core.render.base.renderer import Renderer
 from nd_mind_mirror.graphic.core.dependency_resolver import GraphicDependencyResolver
 from nd_mind_mirror.core.render.latex.latex_preview_source_builder import (
     LatexPreviewSourceBuilder,
+)
+from nd_mind_mirror.core.render.latex.latex_build_workspace import (
+    LatexBuildWorkspace,
 )
 
 
@@ -72,7 +74,12 @@ class LatexRenderer(Renderer):
     ) -> None:
         super().__init__(parent)
 
-        self._temp_dir = Path(tempfile.mkdtemp(prefix="nd_mind_mirror_"))
+        self._build_workspace = LatexBuildWorkspace()
+        # Keep _temp_dir as the renderer-wide workspace root for compatibility
+        # with cache users in the derived renderer. Compiler output itself lives
+        # in generation-specific directories owned by LatexBuildWorkspace.
+        self._temp_dir = self._build_workspace.root
+        self._build_dir = self._temp_dir
         self._tex_path = self._temp_dir / "preview.tex"
         self._pdf_path = self._temp_dir / "preview.pdf"
         self._enabled = True
@@ -83,7 +90,6 @@ class LatexRenderer(Renderer):
         self._active_generation = 0
         self._last_published_generation = 0
         self._publish_counter = 0
-        self._published_pdf_paths: list[Path] = []
         self._shell_escape = bool(shell_escape)
         self._phase = ""
         self._bibliography_ran_for_generation = False
@@ -277,11 +283,19 @@ class LatexRenderer(Renderer):
                 )
             return
 
-        if source_path != self._cache_source_path:
-            self._clean_previous_outputs(keep_auxiliary=False)
-            self._cache_source_path = source_path
-        else:
-            self._clean_previous_outputs(keep_auxiliary=True)
+        try:
+            build = self._build_workspace.start_generation(
+                generation=self._active_generation,
+                source_path=source_path,
+            )
+        except OSError as exc:
+            if self._is_current_generation():
+                self.failed.emit(f"Could not prepare LaTeX build workspace: {exc}")
+            return
+        self._build_dir = build.directory
+        self._tex_path = build.tex_path
+        self._pdf_path = build.pdf_path
+        self._cache_source_path = source_path
 
         self._current_source_text = source
         self._current_prepared_text = prepared
@@ -421,7 +435,7 @@ class LatexRenderer(Renderer):
             arguments.append("-shell-escape")
         arguments.extend(
             [
-                f"-output-directory={self._temp_dir}",
+                f"-output-directory={self._build_dir}",
                 str(self._tex_path),
             ]
         )
@@ -433,9 +447,9 @@ class LatexRenderer(Renderer):
         )
 
     def _start_bibliography_tool(self) -> str:
-        bcf_path = self._temp_dir / "preview.bcf"
-        aux_path = self._temp_dir / "preview.aux"
-        bbl_path = self._temp_dir / "preview.bbl"
+        bcf_path = self._build_dir / "preview.bcf"
+        aux_path = self._build_dir / "preview.aux"
+        bbl_path = self._build_dir / "preview.bbl"
         output_lower = self._last_process_output.lower()
 
         if bcf_path.is_file():
@@ -458,7 +472,7 @@ class LatexRenderer(Renderer):
                 phase="biber",
                 program=executable,
                 arguments=["preview"],
-                working_directory=self._temp_dir,
+                working_directory=self._build_dir,
             )
             return "started"
 
@@ -500,7 +514,7 @@ class LatexRenderer(Renderer):
             phase="bibtex",
             program=executable,
             arguments=["preview"],
-            working_directory=self._temp_dir,
+            working_directory=self._build_dir,
         )
         return "started"
 
@@ -518,22 +532,6 @@ class LatexRenderer(Renderer):
         self._process.setArguments(arguments)
         self._process.start()
         self._compile_watchdog.start()
-        self._compile_watchdog.start()
-        self._compile_watchdog.start()
-        self._compile_watchdog.start()
-        self._compile_watchdog.start()
-        self._compile_watchdog.start()
-        self._compile_watchdog.start()
-        self._compile_watchdog.start()
-        self._compile_watchdog.start()
-        self._compile_watchdog.start()
-        self._compile_watchdog.start()
-        self._compile_watchdog.start()
-        self._compile_watchdog.start()
-        self._compile_watchdog.start()
-        self._compile_watchdog.start()
-        self._compile_watchdog.start()
-        self._compile_watchdog.start()
 
     def _on_process_finished(self, exit_code: int, exit_status) -> None:
         self._compile_watchdog.stop()
@@ -550,6 +548,12 @@ class LatexRenderer(Renderer):
         self._last_process_output = output
         if output:
             self._compile_output.append(output)
+
+        if exit_code == 0:
+            # Snapshot only subprocess output that completed normally. Future
+            # generations seed from this immutable checkpoint, never from the
+            # active/canceled build directory itself.
+            self._build_workspace.checkpoint_auxiliary()
 
         if not self._is_current_generation():
             QTimer.singleShot(0, self._compile_pending_source)
@@ -618,7 +622,7 @@ class LatexRenderer(Renderer):
         self._latex_executable = executable
         self._compile_output = []
         self._last_process_output = ""
-        self._clean_previous_outputs(keep_auxiliary=False)
+        self._build_workspace.reset_active_outputs(keep_tex=True)
         self._start_lualatex(self._phase)
         return True
 
@@ -648,25 +652,13 @@ class LatexRenderer(Renderer):
 
     def _publish_pdf(self, generation: int) -> Path | None:
         self._publish_counter += 1
-        destination = self._temp_dir / (
-            f"preview_render_{generation:08d}_{self._publish_counter:08d}.pdf"
+        destination = self._build_workspace.publish_pdf(
+            generation=generation,
+            sequence=self._publish_counter,
         )
-        try:
-            shutil.copy2(self._pdf_path, destination)
-        except OSError as exc:
-            self._compile_output.append(f"Could not publish rendered PDF: {exc}")
-            return None
-        self._published_pdf_paths.append(destination)
-        self._prune_published_pdfs()
+        if destination is None:
+            self._compile_output.append("Could not publish rendered PDF.")
         return destination
-
-    def _prune_published_pdfs(self) -> None:
-        while len(self._published_pdf_paths) > 8:
-            stale = self._published_pdf_paths.pop(0)
-            try:
-                stale.unlink()
-            except OSError:
-                pass
 
     def _preview_is_current_for_sync(self) -> bool:
         return (
@@ -683,7 +675,7 @@ class LatexRenderer(Renderer):
             return
         if not self._pdf_path.is_file():
             return
-        synctex_path = self._temp_dir / "preview.synctex.gz"
+        synctex_path = self._build_dir / "preview.synctex.gz"
         if not synctex_path.is_file():
             return
         executable = shutil.which("synctex")
@@ -695,7 +687,7 @@ class LatexRenderer(Renderer):
         if self._sync_process.state() != QProcess.ProcessState.NotRunning:
             self._sync_process.kill()
             self._sync_process.waitForFinished(250)
-        self._sync_process.setWorkingDirectory(str(self._temp_dir))
+        self._sync_process.setWorkingDirectory(str(self._build_dir))
         self._sync_process.setProgram(executable)
         self._sync_process.setArguments(
             [
@@ -803,382 +795,19 @@ class LatexRenderer(Renderer):
         return self._active_generation == self._latest_requested_generation
 
     def _on_compile_timeout(self) -> None:
+        """Abort a stuck preview subprocess; its generation stays isolated."""
         if self._process.state() == QProcess.ProcessState.NotRunning:
             return
+
         phase = self._phase or "latex"
-        self._compile_watchdog.stop()
-        self._compile_watchdog.stop()
-        self._compile_watchdog.stop()
-        self._compile_watchdog.stop()
-        self._compile_watchdog.stop()
-        self._compile_watchdog.stop()
-        self._compile_watchdog.stop()
-        self._compile_watchdog.stop()
-        self._compile_watchdog.stop()
-        self._compile_watchdog.stop()
-        self._compile_watchdog.stop()
-        self._compile_watchdog.stop()
-        self._compile_watchdog.stop()
-        self._compile_watchdog.stop()
-        self._compile_watchdog.stop()
         self._compile_watchdog.stop()
         self._suppress_finished = True
         self._process.kill()
         self._process.waitForFinished(1000)
         self._suppress_finished = False
+
         if self._is_current_generation():
             self.failed.emit(f"Preview {phase} timed out after 60 seconds.")
-        if self._pending_generation > self._active_generation:
-            QTimer.singleShot(0, self._compile_pending_source)
-
-    def _on_compile_timeout(self) -> None:
-        """Abort a stuck preview subprocess and move on to the newest request."""
-        if (
-            self._process.state()
-            == QProcess.ProcessState.NotRunning
-        ):
-            return
-
-        phase = self._phase or "latex"
-        self._suppress_finished = True
-        self._process.kill()
-        self._process.waitForFinished(1000)
-        self._suppress_finished = False
-
-        if self._is_current_generation():
-            self.failed.emit(
-                f"Preview {phase} timed out after 15 seconds."
-            )
-
-        if self._pending_generation > self._active_generation:
-            QTimer.singleShot(0, self._compile_pending_source)
-
-    def _on_compile_timeout(self) -> None:
-        """Abort a stuck preview subprocess and move on to the newest request."""
-        if (
-            self._process.state()
-            == QProcess.ProcessState.NotRunning
-        ):
-            return
-
-        phase = self._phase or "latex"
-        self._suppress_finished = True
-        self._process.kill()
-        self._process.waitForFinished(1000)
-        self._suppress_finished = False
-
-        if self._is_current_generation():
-            self.failed.emit(
-                f"Preview {phase} timed out after 15 seconds."
-            )
-
-        if self._pending_generation > self._active_generation:
-            QTimer.singleShot(0, self._compile_pending_source)
-
-    def _on_compile_timeout(self) -> None:
-        """Abort a stuck preview subprocess and move on to the newest request."""
-        if (
-            self._process.state()
-            == QProcess.ProcessState.NotRunning
-        ):
-            return
-
-        phase = self._phase or "latex"
-        self._suppress_finished = True
-        self._process.kill()
-        self._process.waitForFinished(1000)
-        self._suppress_finished = False
-
-        if self._is_current_generation():
-            self.failed.emit(
-                f"Preview {phase} timed out after 15 seconds."
-            )
-
-        if self._pending_generation > self._active_generation:
-            QTimer.singleShot(0, self._compile_pending_source)
-
-    def _on_compile_timeout(self) -> None:
-        """Abort a stuck preview subprocess and move on to the newest request."""
-        if (
-            self._process.state()
-            == QProcess.ProcessState.NotRunning
-        ):
-            return
-
-        phase = self._phase or "latex"
-        self._suppress_finished = True
-        self._process.kill()
-        self._process.waitForFinished(1000)
-        self._suppress_finished = False
-
-        if self._is_current_generation():
-            self.failed.emit(
-                f"Preview {phase} timed out after 15 seconds."
-            )
-
-        if self._pending_generation > self._active_generation:
-            QTimer.singleShot(0, self._compile_pending_source)
-
-    def _on_compile_timeout(self) -> None:
-        """Abort a stuck preview subprocess and move on to the newest request."""
-        if (
-            self._process.state()
-            == QProcess.ProcessState.NotRunning
-        ):
-            return
-
-        phase = self._phase or "latex"
-        self._suppress_finished = True
-        self._process.kill()
-        self._process.waitForFinished(1000)
-        self._suppress_finished = False
-
-        if self._is_current_generation():
-            self.failed.emit(
-                f"Preview {phase} timed out after 15 seconds."
-            )
-
-        if self._pending_generation > self._active_generation:
-            QTimer.singleShot(0, self._compile_pending_source)
-
-    def _on_compile_timeout(self) -> None:
-        """Abort a stuck preview subprocess and move on to the newest request."""
-        if (
-            self._process.state()
-            == QProcess.ProcessState.NotRunning
-        ):
-            return
-
-        phase = self._phase or "latex"
-        self._suppress_finished = True
-        self._process.kill()
-        self._process.waitForFinished(1000)
-        self._suppress_finished = False
-
-        if self._is_current_generation():
-            self.failed.emit(
-                f"Preview {phase} timed out after 15 seconds."
-            )
-
-        if self._pending_generation > self._active_generation:
-            QTimer.singleShot(0, self._compile_pending_source)
-
-    def _on_compile_timeout(self) -> None:
-        """Abort a stuck preview subprocess and move on to the newest request."""
-        if (
-            self._process.state()
-            == QProcess.ProcessState.NotRunning
-        ):
-            return
-
-        phase = self._phase or "latex"
-        self._suppress_finished = True
-        self._process.kill()
-        self._process.waitForFinished(1000)
-        self._suppress_finished = False
-
-        if self._is_current_generation():
-            self.failed.emit(
-                f"Preview {phase} timed out after 15 seconds."
-            )
-
-        if self._pending_generation > self._active_generation:
-            QTimer.singleShot(0, self._compile_pending_source)
-
-    def _on_compile_timeout(self) -> None:
-        """Abort a stuck preview subprocess and move on to the newest request."""
-        if (
-            self._process.state()
-            == QProcess.ProcessState.NotRunning
-        ):
-            return
-
-        phase = self._phase or "latex"
-        self._suppress_finished = True
-        self._process.kill()
-        self._process.waitForFinished(1000)
-        self._suppress_finished = False
-
-        if self._is_current_generation():
-            self.failed.emit(
-                f"Preview {phase} timed out after 15 seconds."
-            )
-
-        if self._pending_generation > self._active_generation:
-            QTimer.singleShot(0, self._compile_pending_source)
-
-    def _on_compile_timeout(self) -> None:
-        """Abort a stuck preview subprocess and move on to the newest request."""
-        if (
-            self._process.state()
-            == QProcess.ProcessState.NotRunning
-        ):
-            return
-
-        phase = self._phase or "latex"
-        self._suppress_finished = True
-        self._process.kill()
-        self._process.waitForFinished(1000)
-        self._suppress_finished = False
-
-        if self._is_current_generation():
-            self.failed.emit(
-                f"Preview {phase} timed out after 15 seconds."
-            )
-
-        if self._pending_generation > self._active_generation:
-            QTimer.singleShot(0, self._compile_pending_source)
-
-    def _on_compile_timeout(self) -> None:
-        """Abort a stuck preview subprocess and move on to the newest request."""
-        if (
-            self._process.state()
-            == QProcess.ProcessState.NotRunning
-        ):
-            return
-
-        phase = self._phase or "latex"
-        self._suppress_finished = True
-        self._process.kill()
-        self._process.waitForFinished(1000)
-        self._suppress_finished = False
-
-        if self._is_current_generation():
-            self.failed.emit(
-                f"Preview {phase} timed out after 15 seconds."
-            )
-
-        if self._pending_generation > self._active_generation:
-            QTimer.singleShot(0, self._compile_pending_source)
-
-    def _on_compile_timeout(self) -> None:
-        """Abort a stuck preview subprocess and move on to the newest request."""
-        if (
-            self._process.state()
-            == QProcess.ProcessState.NotRunning
-        ):
-            return
-
-        phase = self._phase or "latex"
-        self._suppress_finished = True
-        self._process.kill()
-        self._process.waitForFinished(1000)
-        self._suppress_finished = False
-
-        if self._is_current_generation():
-            self.failed.emit(
-                f"Preview {phase} timed out after 15 seconds."
-            )
-
-        if self._pending_generation > self._active_generation:
-            QTimer.singleShot(0, self._compile_pending_source)
-
-    def _on_compile_timeout(self) -> None:
-        """Abort a stuck preview subprocess and move on to the newest request."""
-        if (
-            self._process.state()
-            == QProcess.ProcessState.NotRunning
-        ):
-            return
-
-        phase = self._phase or "latex"
-        self._suppress_finished = True
-        self._process.kill()
-        self._process.waitForFinished(1000)
-        self._suppress_finished = False
-
-        if self._is_current_generation():
-            self.failed.emit(
-                f"Preview {phase} timed out after 15 seconds."
-            )
-
-        if self._pending_generation > self._active_generation:
-            QTimer.singleShot(0, self._compile_pending_source)
-
-    def _on_compile_timeout(self) -> None:
-        """Abort a stuck preview subprocess and move on to the newest request."""
-        if (
-            self._process.state()
-            == QProcess.ProcessState.NotRunning
-        ):
-            return
-
-        phase = self._phase or "latex"
-        self._suppress_finished = True
-        self._process.kill()
-        self._process.waitForFinished(1000)
-        self._suppress_finished = False
-
-        if self._is_current_generation():
-            self.failed.emit(
-                f"Preview {phase} timed out after 15 seconds."
-            )
-
-        if self._pending_generation > self._active_generation:
-            QTimer.singleShot(0, self._compile_pending_source)
-
-    def _on_compile_timeout(self) -> None:
-        """Abort a stuck preview subprocess and move on to the newest request."""
-        if (
-            self._process.state()
-            == QProcess.ProcessState.NotRunning
-        ):
-            return
-
-        phase = self._phase or "latex"
-        self._suppress_finished = True
-        self._process.kill()
-        self._process.waitForFinished(1000)
-        self._suppress_finished = False
-
-        if self._is_current_generation():
-            self.failed.emit(
-                f"Preview {phase} timed out after 15 seconds."
-            )
-
-        if self._pending_generation > self._active_generation:
-            QTimer.singleShot(0, self._compile_pending_source)
-
-    def _on_compile_timeout(self) -> None:
-        """Abort a stuck preview subprocess and move on to the newest request."""
-        if (
-            self._process.state()
-            == QProcess.ProcessState.NotRunning
-        ):
-            return
-
-        phase = self._phase or "latex"
-        self._suppress_finished = True
-        self._process.kill()
-        self._process.waitForFinished(1000)
-        self._suppress_finished = False
-
-        if self._is_current_generation():
-            self.failed.emit(
-                f"Preview {phase} timed out after 15 seconds."
-            )
-
-        if self._pending_generation > self._active_generation:
-            QTimer.singleShot(0, self._compile_pending_source)
-
-    def _on_compile_timeout(self) -> None:
-        """Abort a stuck preview subprocess and move on to the newest request."""
-        if (
-            self._process.state()
-            == QProcess.ProcessState.NotRunning
-        ):
-            return
-
-        phase = self._phase or "latex"
-        self._suppress_finished = True
-        self._process.kill()
-        self._process.waitForFinished(1000)
-        self._suppress_finished = False
-
-        if self._is_current_generation():
-            self.failed.emit(
-                f"Preview {phase} timed out after 15 seconds."
-            )
 
         if self._pending_generation > self._active_generation:
             QTimer.singleShot(0, self._compile_pending_source)
@@ -1191,26 +820,6 @@ class LatexRenderer(Renderer):
         self._process.kill()
         self._process.waitForFinished(1000)
         self._suppress_finished = False
-
-    def _clean_previous_outputs(self, keep_auxiliary: bool) -> None:
-        keep_suffixes = {
-            ".aux",
-            ".bbl",
-            ".blg",
-            ".toc",
-            ".out",
-            ".nav",
-            ".snm",
-        }
-        for path in self._temp_dir.glob("preview.*"):
-            if path == self._tex_path:
-                continue
-            if keep_auxiliary and path.suffix in keep_suffixes:
-                continue
-            try:
-                path.unlink()
-            except OSError:
-                pass
 
     def _extract_useful_error(self, output: str) -> str:
         if not output:

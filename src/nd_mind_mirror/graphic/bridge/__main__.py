@@ -1,4 +1,4 @@
-"""Launch the graphic bridge with collision-safe local transport ports."""
+"""Launch the unified image/TikZ bridge with collision-safe local transport ports."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import socket
 
 import uvicorn
 
-from .path_aware_server import PathAwareGraphicBridgeServer
+from .configured_unified_server import ConfiguredUnifiedGraphicBridgeServer
 
 
 def _port_is_available(host: str, port: int) -> bool:
@@ -32,7 +32,7 @@ def _next_available_port(host: str, start: int, reserved: set[int]) -> int:
 
 
 def main() -> int:
-    """Parse bridge settings, resolve port collisions, and run the server."""
+    """Parse bridge settings, resolve port collisions, and run the unified server."""
     parser = argparse.ArgumentParser(description="Mind Mirror iPad graphic bridge")
     parser.add_argument("--workspace", default="~/Dropbox/repo")
     parser.add_argument("--host", default="0.0.0.0")
@@ -59,7 +59,7 @@ def main() -> int:
     if args.tcp_port != requested_tcp_port:
         print(f"[ND Graphic] Legacy TCP port {requested_tcp_port} busy; using {args.tcp_port}", flush=True)
 
-    server = PathAwareGraphicBridgeServer(
+    server = ConfiguredUnifiedGraphicBridgeServer(
         args.workspace,
         token=args.token,
         tcp_host=args.host,

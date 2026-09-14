@@ -26,13 +26,10 @@ from nd_mind_mirror.graphic.core.workspace_graphic_dependency_resolver import (
 
 
 class LatexRenderer(BaseLatexRenderer):
-    """Add profile-aware configuration and a last-valid-PDF cache per source file."""
+    """Add workspace-aware Preview references and a last-valid-PDF cache."""
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        # Preview must always use the same path modes as workspace navigation
-        # and refactoring. The configured root is injected before session
-        # restore, but the renderer owns workspace-aware resolvers from birth.
         self._input_resolver = WorkspaceRecursiveInputResolver()
         self._input_reference_validator = LatexInputReferenceValidator(
             self._input_resolver
@@ -51,33 +48,30 @@ class LatexRenderer(BaseLatexRenderer):
 
     @property
     def preview_cache_signals(self) -> LatexPreviewCacheSignalBus:
-        """Return the QObject that owns cache-state signals."""
         return self._preview_cache_signals
 
     @property
     def cached_preview_available(self):
-        """Compatibility accessor for older cache-signal consumers."""
         return self._preview_cache_signals.cached_preview_available
 
     @property
     def preview_source_empty(self):
-        """Compatibility accessor for older cache-signal consumers."""
         return self._preview_cache_signals.preview_source_empty
 
     def set_workspace_default_path(
         self,
         default_path: str | Path | None,
     ) -> None:
-        """Keep Preview input and graphic lookup rooted at search.default_path."""
+        """Keep all Preview path modes rooted at search.default_path."""
         self._input_resolver.set_default_path(default_path)
         self._graphic_dependency_resolver.set_default_path(default_path)
+        self._preview_source_builder.set_workspace_default_path(default_path)
 
     def first_missing_latex_input(
         self,
         source: str,
         source_path: str | Path,
     ) -> str | None:
-        """Validate rooted input/include references with Preview path semantics."""
         return self._input_reference_validator.first_missing_absolute_input(
             source=source,
             containing_file=source_path,
@@ -131,25 +125,17 @@ class LatexRenderer(BaseLatexRenderer):
                 else None
             )
             if cached is not None and cached.is_file():
-                self._preview_cache_signals.cached_preview_available.emit(
-                    str(cached)
-                )
+                self._preview_cache_signals.cached_preview_available.emit(str(cached))
             else:
                 self._preview_cache_signals.preview_source_empty.emit(
                     str(target) if target is not None else ""
                 )
-        super().render(
-            source,
-            source_path=source_path,
-            immediate=immediate,
-        )
+        super().render(source, source_path=source_path, immediate=immediate)
 
     def _extract_useful_error(self, output: str) -> str:
-        """Return actionable compiler diagnostics without dropping error context."""
         return self._diagnostic_extractor.extract(output)
 
     def _emit_compile_failure(self) -> None:
-        """Continue past warning-only bibliography exits; fail on real errors."""
         if self._bibliography_process_result_classifier.is_recoverable_warning_exit(
             phase=self._phase,
             output=self._last_process_output,

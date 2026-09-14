@@ -122,6 +122,7 @@ Visual is an editable projection of the same canonical LaTeX source; it is not a
 - Clipboard images pasted in Visual are routed through the same managed-image insertion workflow as Source.
 - Selected Visual text exposes **Bookmark Selection** and replays the captured canonical Source range through the same bookmark action as Source/top-menu bookmarking.
 - Graphic context actions in Visual can target the represented image for the iPad editing workflow.
+- A raw `\input{tikz.tex}` or `\include{...}` whose target contains `\begin{tikzpicture}` is rendered inline as a TikZ preview while its original input command remains the canonical source when Visual serializes changes back.
 
 ### Render-performance settings
 
@@ -170,6 +171,7 @@ The controller handles Qt standard-key matching and German/Swiss QWERTZ layouts.
 - Source/Visual cursor movement drives source-position synchronization/scrolling in Preview; when there is no explicit selection, the mapped location can be shown by the persistent Preview caret overlay.
 - An explicit Source/Visual selection requests a PDF text highlight, including a range restored from a selection-aware bookmark.
 - Preview zoom limits and the explicit Fit command's low-resolution content-probe size are configurable in `settings.yaml`.
+- Portable leading-slash workspace references in generated Preview source are materialized against `search.default_path` before compilation, so references such as `/nd_language_ai_project/...` remain portable in canonical source/templates while LuaLaTeX receives the actual filesystem path.
 
 ### Preview toggle and layout
 
@@ -217,7 +219,7 @@ Equivalent Dropbox/repository-relative path:
 
 Important files include:
 
-- `settings.yaml` — application/UI behavior, including Source/Visual/Preview render-performance knobs, the shared Persian font, and `graphic.canvas_width` / `graphic.canvas_height` for the default size of newly inserted iPad graphics;
+- `settings.yaml` — application/UI behavior, including Source/Visual/Preview render-performance knobs, the shared Persian font, `graphic.canvas_width` / `graphic.canvas_height` for the default size of newly inserted iPad raster graphics, and `graphic.tikz.canvas_width` / `graphic.tikz.canvas_height` for the default TikZ canvas (760 × 980);
 - `keyboard_shortcuts.yaml` — application accelerators;
 - `latex_shortcuts.yaml` — LaTeX snippets/completions;
 - `search_ignore.yaml` — search/Navigator/rename-scan ignore rules;
@@ -273,6 +275,15 @@ There is no second root-level copy of `nd_graphic.zip` in the project. The canon
 - Repeated same-path open messages do not replace the iPad-authoritative in-progress canvas.
 - Existing-image update saves are blocked from replacing a valid desktop image with an accidental empty white bitmap when the required background is unavailable.
 
+### Direct iPad TikZ editing
+
+- `Create TikZ in iPad…` and `Edit TikZ in iPad…` operate on the canonical neighboring `.tex`/`.tikz` source. Visual mode can render a referenced TikZ child inline without replacing its `\input{...}` command.
+- TikZ uses its own logical canvas size. The default is **760 × 980**, configured by `graphic.tikz.canvas_width` and `graphic.tikz.canvas_height`; the TikZ gear menu exposes **Canvas size…**, and an edited diagram carries its own `% nd_mind_mirror_canvas: WIDTHxHEIGHT` metadata.
+- Apple Pencil/finger single tap selects a shape or connector; double tap enters label editing. Connector hit targets are deliberately wider than the visible stroke so thin lines remain selectable.
+- A selected shape exposes eight resize handles plus a separate blue move handle, so movement and resizing cannot compete for the same gesture.
+- Shape fill, border, label text, connector line, and connector-label text use native SwiftUI `ColorPicker` controls with arbitrary RGB colors rather than a fixed preset palette.
+- The raster Image workspace is removed from the SwiftUI hierarchy while TikZ is active, preventing image-only floating controls or magnifier overlays from leaking into the TikZ canvas.
+
 ## Running on Ubuntu
 
 From the project root:
@@ -326,20 +337,20 @@ Each desktop application session starts a bridge process from the current projec
 
 The active source/tests/settings currently cover these functional areas:
 
-1. Workspace root configuration, ignored-path policy, deterministic Navigator reveal/centering, explicit post-rename filesystem-model refresh, horizontal scrolling, multi-selection, grouped context menus, copy/cut/paste, collision naming, create/rename/delete/drag/move, path copying/sharing, and iPad image actions.
+1. Workspace root configuration, ignored-path policy, deterministic Navigator reveal/centering, explicit post-rename filesystem-model refresh, horizontal scrolling, multi-selection, grouped context menus, copy/cut/paste, collision naming, create/rename/delete/drag/move, path copying/sharing, and iPad image/TikZ actions.
 2. Semantic repository reference discovery/rewrite across relative, workspace-relative, absolute, `/repo/...`, extensionless LaTeX, graphics, bibliography, listing/verbatim, minted, URL/href, and supported document-link contexts.
 3. Background reference scanning/maintenance and responsive filesystem workers, including managed raster + `.ndgraphic` lifecycle rules.
-4. LaTeX Source editing, completion/snippets, indentation/formatting, RTL/LTR direction, logical line numbers, wrapping, selection-consistent bookmarks, image insertion, special-character helpers, line deletion, and selection-aware context actions.
-5. LaTeX Visual projection/editing, source mapping, graphics, nested fractions, justified prose/lists, Persian typography, image paste, bookmarks, and bounded large-document windowing.
+4. LaTeX Source editing, completion/snippets, indentation/formatting, RTL/LTR direction, logical line numbers, wrapping, selection-consistent bookmarks, image/TikZ insertion, special-character helpers, line deletion, and selection-aware context actions.
+5. LaTeX Visual projection/editing, source mapping, graphics, inline source-backed TikZ previews, nested fractions, justified prose/lists, Persian typography, image paste, bookmarks, and bounded large-document windowing.
 6. YAML editing, syntax highlighting, hierarchical Structure parsing, smart/shared indentation, and formatting that preserves YAML content structure.
 7. Generic text/code editing with the shared source editor infrastructure.
 8. Structure parsing/navigation/highlighting for LaTeX and YAML, including `\includegraphics` entries and caption-aware graphic labels.
 9. Two-tab workspace search: Double-Shift file/folder search with exact/prefix/substring/fuzzy and ordered `>` hierarchy matching, plus recursive text-in-files search with selectable roots, persisted per-tab state, LaTeX structural grouping, exact occurrence navigation, and Navigator folder-scoped search actions.
 10. Pinned/Open two-row tab management, drag ordering, persisted order, max-tab/LRU behavior, recent-file switching, `Ctrl+Tab`, `Ctrl+W`, path remapping, and session restoration.
 11. Undo/Redo, current-line deletion, Find/Replace, bold, bookmarks, editor zoom reset, configurable application shortcuts, and user-editable LaTeX shorthand expansion.
-12. LuaLaTeX live Preview, recursive input resolution, graphic dependencies, bibliography passes, generation cancellation, selectable PDF text, zoom/pan, Fit/Auto Fit, reverse SyncTeX, structured/copyable diagnostics, selection highlight/caret mapping, Lock, Extend, Detach/Attach, toggle, and PDF export.
+12. LuaLaTeX live Preview, recursive input resolution, workspace-rooted Preview reference materialization, graphic dependencies, bibliography passes, generation cancellation, selectable PDF text, zoom/pan, Fit/Auto Fit, reverse SyncTeX, structured/copyable diagnostics, selection highlight/caret mapping, Lock, Extend, Detach/Attach, toggle, and PDF export.
 13. Autosave, external-file synchronization, local autosave staging, persisted UI/editor state, settings reload, and per-feature performance/debounce controls.
-14. Native iPad PencilKit drawing with saved Pencil/Highlighter/Eraser tools, colors/thickness/opacity, lasso feedback/move/resize, Undo/Redo, two-finger Undo, photo/image objects, raster editing, canvas resize/presets, zoom/pan, grid/rulers, recent graphics, Close image, and live-sync settings.
+14. Native iPad PencilKit raster drawing plus direct source-backed TikZ editing, including reliable select/double-tap label edit, separate move/resize controls, arbitrary native colors, TikZ canvas sizing, Undo/Redo-compatible source updates, and shared transport.
 15. Ubuntu↔iPad bridge transport, open/update/save acknowledgements, revision tracking, managed sidecars, background preservation, stale-path rename aliases, current-session bridge process ownership, and Source/Visual/Preview refresh after accepted graphic updates.
 16. Startup/package tooling, canonical iPad ZIP generation, crash/startup diagnostics, preferred virtual environment selection, Python cache relocation, regression tests, examples, templates, icons, and release-history documentation.
 
@@ -354,8 +365,14 @@ New and modified implementation files begin with a concise module description. N
 - Preview Auto Fit fits the complete physical PDF page width once for a newly opened LaTeX document, keeps that zoom fixed during typing/live reloads, and never raster-scans pages to calculate fit.
 - Preview wheel/touchpad scrolling is handled directly by the PDF viewport. Source/Visual selection highlighting is applied only after the current SyncTeX mapping is ready, so highlighting does not control wheel scrolling or use stale PDF coordinates.
 - Live Preview cancels an obsolete LaTeX compile after the normal typing debounce and immediately renders the newest editor generation instead of waiting indefinitely for an old compile.
+- Portable leading-slash Preview references are resolved against `search.default_path` in the generated compile source while canonical LaTeX remains portable.
+- Visual renders source-backed TikZ children referenced by `\input`/`\include` inline and preserves the original input command when serializing.
 - The canonical editable Swift Playgrounds package is `src/nd_mind_mirror/graphic/ipad/nd_graphic.swiftpm/`; startup removes numbered `nd_graphic (N).swiftpm` transfer/conflict copies and never treats them as source.
 - New Ubuntu `Insert image in iPad` graphics use the Ubuntu-configured logical canvas size (`graphic.canvas_width` × `graphic.canvas_height`, default 760 × 980); existing graphics opened with Edit keep their native dimensions. Both open at logical 100% with the canvas aligned to the top-left viewport, and two-finger pinch zoom remains enabled.
+- TikZ has independent `graphic.tikz.canvas_width`/`canvas_height` defaults (760 × 980), gear-menu canvas editing, Rectangle/Ellipse/Connector tools, single-tap selection, double-tap label editing, a separate move handle plus eight resize handles, and native arbitrary ColorPickers for shape/connector/text colors.
+- While TikZ is active the raster workspace stays alive but invisible and non-interactive, so its shared TCP listener survives Image↔TikZ transitions without letting hidden image controls overlap the TikZ canvas.
+- iPad TikZ saves publish a tiny atomic desktop event immediately after the canonical source write; Source inline TikZ, Visual, and PDF Preview refresh from that event while the iPad preview render continues in the background.
+- Source mode renders TikZ children referenced by standalone `\input{...}` or `\include{...}` directly below the canonical include line without rewriting the source.
 - A managed graphic renamed or moved in the Ubuntu Navigator keeps its `.ndgraphic` companion; the active iPad session follows the new path/name while preserving the current canvas, viewport, and Undo/Redo history.
 - Starting the iPad app or reconnecting the bridge does not reopen a stale previous insert/update request and does not create a new blank graphic. Opening an insert request no longer performs an eager blank save before the user changes the canvas.
 - Existing update backgrounds are preserved during ordinary iPad autosaves even if SwiftUI briefly exposes a nil background while a document is loading, preventing a white canvas from overwriting the real PNG.

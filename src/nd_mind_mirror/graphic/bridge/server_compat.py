@@ -117,6 +117,15 @@ class PreservingGraphicBridgeServer(GraphicBridgeServer):
         ):
             update.pop("background_image_base64", None)
 
+    @staticmethod
+    def _replaces_editable_layers(update: dict[str, Any]) -> bool:
+        """Return whether an update replaces every editable layer flattened into recovery."""
+
+        return (
+            "drawing_data_base64" in update
+            and "image_objects" in update
+        )
+
     def _clear_active_graphic_if_idle(self, transport: str) -> None:
         """Forget the previous document after the last client disconnects."""
         if self.tcp_clients or self.clients:
@@ -228,9 +237,15 @@ class PreservingGraphicBridgeServer(GraphicBridgeServer):
                 except Exception:
                     pass
 
+        # A recovered paired image already contains the legacy editable layers.
+        # Persist it as the new background only when the same save also replaces
+        # every editable layer that was flattened into that image.  Metadata-only
+        # updates such as canvas resize must never combine the recovered composite
+        # with stale on-disk PencilKit/image-object data, which would duplicate it.
         if (
             resolved in self._inferred_background_sidecars
             and "background_image_base64" not in update
+            and self._replaces_editable_layers(update)
         ):
             try:
                 _data, image_path = self._read_document(sidecar)

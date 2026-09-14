@@ -1,48 +1,63 @@
-"""Notify the local TikZ bridge when the desktop requests an iPad file open."""
+"""Notify the shared Mind Mirror iPad bridge to open a TikZ source."""
 
 from __future__ import annotations
 
 import json
 from pathlib import Path
-from threading import Thread
-from urllib import request
+import threading
+import urllib.error
+import urllib.parse
+import urllib.request
 
 from .tikz_document_manager import TikZDocumentManager
 
 
 class TikZBridgeNotifier:
-    """Send non-blocking desktop-open requests to the isolated TikZ bridge."""
+    """Publish TikZ open requests through the same bridge used by image editing."""
 
     def __init__(
         self,
         *,
         workspace_root: str | Path,
-        bridge_http_url: str = "http://127.0.0.1:8765",
+        bridge_http_url: str = "http://127.0.0.1:8766",
+        token: str = "",
     ) -> None:
         self._manager = TikZDocumentManager(workspace_root)
+        self._workspace_root = Path(workspace_root).expanduser().resolve()
         self._bridge_http_url = str(bridge_http_url).rstrip("/")
+        self._token = str(token)
+        self._request_path = (
+            self._workspace_root / ".nd_mind_mirror" / "tikz_open_request.json"
+        )
 
     def open_on_ipad(self, source_path: str | Path) -> None:
-        """Request an iPad open without blocking the Qt event loop."""
         relative = self._manager.workspace_relative_path(source_path)
-        Thread(
-            target=self._post_open,
-            args=(relative,),
-            name="nd-tikz-desktop-open-notifier",
+        payload = {"path": relative}
+        self._request_path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = self._request_path.with_suffix(".tmp")
+        temporary.write_text(json.dumps(payload), encoding="utf-8")
+        temporary.replace(self._request_path)
+        threading.Thread(
+            target=self._post_best_effort,
+            args=(payload,),
+            name="nd-shared-bridge-tikz-open",
             daemon=True,
         ).start()
 
-    def _post_open(self, relative: str) -> None:
-        """Post one bridge request; bridge availability is intentionally best-effort."""
-        payload = json.dumps({"path": relative}).encode("utf-8")
-        http_request = request.Request(
-            f"{self._bridge_http_url}/desktop/open",
-            data=payload,
+    def _post_best_effort(self, payload: dict[str, str]) -> None:
+        if not self._bridge_http_url:
+            return
+        url = self._bridge_http_url + "/open-tikz"
+        if self._token:
+            separator = "&" if "?" in url else "?"
+            url += separator + "token=" + urllib.parse.quote(self._token)
+        request = urllib.request.Request(
+            url,
+            data=json.dumps(payload).encode("utf-8"),
             headers={"Content-Type": "application/json"},
             method="POST",
         )
         try:
-            with request.urlopen(http_request, timeout=1.5):
-                return
-        except (OSError, ValueError):
+            urllib.request.urlopen(request, timeout=0.45).read(16)
+        except (OSError, urllib.error.URLError, ValueError):
             return

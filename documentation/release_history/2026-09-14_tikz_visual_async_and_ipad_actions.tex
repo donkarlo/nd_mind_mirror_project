@@ -1,0 +1,18 @@
+\documentclass[a4paper]{article}
+\usepackage[margin=2.4cm]{geometry}
+\usepackage{hyperref}
+\title{TikZ Visual responsiveness and iPad direct-manipulation improvements}
+\date{2026-09-14}
+\author{nd\_mind\_mirror}
+\begin{document}
+\maketitle
+
+\section*{Desktop bug fix}
+TikZ children referenced by \texttt{\textbackslash input} no longer invoke LuaLaTeX synchronously on the Qt GUI thread while entering Visual mode. Cache misses are rendered in a background QRunnable, failures are cached for the current file revision, and the raw input remains visible until the preview image becomes available. Recursive workspace-wide \texttt{TEXINPUTS} lookup was removed from the TikZ renderer; portable workspace-rooted references are materialized before compilation instead.
+
+\section*{iPad TikZ interaction}
+A selected node or connector exposes a trash action. Long press provides context actions for label editing and deletion, and nodes can also be duplicated. Deleting a node removes simple connected edges. Connector appearance now supports solid/dashed strokes and filled/open arrow heads while preserving canonical TikZ source options.
+
+\section*{Validation}
+Static regression checks cover asynchronous Visual rendering, timeout containment, deletion semantics, long-press actions, and connector line/head styles.
+\end{document}

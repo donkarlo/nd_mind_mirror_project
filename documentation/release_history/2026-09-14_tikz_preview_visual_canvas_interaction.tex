@@ -1,0 +1,19 @@
+\documentclass[a4paper]{article}
+\usepackage{hyperref}
+\title{TikZ Preview, Visual, and iPad interaction fixes}
+\date{2026-09-14}
+\author{}
+\begin{document}
+\maketitle
+
+\section*{Changes}
+\begin{itemize}
+   \item Fixed a missing \verb|\begin{document}| in the methodology document that prevented normal Preview compilation.
+   \item Preview now materializes portable workspace-rooted paths only in the generated temporary compile source, while canonical source/templates remain portable.
+   \item Visual mode can render a referenced \verb|tikzpicture| child while preserving the original \verb|\input| source block.
+   \item TikZ iPad selection now separates single-tap selection, double-tap label editing, resize handles, and a dedicated move handle.
+   \item TikZ colors use native color pickers and include label text color.
+   \item TikZ canvas defaults are configured under \verb|graphic.tikz| with a default of 760 by 980.
+\end{itemize}
+
+\end{document}

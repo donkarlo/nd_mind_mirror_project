@@ -1,0 +1,41 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+\usepackage{adjustbox}
+\usepackage[active,tightpage]{preview}
+
+\PreviewBorder=4pt
+
+\title{TikZ direct resize and connector interaction}
+\date{2026-09-14}
+\author{}
+
+\begin{document}
+\maketitle
+
+\begin{preview}
+The iPad TikZ editor now uses eight selection handles for direct node resizing,
+supports in-place node-label editing, and creates directed connectors by dragging
+from one node to another while the Connector tool is active. The manual Render
+button was removed because the supported visual TikZ subset is rendered live on
+the iPad. Source and Auto layout remain available from the options menu.
+
+Node resize operations update position and minimum width/height in canonical
+TikZ source. Connector endpoints are drawn against node boundaries and completed
+connectors retain source-backed color, width, label, and arrow properties.
+\end{preview}
+
+\end{document}

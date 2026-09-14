@@ -1,0 +1,20 @@
+\documentclass[a4paper]{article}
+\usepackage[margin=2.2cm]{geometry}
+\usepackage{parskip}
+\title{Direct-manipulation TikZ iPad editor}
+\date{2026-09-13}
+\author{}
+\begin{document}
+\maketitle
+
+\section*{Change}
+The iPad TikZ editor now behaves as a drawing canvas instead of a form with a permanent right-side inspector. Rectangle and ellipse tools are selected from the compact toolbar and the user drags directly on the canvas to determine position and size. Connectors remain node-to-node and are rendered interactively on the canvas.
+
+Element properties are shown directly below the drawing-tool row. Node fill color, border color, and border width are editable there; connector label, line color, line width, and arrow state are editable in the same location. Supported edits continue to rewrite only the conservative named-node/named-edge TikZ subset and preserve unrelated options.
+
+The header is compact: it shows only the containing folder plus filename, then Render, a gear menu containing Auto layout and Source, and Close. The former right inspector and duplicated Auto layout/Source/Render toolbar buttons were removed.
+
+\section*{Safety}
+The canonical TikZ source remains the file on disk. The live SwiftUI canvas is a direct visual projection of that source, while the Ubuntu LuaLaTeX render remains available from the play button as a verification render rather than blocking basic drawing interaction.
+
+\end{document}

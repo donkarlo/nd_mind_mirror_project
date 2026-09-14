@@ -1,0 +1,21 @@
+\documentclass[a4paper]{article}
+\usepackage[margin=2.2cm]{geometry}
+\usepackage{parskip}
+\title{Unified iPad image and TikZ bridge}
+\date{2026-09-13}
+\author{}
+\begin{document}
+\maketitle
+
+\section*{Problem}
+The first TikZ integration created a second iPad networking path and a manual Image/TikZ tab switch.  This did not match the established image workflow: a desktop Insert/Edit command should decide which editor opens on the iPad automatically.
+
+\section*{Fix}
+Image and TikZ editing now share the existing reverse TCP bridge on iPad port 8768.  The desktop sends either an image-open or TikZ-open request; the iPad routes the request automatically to the corresponding editor.  The image editor remains alive and unchanged underneath the router, while the TikZ editor is shown only for an explicit TikZ request.  TikZ source updates and renders travel through the same accepted TCP connection and save atomically back to the canonical \texttt{.tex}/\texttt{.tikz} file.
+
+The manual Image/TikZ picker, TikZ file browser, and separate TikZ WebSocket connection are no longer part of the active workflow.
+
+\section*{Regression coverage}
+Tests verify that Source/Visual retain image actions, TikZ actions use the shared bridge, the iPad router contains no manual picker, and the TikZ workspace contains no second connection UI.
+
+\end{document}
