@@ -29,7 +29,7 @@ struct TikZConnectorPreviewView: View {
 
             if style.directed {
                 if style.arrowHeadStyle == .open {
-                    openArrowHead(from: start, to: currentPoint)
+                    emptyArrowHead(from: start, to: currentPoint)
                         .stroke(
                             style.strokeColor.color.opacity(0.85),
                             lineWidth: max(CGFloat(style.lineWidth), 1)
@@ -51,21 +51,20 @@ struct TikZConnectorPreviewView: View {
     }
 
     private func filledArrowHead(from start: CGPoint, to end: CGPoint) -> Path {
+        triangleArrowHead(from: start, to: end)
+    }
+
+    private func emptyArrowHead(from start: CGPoint, to end: CGPoint) -> Path {
+        triangleArrowHead(from: start, to: end)
+    }
+
+    private func triangleArrowHead(from start: CGPoint, to end: CGPoint) -> Path {
         let points = arrowWingPoints(from: start, to: end)
         var path = Path()
         path.move(to: end)
         path.addLine(to: points.left)
         path.addLine(to: points.right)
         path.closeSubpath()
-        return path
-    }
-
-    private func openArrowHead(from start: CGPoint, to end: CGPoint) -> Path {
-        let points = arrowWingPoints(from: start, to: end)
-        var path = Path()
-        path.move(to: points.left)
-        path.addLine(to: end)
-        path.addLine(to: points.right)
         return path
     }
 

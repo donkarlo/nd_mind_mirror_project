@@ -30,6 +30,7 @@ class EnhancedMainWindow(BaseEnhancedMainWindow):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         workspace_root = self._app_settings.search_default_path
+        self._workspace_root = Path(workspace_root).expanduser().resolve()
         self._renderer.set_workspace_default_path(workspace_root)
         self._search_window.text_location_selected.connect(
             self._open_search_text_location
@@ -60,10 +61,37 @@ class EnhancedMainWindow(BaseEnhancedMainWindow):
 
     def _on_tikz_source_updated(self, path: str) -> None:
         """Refresh Source, Visual, and PDF Preview from one low-latency TikZ event."""
-        self._source_tikz_preview_controller.notify_tikz_changed(path)
+        source_path = self._resolve_tikz_event_path(path)
+        self._reload_open_tikz_source(source_path)
+        self._source_tikz_preview_controller.notify_tikz_changed(
+            str(source_path)
+        )
         self._editor_panel.refresh_current_visual_graphics()
         if self._preview_enabled:
             self._refresh_current_preview(immediate=True)
+
+    def _resolve_tikz_event_path(self, path: str | Path) -> Path:
+        """Resolve the bridge's workspace-relative event path deterministically."""
+        candidate = Path(path).expanduser()
+        if candidate.is_absolute():
+            return candidate.resolve(strict=False)
+        return (self._workspace_root / candidate).resolve(strict=False)
+
+    def _reload_open_tikz_source(self, source_path: Path) -> None:
+        """Apply the canonical iPad save immediately to an already-open Source tab."""
+        current_content = self._editor_panel.content_for_path(source_path)
+        if current_content is None or not source_path.is_file():
+            return
+        try:
+            disk_content = self._load_editor_file(source_path)
+        except (OSError, ValueError):
+            return
+        if current_content != disk_content:
+            self._editor_panel.replace_content_from_disk(
+                source_path,
+                disk_content,
+            )
+        self._remember_file_signature(source_path)
 
     def _replace_navigator_context_controller(self) -> None:
         existing = getattr(self, "_navigator_context_controller", None)
@@ -109,6 +137,9 @@ class EnhancedMainWindow(BaseEnhancedMainWindow):
         loaded = super()._reload_yaml_settings()
         if not loaded:
             return False
+        self._workspace_root = Path(
+            self._app_settings.search_default_path
+        ).expanduser().resolve()
         self._renderer.set_workspace_default_path(
             self._app_settings.search_default_path
         )

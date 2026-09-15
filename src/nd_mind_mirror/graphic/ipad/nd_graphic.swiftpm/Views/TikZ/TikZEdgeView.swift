@@ -84,7 +84,7 @@ struct TikZEdgeView: View {
     @ViewBuilder
     private func arrowHeadBody(from start: CGPoint, to end: CGPoint) -> some View {
         if edge.arrowHeadStyle == .open {
-            openArrowHead(from: start, to: end)
+            emptyArrowHead(from: start, to: end)
                 .stroke(
                     edge.strokeColor.color,
                     style: StrokeStyle(
@@ -107,21 +107,20 @@ struct TikZEdgeView: View {
     }
 
     private func filledArrowHead(from start: CGPoint, to end: CGPoint) -> Path {
+        triangleArrowHead(from: start, to: end)
+    }
+
+    private func emptyArrowHead(from start: CGPoint, to end: CGPoint) -> Path {
+        triangleArrowHead(from: start, to: end)
+    }
+
+    private func triangleArrowHead(from start: CGPoint, to end: CGPoint) -> Path {
         let points = arrowWingPoints(from: start, to: end)
         var path = Path()
         path.move(to: end)
         path.addLine(to: points.left)
         path.addLine(to: points.right)
         path.closeSubpath()
-        return path
-    }
-
-    private func openArrowHead(from start: CGPoint, to end: CGPoint) -> Path {
-        let points = arrowWingPoints(from: start, to: end)
-        var path = Path()
-        path.move(to: points.left)
-        path.addLine(to: end)
-        path.addLine(to: points.right)
         return path
     }
 

@@ -182,7 +182,7 @@ final class RasterLassoInteractionController: NSObject, UIGestureRecognizerDeleg
     }
 
     @objc private func handleMove(_ recognizer: UIPanGestureRecognizer) {
-        guard let selection, let overlay else { return }
+        guard selection != nil, let overlay else { return }
         let point = recognizer.location(in: overlay)
 
         switch recognizer.state {

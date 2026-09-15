@@ -1,0 +1,65 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+\usepackage{adjustbox}
+\usepackage[active,tightpage]{preview}
+
+\PreviewBorder=4pt
+
+\usetikzlibrary{graphs,graphdrawing,arrows.meta,positioning,calc,fit,shapes.geometric}
+\usegdlibrary{layered}
+
+% for external graphviz
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/external_graphviz.tex}
+
+% for tags
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/part/control_sequence/kind/semtag/semtag.tex}
+
+% for links
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/seehere.tex}
+
+% for nested lists and sections
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/deep_structure.tex}
+
+\title{}
+\date{}
+\author{Mohammad Rahmani}
+
+\begin{document}
+   \maketitle
+
+   \begin{preview}
+      \section*{TikZ label persistence, stable toolbar, live refresh, and render coalescing}
+
+Inline node and connector label editing now commits the current draft before selection is cleared or switched. Pencil Scribble and keyboard edits therefore survive a tap outside the edited element without requiring Enter.
+
+The TikZ property toolbar no longer contains a label field and no longer disappears when the selection is cleared. It keeps the most recently relevant node or connector controls visible. Node and connector property rows use one fixed height, with wide connector controls scrolling horizontally instead of changing the canvas layout.
+
+Connector arrowhead terminology is now \textbf{Filled / Empty}. Empty arrowheads use a closed triangular outline rather than the previous two-sided open chevron, matching the Filled triangle geometry while leaving the interior unfilled.
+
+The shared bridge now coalesces TikZ preview rendering per file. Canonical source saves and Ubuntu update events remain immediate, but rapid drag, resize, and style revisions replace the pending render request instead of starting a separate expensive renderer for every intermediate source revision. Superseded render results are not sent back to the iPad.
+
+Ubuntu's asynchronous TikZ preview cache now records the newest file generation for each target. A slower render from an older mtime/size generation is discarded instead of deleting and replacing a newer cache entry, preventing stale Source/Visual previews that previously appeared correct only after switching views.
+
+The same low-latency TikZ event now resolves the changed workspace path and immediately reloads that file when it is already open in a desktop Source tab. Source text, Source inline graphics, Visual, and PDF Preview therefore refresh from the canonical save without waiting for the slower general external-file scan.
+
+The iPad follow-up build error in the TikZ property toolbar was fixed by supplying both SwiftUI \texttt{fixedSize} arguments explicitly. The raster lasso move handler now checks only that a selection exists instead of binding an unused immutable \texttt{selection}, removing the corresponding Swift compiler warning without changing lasso behavior.
+
+   \end{preview}
+
+   \bibliographystyle{plainnat}
+   \bibliography{/home/donkarlo/Dropbox/repo/nd_shared_research/bibliography/bibliography.bib}
+\end{document}

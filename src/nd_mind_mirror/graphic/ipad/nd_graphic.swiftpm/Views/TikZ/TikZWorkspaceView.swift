@@ -11,8 +11,6 @@ struct TikZWorkspaceView: View {
     @State private var editingNodeName: String?
     @State private var editingEdgeID: String?
 
-    @State private var pendingNodeLabel = ""
-    @State private var pendingConnectorLabel = ""
     @State private var labelDraft = ""
     @State private var sourceDraft = ""
 
@@ -24,6 +22,7 @@ struct TikZWorkspaceView: View {
 
     @State private var nodeStyle = TikZNodeStyle()
     @State private var edgeStyle = TikZEdgeStyle()
+    @State private var lastStyleMode: TikZStyleToolbarView.Mode = .node
 
     private let layoutService = TikZAutoLayoutService()
 
@@ -63,10 +62,6 @@ struct TikZWorkspaceView: View {
             .joined(separator: "/")
     }
 
-    private var hasSelection: Bool {
-        selectedNode != nil || selectedEdge != nil
-    }
-
     private var styleMode: TikZStyleToolbarView.Mode {
         if selectedNode != nil {
             return .node
@@ -80,20 +75,7 @@ struct TikZWorkspaceView: View {
         if activeTool == .connector {
             return .edge
         }
-        return .hidden
-    }
-
-    private var propertyLabel: Binding<String> {
-        if hasSelection {
-            return $labelDraft
-        }
-        if activeTool == .rectangle || activeTool == .ellipse {
-            return $pendingNodeLabel
-        }
-        if activeTool == .connector {
-            return $pendingConnectorLabel
-        }
-        return $labelDraft
+        return lastStyleMode
     }
 
     private var nodeStyleBinding: Binding<TikZNodeStyle> {
@@ -146,16 +128,7 @@ struct TikZWorkspaceView: View {
             TikZStyleToolbarView(
                 mode: styleMode,
                 nodeStyle: nodeStyleBinding,
-                edgeStyle: edgeStyleBinding,
-                label: propertyLabel,
-                labelPlaceholder: (
-                    selectedEdge != nil || activeTool == .connector
-                )
-                    ? "Connector label"
-                    : "Node label",
-                onCommitLabel: hasSelection
-                    ? commitSelectedLabel
-                    : nil
+                edgeStyle: edgeStyleBinding
             )
 
             TikZCanvasView(
@@ -211,7 +184,10 @@ struct TikZWorkspaceView: View {
             syncCanvasSizeFromSource()
         }
         .onChange(of: router.tikzPath) { _, _ in
-            clearSelection(resetTool: true)
+            clearSelection(
+                resetTool: true,
+                commitLabel: false
+            )
             normalizeSourceDependencies()
             syncCanvasSizeFromSource()
         }
@@ -409,19 +385,24 @@ struct TikZWorkspaceView: View {
     private func chooseTool(
         _ tool: TikZCanvasTool
     ) {
+        commitInlineLabelIfNeeded()
         activeTool =
             activeTool == tool
                 ? .select
                 : tool
+        updateLastStyleMode(for: activeTool)
         clearSelection(
-            resetTool: false
+            resetTool: false,
+            commitLabel: false
         )
     }
 
     private func selectNode(
         _ node: TikZNode
     ) {
+        commitInlineLabelIfNeeded()
         activeTool = .select
+        lastStyleMode = .node
         nodeStyle = node.style
         labelDraft = node.label
         selectedNodeName = node.name
@@ -440,7 +421,9 @@ struct TikZWorkspaceView: View {
     private func selectEdge(
         _ edge: TikZEdge
     ) {
+        commitInlineLabelIfNeeded()
         activeTool = .select
+        lastStyleMode = .edge
         edgeStyle = edge.style
         labelDraft = edge.label
         selectedEdgeID = edge.id
@@ -494,13 +477,15 @@ struct TikZWorkspaceView: View {
             )
         )
         clearSelection(
-            resetTool: false
+            resetTool: false,
+            commitLabel: false
         )
     }
 
     private func duplicateNode(
         _ node: TikZNode
     ) {
+        commitInlineLabelIfNeeded()
         router.updateTikZSource(
             TikZSourceEditor.duplicateNode(
                 named: node.name,
@@ -508,13 +493,15 @@ struct TikZWorkspaceView: View {
             )
         )
         clearSelection(
-            resetTool: false
+            resetTool: false,
+            commitLabel: false
         )
     }
 
     private func bringNodeToFront(
         _ node: TikZNode
     ) {
+        commitInlineLabelIfNeeded()
         router.updateTikZSource(
             TikZSourceEditor.bringNodeToFront(
                 named: node.name,
@@ -527,6 +514,7 @@ struct TikZWorkspaceView: View {
     private func sendNodeToBack(
         _ node: TikZNode
     ) {
+        commitInlineLabelIfNeeded()
         router.updateTikZSource(
             TikZSourceEditor.sendNodeToBack(
                 named: node.name,
@@ -546,32 +534,41 @@ struct TikZWorkspaceView: View {
             )
         )
         clearSelection(
-            resetTool: false
+            resetTool: false,
+            commitLabel: false
         )
     }
 
     private func bringEdgeToFront(
         _ edge: TikZEdge
     ) {
+        commitInlineLabelIfNeeded()
         router.updateTikZSource(
             TikZSourceEditor.bringEdgeToFront(
                 edgeID: edge.id,
                 in: router.tikzSource
             )
         )
-        clearSelection(resetTool: false)
+        clearSelection(
+            resetTool: false,
+            commitLabel: false
+        )
     }
 
     private func sendEdgeToBack(
         _ edge: TikZEdge
     ) {
+        commitInlineLabelIfNeeded()
         router.updateTikZSource(
             TikZSourceEditor.sendEdgeToBack(
                 edgeID: edge.id,
                 in: router.tikzSource
             )
         )
-        clearSelection(resetTool: false)
+        clearSelection(
+            resetTool: false,
+            commitLabel: false
+        )
     }
 
     private func createConnector(
@@ -581,12 +578,12 @@ struct TikZWorkspaceView: View {
         let updated = TikZSourceEditor.addEdge(
             from: sourceNode.name,
             to: targetNode.name,
-            label: pendingConnectorLabel,
+            label: "",
             style: edgeStyle,
             in: router.tikzSource
         )
         router.updateTikZSource(updated)
-        pendingConnectorLabel = ""
+        lastStyleMode = .edge
     }
 
     private func createShape(
@@ -600,11 +597,11 @@ struct TikZWorkspaceView: View {
                 center: center,
                 size: size,
                 style: nodeStyle,
-                label: pendingNodeLabel,
+                label: "",
                 to: router.tikzSource
             )
         )
-        pendingNodeLabel = ""
+        lastStyleMode = .node
         activeTool = .select
     }
 
@@ -629,13 +626,21 @@ struct TikZWorkspaceView: View {
         }
     }
 
-    private func finishLabelEditing() {
+    private func commitInlineLabelIfNeeded() {
+        guard editingNodeName != nil || editingEdgeID != nil else {
+            return
+        }
         commitSelectedLabel()
         editingNodeName = nil
         editingEdgeID = nil
     }
 
+    private func finishLabelEditing() {
+        commitInlineLabelIfNeeded()
+    }
+
     private func openSource() {
+        commitInlineLabelIfNeeded()
         sourceDraft = router.tikzSource
         showSource = true
     }
@@ -686,7 +691,6 @@ struct TikZWorkspaceView: View {
         showCanvasEditor = false
     }
 
-
     private func normalizeSourceDependencies() {
         let normalized =
             TikZSourceDependencyManager
@@ -707,6 +711,7 @@ struct TikZWorkspaceView: View {
     }
 
     private func autoLayout() {
+        commitInlineLabelIfNeeded()
         let positions =
             layoutService.positions(
                 for: graph
@@ -718,13 +723,18 @@ struct TikZWorkspaceView: View {
             )
         )
         clearSelection(
-            resetTool: true
+            resetTool: true,
+            commitLabel: false
         )
     }
 
     private func clearSelection(
-        resetTool: Bool
+        resetTool: Bool,
+        commitLabel: Bool = true
     ) {
+        if commitLabel {
+            commitInlineLabelIfNeeded()
+        }
         selectedNodeName = nil
         selectedEdgeID = nil
         editingNodeName = nil
@@ -732,6 +742,16 @@ struct TikZWorkspaceView: View {
         labelDraft = ""
         if resetTool {
             activeTool = .select
+        }
+    }
+
+    private func updateLastStyleMode(
+        for tool: TikZCanvasTool
+    ) {
+        if tool == .connector {
+            lastStyleMode = .edge
+        } else if tool == .rectangle || tool == .ellipse {
+            lastStyleMode = .node
         }
     }
 }

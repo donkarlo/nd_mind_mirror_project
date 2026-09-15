@@ -1,11 +1,10 @@
-// Inline TikZ element properties using native SwiftUI color pickers.
+// Fixed-height TikZ element properties using native SwiftUI controls.
 
 import Foundation
 import SwiftUI
 
 struct TikZStyleToolbarView: View {
     enum Mode: Equatable {
-        case hidden
         case node
         case edge
     }
@@ -13,72 +12,78 @@ struct TikZStyleToolbarView: View {
     let mode: Mode
     @Binding var nodeStyle: TikZNodeStyle
     @Binding var edgeStyle: TikZEdgeStyle
-    @Binding var label: String
-    let labelPlaceholder: String
-    let onCommitLabel: (() -> Void)?
+
+    private let toolbarHeight: CGFloat = 48
 
     var body: some View {
-        Group {
-            switch mode {
-            case .hidden:
-                EmptyView()
-            case .node:
-                HStack(spacing: 12) {
-                    labelField
-                    nativeColorPicker(
-                        "Fill",
-                        value: $nodeStyle.fillColor
-                    )
-                    nativeColorPicker(
-                        "Border",
-                        value: $nodeStyle.strokeColor
-                    )
-                    nativeColorPicker(
-                        "Text",
-                        value: $nodeStyle.textColor
-                    )
-                    lineWidthSlider(value: $nodeStyle.lineWidth)
-                    Spacer(minLength: 0)
+        ScrollView(
+            .horizontal,
+            showsIndicators: false
+        ) {
+            Group {
+                switch mode {
+                case .node:
+                    nodeControls
+                case .edge:
+                    edgeControls
                 }
-                .propertyRowBackground()
-            case .edge:
-                HStack(spacing: 12) {
-                    labelField
-                    nativeColorPicker(
-                        "Line",
-                        value: $edgeStyle.strokeColor
-                    )
-                    nativeColorPicker(
-                        "Text",
-                        value: $edgeStyle.textColor
-                    )
-                    lineWidthSlider(value: $edgeStyle.lineWidth)
-                    linePatternPicker
-                    Toggle(
-                        "Arrow",
-                        isOn: $edgeStyle.directed
-                    )
-                    .toggleStyle(.switch)
-                    .fixedSize()
-                    if edgeStyle.directed {
-                        arrowHeadPicker
-                    }
-                    Spacer(minLength: 0)
-                }
-                .propertyRowBackground()
             }
+            .padding(.horizontal, 8)
+            .frame(height: toolbarHeight)
+        }
+        .frame(height: toolbarHeight)
+        .background(
+            Color(
+                uiColor: .secondarySystemBackground
+            )
+        )
+    }
+
+    private var nodeControls: some View {
+        HStack(spacing: 12) {
+            nativeColorPicker(
+                "Fill",
+                value: $nodeStyle.fillColor
+            )
+            nativeColorPicker(
+                "Border",
+                value: $nodeStyle.strokeColor
+            )
+            nativeColorPicker(
+                "Text",
+                value: $nodeStyle.textColor
+            )
+            lineWidthSlider(
+                value: $nodeStyle.lineWidth
+            )
+            Spacer(minLength: 0)
         }
     }
 
-    private var labelField: some View {
-        TextField(
-            labelPlaceholder,
-            text: $label
-        )
-        .textFieldStyle(.roundedBorder)
-        .frame(maxWidth: 190)
-        .onSubmit {
-            onCommitLabel?()
+    private var edgeControls: some View {
+        HStack(spacing: 12) {
+            nativeColorPicker(
+                "Line",
+                value: $edgeStyle.strokeColor
+            )
+            nativeColorPicker(
+                "Text",
+                value: $edgeStyle.textColor
+            )
+            lineWidthSlider(
+                value: $edgeStyle.lineWidth
+            )
+            linePatternPicker
+            Toggle(
+                "Arrow",
+                isOn: $edgeStyle.directed
+            )
+            .toggleStyle(.switch)
+            .fixedSize()
+            if edgeStyle.directed {
+                arrowHeadPicker
+            }
+            Spacer(minLength: 0)
         }
     }
 
@@ -155,18 +160,6 @@ struct TikZStyleToolbarView: View {
                 alignment: .trailing
             )
         }
-    }
-}
-
-private extension View {
-    func propertyRowBackground() -> some View {
-        self
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(
-                Color(
-                    uiColor: .secondarySystemBackground
-                )
-            )
+        .fixedSize(horizontal: false, vertical: true)
     }
 }

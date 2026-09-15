@@ -19,7 +19,7 @@ from nd_mind_mirror.ui.editor.latex.tikz_visual_preview_render_task import (
 
 
 class TikZVisualPreviewService(QObject):
-    """Resolve TikZ inputs immediately and render cache misses in the background."""
+    """Resolve TikZ inputs and ignore preview results superseded by newer files."""
 
     preview_ready = Signal(str, str, object)
 
@@ -40,6 +40,7 @@ class TikZVisualPreviewService(QObject):
         self._cache: dict[tuple[Path, int, int], QImage] = {}
         self._pending: set[tuple[Path, int, int]] = set()
         self._failed: set[tuple[Path, int, int]] = set()
+        self._latest_key_by_target: dict[Path, tuple[Path, int, int]] = {}
         self._lock = Lock()
 
     def preview_for_input(
@@ -53,6 +54,7 @@ class TikZVisualPreviewService(QObject):
         target, source, key, referring_path = request
 
         with self._lock:
+            self._latest_key_by_target[target] = key
             cached = self._cache.get(key)
             if cached is not None and not cached.isNull():
                 return QImage(cached)
@@ -114,12 +116,18 @@ class TikZVisualPreviewService(QObject):
         image: QImage | None,
         error: str | None,
     ) -> None:
+        target = key[0]
         with self._lock:
             self._pending.discard(key)
+
+            # A slower old render must never replace a newer cached preview.
+            if self._latest_key_by_target.get(target) != key:
+                return
+
             if error is not None or image is None or image.isNull():
                 self._failed.add(key)
                 return
-            target = key[0]
+
             self._cache = {
                 cache_key: cached
                 for cache_key, cached in self._cache.items()
