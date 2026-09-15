@@ -72,7 +72,7 @@ struct TikZWorkspaceView: View {
         if activeTool == .rectangle || activeTool == .ellipse {
             return .node
         }
-        if activeTool == .connector {
+        if activeTool.connectorKind != nil {
             return .edge
         }
         return lastStyleMode
@@ -159,6 +159,10 @@ struct TikZWorkspaceView: View {
                 onEdgeDelete: deleteEdge,
                 onEdgeBringToFront: bringEdgeToFront,
                 onEdgeSendToBack: sendEdgeToBack,
+                onEdgeCurveControlMove: moveCurveControl,
+                onEdgeBendMove: moveBendPoint,
+                onEdgeBendRemove: removeBendPoint,
+                onEdgeAddBendPoint: addBendPoint,
                 onLabelCommit: finishLabelEditing,
                 onConnectorCreate: createConnector,
                 onShapeCreate: createShape
@@ -282,9 +286,21 @@ struct TikZWorkspaceView: View {
             )
 
             toolButton(
-                title: "Connector",
+                title: "Straight",
                 systemImage: "arrow.right",
-                tool: .connector
+                tool: .straightConnector
+            )
+
+            toolButton(
+                title: "Curve",
+                systemImage: "scribble.variable",
+                tool: .curveConnector
+            )
+
+            toolButton(
+                title: "Polyline",
+                systemImage: "point.3.connected.trianglepath.dotted",
+                tool: .polylineConnector
             )
 
             Spacer()
@@ -575,14 +591,102 @@ struct TikZWorkspaceView: View {
         from sourceNode: TikZNode,
         to targetNode: TikZNode
     ) {
+        let kind = activeTool.connectorKind ?? .straight
+        let geometry = TikZConnectorGeometry.initial(
+            kind: kind,
+            source: sourceNode.position,
+            target: targetNode.position
+        )
         let updated = TikZSourceEditor.addEdge(
             from: sourceNode.name,
             to: targetNode.name,
             label: "",
             style: edgeStyle,
+            geometry: geometry,
             in: router.tikzSource
         )
         router.updateTikZSource(updated)
+        lastStyleMode = .edge
+    }
+
+    private func moveCurveControl(
+        _ edge: TikZEdge,
+        index: Int,
+        to point: CGPoint
+    ) {
+        var geometry = edge.geometry
+        geometry.setCurveControl(
+            index: index,
+            point: point
+        )
+        updateEdgeGeometry(
+            edge,
+            geometry: geometry
+        )
+    }
+
+    private func moveBendPoint(
+        _ edge: TikZEdge,
+        index: Int,
+        to point: CGPoint
+    ) {
+        var geometry = edge.geometry
+        geometry.setBendPoint(
+            index: index,
+            point: point
+        )
+        updateEdgeGeometry(
+            edge,
+            geometry: geometry
+        )
+    }
+
+    private func addBendPoint(
+        _ edge: TikZEdge,
+        segmentIndex: Int,
+        at point: CGPoint
+    ) {
+        var geometry = edge.geometry
+        guard geometry.kind == .polyline else {
+            return
+        }
+        geometry.insertBendPoint(
+            point,
+            at: segmentIndex
+        )
+        updateEdgeGeometry(
+            edge,
+            geometry: geometry
+        )
+    }
+
+    private func removeBendPoint(
+        _ edge: TikZEdge,
+        index: Int
+    ) {
+        var geometry = edge.geometry
+        geometry.removeBendPoint(
+            index: index
+        )
+        updateEdgeGeometry(
+            edge,
+            geometry: geometry
+        )
+    }
+
+    private func updateEdgeGeometry(
+        _ edge: TikZEdge,
+        geometry: TikZConnectorGeometry
+    ) {
+        router.updateTikZSource(
+            TikZSourceEditor.updateEdgeGeometry(
+                edgeID: edge.id,
+                geometry: geometry,
+                in: router.tikzSource
+            )
+        )
+        selectedEdgeID = edge.id
+        selectedNodeName = nil
         lastStyleMode = .edge
     }
 
@@ -748,7 +852,7 @@ struct TikZWorkspaceView: View {
     private func updateLastStyleMode(
         for tool: TikZCanvasTool
     ) {
-        if tool == .connector {
+        if tool.connectorKind != nil {
             lastStyleMode = .edge
         } else if tool == .rectangle || tool == .ellipse {
             lastStyleMode = .node

@@ -21,5 +21,8 @@ struct GraphicWorkspaceRouterView: View {
                     .zIndex(1)
             }
         }
+        // The compact iPad text-input assistant may still be drawn by iPadOS,
+        // but it no longer changes the SwiftUI workspace's safe-area layout.
+        .ignoresSafeArea(.keyboard, edges: .bottom)
     }
 }

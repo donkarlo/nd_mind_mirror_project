@@ -1,4 +1,4 @@
-// Passive TikZ node renderer. Canvas interaction is owned by the centralized UIKit layer.
+// Passive TikZ node renderer with a floating label editor above the canvas.
 
 import SwiftUI
 
@@ -16,11 +16,40 @@ struct TikZNodeView: View {
 
         ZStack {
             shapeBody
-            labelBody
+                .frame(width: size.width, height: size.height)
+                .position(x: center.x, y: center.y)
+                .allowsHitTesting(false)
+
+            let label = editingLabel?.wrappedValue ?? node.label
+            if !label.isEmpty {
+                Text(label)
+                    .font(.caption)
+                    .foregroundStyle(node.textColor.color)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.6)
+                    .padding(4)
+                    .frame(width: size.width, height: size.height)
+                    .position(x: center.x, y: center.y)
+                    .allowsHitTesting(false)
+            }
+
+            if let editingLabel {
+                TikZFloatingLabelEditor(
+                    text: editingLabel,
+                    title: "Node label — \(node.name)",
+                    onCommit: onCommitLabel
+                )
+                .position(
+                    x: canvasSize.width / 2,
+                    y: 36
+                )
+                .zIndex(100)
+            }
         }
-        .frame(width: size.width, height: size.height)
-        .position(x: center.x, y: center.y)
-        .allowsHitTesting(editingLabel != nil)
+        .frame(
+            width: canvasSize.width,
+            height: canvasSize.height
+        )
     }
 
     @ViewBuilder
@@ -43,27 +72,6 @@ struct TikZNodeView: View {
                         lineWidth: max(CGFloat(node.lineWidth), 0.7)
                     )
                 )
-        }
-    }
-
-    @ViewBuilder
-    private var labelBody: some View {
-        if let editingLabel {
-            TextField("Label", text: editingLabel)
-                .font(.caption)
-                .foregroundStyle(node.textColor.color)
-                .multilineTextAlignment(.center)
-                .textFieldStyle(.roundedBorder)
-                .padding(5)
-                .onSubmit { onCommitLabel() }
-        } else if !node.label.isEmpty {
-            Text(node.label)
-                .font(.caption)
-                .foregroundStyle(node.textColor.color)
-                .lineLimit(2)
-                .minimumScaleFactor(0.6)
-                .padding(4)
-                .allowsHitTesting(false)
         }
     }
 }

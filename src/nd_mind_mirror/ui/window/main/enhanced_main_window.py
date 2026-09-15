@@ -19,6 +19,9 @@ from nd_mind_mirror.ui.window.main.preview.profile.latex_preview_profile_control
 from nd_mind_mirror.ui.window.main.search_aware_navigator_multi_path_context_controller import (
     SearchAwareNavigatorMultiPathContextController,
 )
+from nd_mind_mirror.ui.window.main.tikz.tikz_live_refresh_controller import (
+    TikZLiveRefreshController,
+)
 from nd_mind_mirror.ui.window.main.tikz_update_event_controller import (
     TikZUpdateEventController,
 )
@@ -54,19 +57,43 @@ class EnhancedMainWindow(BaseEnhancedMainWindow):
         self._tikz_update_event_controller.updated.connect(
             self._on_tikz_source_updated
         )
+
+        self._tikz_live_refresh_controller = TikZLiveRefreshController(
+            self,
+            live_interval_ms=80,
+            pdf_idle_delay_ms=650,
+        )
+        self._tikz_live_refresh_controller.live_refresh_requested.connect(
+            self._refresh_tikz_live_projections
+        )
+        self._tikz_live_refresh_controller.pdf_refresh_requested.connect(
+            self._refresh_tikz_pdf_projection
+        )
+
         QTimer.singleShot(
             0,
             lambda: self._refresh_current_preview(immediate=True),
         )
 
     def _on_tikz_source_updated(self, path: str) -> None:
-        """Refresh Source, Visual, and PDF Preview from one low-latency TikZ event."""
+        """Reload Source now; live graphics and PDF follow separate bounded schedules."""
         source_path = self._resolve_tikz_event_path(path)
         self._reload_open_tikz_source(source_path)
-        self._source_tikz_preview_controller.notify_tikz_changed(
-            str(source_path)
-        )
+        self._tikz_live_refresh_controller.submit(source_path)
+
+    def _refresh_tikz_live_projections(self, paths: object) -> None:
+        """Refresh Source/Visual TikZ images at a bounded live frame rate."""
+        if not isinstance(paths, tuple):
+            return
+
+        for source_path in paths:
+            self._source_tikz_preview_controller.notify_tikz_changed(
+                str(source_path)
+            )
         self._editor_panel.refresh_current_visual_graphics()
+
+    def _refresh_tikz_pdf_projection(self) -> None:
+        """Compile the full PDF only after the external TikZ edit stream is idle."""
         if self._preview_enabled:
             self._refresh_current_preview(immediate=True)
 

@@ -56,7 +56,8 @@ Ubuntu's asynchronous TikZ preview cache now records the newest file generation 
 
 The same low-latency TikZ event now resolves the changed workspace path and immediately reloads that file when it is already open in a desktop Source tab. Source text, Source inline graphics, Visual, and PDF Preview therefore refresh from the canonical save without waiting for the slower general external-file scan.
 
-The iPad follow-up build error in the TikZ property toolbar was fixed by supplying both SwiftUI \texttt{fixedSize} arguments explicitly. The raster lasso move handler now checks only that a selection exists instead of binding an unused immutable \texttt{selection}, removing the corresponding Swift compiler warning without changing lasso behavior.
+
+The desktop TikZ update path now separates the immediate canonical Source reload from expensive projections. Source-image, Visual-TikZ, and PDF refreshes are coalesced for 180 ms after the newest bridge event, preventing a long drag from repeatedly launching competing renders. Visual mode also refreshes referenced TikZ images in place through the existing graphic refresh path, so switching Source/Visual modes is no longer required to see the newest connector geometry.
 
    \end{preview}
 

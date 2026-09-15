@@ -22,6 +22,9 @@ final class GraphicEditorSessionRouter: ObservableObject {
     private var sendCommand: (([String: Any]) -> Void)?
     private var nextRevision = 1
     private var latestRevision = 0
+    private let tikzSourceSyncScheduler = TikZSourceSyncScheduler(
+        updateRateHz: 20.0
+    )
 
     private init() {}
 
@@ -39,6 +42,8 @@ final class GraphicEditorSessionRouter: ObservableObject {
         previewPNGBase64: String?,
         message: String? = nil
     ) {
+        tikzSourceSyncScheduler.cancel()
+        latestRevision = 0
         tikzPath = path
         tikzSource = source
         applyPreview(previewPNGBase64)
@@ -47,22 +52,25 @@ final class GraphicEditorSessionRouter: ObservableObject {
     }
 
     func updateTikZSource(_ source: String) {
-        guard let path = tikzPath, !path.isEmpty else { return }
+        guard tikzPath?.isEmpty == false else {
+            return
+        }
+
+        // The vector canvas is local and updates immediately. Only the canonical
+        // Ubuntu upload is rate-limited, so rapid Pencil drags stay smooth while
+        // the bridge receives at most one newest source revision every 50 ms.
         tikzSource = source
-        let revision = nextRevision
-        nextRevision += 1
-        latestRevision = revision
-        sendCommand?([
-            "type": "update_tikz",
-            "path": path,
-            "source": source,
-            "client_revision": revision,
-        ])
         tikzStatus = "Saving TikZ…"
+        tikzSourceSyncScheduler.submit { [weak self] in
+            self?.sendLatestTikZSource()
+        }
     }
 
     func requestTikZRender() {
-        guard let path = tikzPath, !path.isEmpty else { return }
+        guard let path = tikzPath, !path.isEmpty else {
+            return
+        }
+        tikzSourceSyncScheduler.flush()
         sendCommand?([
             "type": "render_tikz",
             "path": path,
@@ -83,13 +91,25 @@ final class GraphicEditorSessionRouter: ObservableObject {
 
         let revision = clientRevision ?? 0
         let responseIsCurrent = revision == 0 || revision >= latestRevision
-        if let source, responseIsCurrent {
+        guard responseIsCurrent else {
+            return
+        }
+
+        // A save ACK can arrive while a newer local edit is waiting for the
+        // 20 Hz uploader. Never let that echoed older source overwrite the
+        // newer vector state that is already visible on the iPad.
+        if let source,
+           (revision == 0 || source == tikzSource) {
             tikzSource = source
         }
-        if responseIsCurrent {
-            applyPreview(previewPNGBase64)
+
+        applyPreview(previewPNGBase64)
+
+        if revision > 0 && tikzSourceSyncScheduler.hasPendingUpdate {
+            tikzStatus = "Saving TikZ…"
+        } else {
+            tikzStatus = message ?? "TikZ saved"
         }
-        tikzStatus = message ?? "TikZ saved"
     }
 
     func showTikZError(_ message: String) {
@@ -97,6 +117,7 @@ final class GraphicEditorSessionRouter: ObservableObject {
     }
 
     func closeTikZ() {
+        tikzSourceSyncScheduler.flush()
         workspace = .image
         tikzPath = nil
         tikzSource = ""
@@ -105,10 +126,28 @@ final class GraphicEditorSessionRouter: ObservableObject {
         latestRevision = 0
     }
 
+    private func sendLatestTikZSource() {
+        guard let path = tikzPath, !path.isEmpty else {
+            return
+        }
+
+        let revision = nextRevision
+        nextRevision += 1
+        latestRevision = revision
+        sendCommand?([
+            "type": "update_tikz",
+            "path": path,
+            "source": tikzSource,
+            "client_revision": revision,
+        ])
+    }
+
     private func applyPreview(_ base64: String?) {
         guard let base64,
               let data = Data(base64Encoded: base64),
-              let image = UIImage(data: data) else { return }
+              let image = UIImage(data: data) else {
+            return
+        }
         tikzPreviewImage = image
     }
 }

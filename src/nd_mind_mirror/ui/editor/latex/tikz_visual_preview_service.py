@@ -1,25 +1,23 @@
-"""Asynchronous cached TikZ previews for LaTeX Visual mode."""
+"""Shared asynchronous TikZ previews for LaTeX Source and Visual modes."""
 
 from __future__ import annotations
 
 from pathlib import Path
 import re
-from threading import Lock
 
-from PySide6.QtCore import QObject, QThreadPool, Signal
+from PySide6.QtCore import QObject, Signal
 from PySide6.QtGui import QImage
 
 from nd_mind_mirror.core.workspace.path.workspace_reference_resolver import (
     WorkspaceReferenceResolver,
 )
-from nd_mind_mirror.graphic.tikz.bridge.renderer import TikZRenderer
-from nd_mind_mirror.ui.editor.latex.tikz_visual_preview_render_task import (
-    TikZVisualPreviewRenderTask,
+from nd_mind_mirror.ui.editor.latex.tikz_preview.render_coordinator import (
+    TikZPreviewRenderCoordinator,
 )
 
 
 class TikZVisualPreviewService(QObject):
-    """Resolve TikZ inputs and ignore preview results superseded by newer files."""
+    """Resolve TikZ inputs and reuse one serialized renderer/cache per workspace."""
 
     preview_ready = Signal(str, str, object)
 
@@ -35,13 +33,13 @@ class TikZVisualPreviewService(QObject):
         super().__init__(parent)
         self._workspace_root = Path(workspace_root).expanduser().resolve()
         self._resolver = WorkspaceReferenceResolver(self._workspace_root)
-        self._renderer = TikZRenderer(self._workspace_root)
-        self._pool = QThreadPool.globalInstance()
-        self._cache: dict[tuple[Path, int, int], QImage] = {}
-        self._pending: set[tuple[Path, int, int]] = set()
-        self._failed: set[tuple[Path, int, int]] = set()
-        self._latest_key_by_target: dict[Path, tuple[Path, int, int]] = {}
-        self._lock = Lock()
+        self._coordinator = TikZPreviewRenderCoordinator.shared(
+            self._workspace_root
+        )
+        self._requested_contexts: set[tuple[str, str]] = set()
+        self._coordinator.preview_ready.connect(
+            self._on_shared_preview_ready
+        )
 
     def preview_for_input(
         self,
@@ -52,28 +50,15 @@ class TikZVisualPreviewService(QObject):
         if request is None:
             return None
         target, source, key, referring_path = request
-
-        with self._lock:
-            self._latest_key_by_target[target] = key
-            cached = self._cache.get(key)
-            if cached is not None and not cached.isNull():
-                return QImage(cached)
-            if key in self._pending or key in self._failed:
-                return None
-            self._pending.add(key)
-
-        self._pool.start(
-            TikZVisualPreviewRenderTask(
-                renderer=self._renderer,
-                source=source,
-                target=target,
-                cache_key=key,
-                referring_file=referring_path,
-                raw_input=raw,
-                completion=self._complete,
-            )
+        context = (str(referring_path), raw)
+        self._requested_contexts.add(context)
+        return self._coordinator.request(
+            target=target,
+            source=source,
+            key=key,
+            referring_file=referring_path,
+            raw_input=raw,
         )
-        return None
 
     def _resolve_request(
         self,
@@ -108,41 +93,19 @@ class TikZVisualPreviewService(QObject):
             referring_path,
         )
 
-    def _complete(
+    def _on_shared_preview_ready(
         self,
-        key: tuple[Path, int, int],
-        referring_file: Path,
+        referring_file: str,
         raw_input: str,
-        image: QImage | None,
-        error: str | None,
+        image: object,
     ) -> None:
-        target = key[0]
-        with self._lock:
-            self._pending.discard(key)
-
-            # A slower old render must never replace a newer cached preview.
-            if self._latest_key_by_target.get(target) != key:
-                return
-
-            if error is not None or image is None or image.isNull():
-                self._failed.add(key)
-                return
-
-            self._cache = {
-                cache_key: cached
-                for cache_key, cached in self._cache.items()
-                if cache_key[0] != target
-            }
-            self._failed = {
-                failed_key
-                for failed_key in self._failed
-                if failed_key[0] != target
-            }
-            stored = QImage(image)
-            self._cache[key] = stored
-
+        context = (referring_file, raw_input)
+        if context not in self._requested_contexts:
+            return
+        if not isinstance(image, QImage) or image.isNull():
+            return
         self.preview_ready.emit(
-            str(referring_file),
+            referring_file,
             raw_input,
-            QImage(stored),
+            QImage(image),
         )

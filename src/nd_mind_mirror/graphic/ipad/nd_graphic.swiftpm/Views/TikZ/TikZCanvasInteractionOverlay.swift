@@ -26,6 +26,7 @@ struct TikZCanvasInteractionOverlay: UIViewRepresentable {
     let onNodeDelete: (String) -> Void
 
     let onEdgeEditLabel: (String) -> Void
+    let onEdgeAddBendPoint: (String, CGPoint) -> Void
     let onEdgeBringToFront: (String) -> Void
     let onEdgeSendToBack: (String) -> Void
     let onEdgeDelete: (String) -> Void
@@ -42,7 +43,10 @@ struct TikZCanvasInteractionOverlay: UIViewRepresentable {
         return view
     }
 
-    func updateUIView(_ uiView: UIView, context: Context) {
+    func updateUIView(
+        _ uiView: UIView,
+        context: Context
+    ) {
         context.coordinator.update(
             graph: graph,
             canvasSize: canvasSize,
@@ -62,6 +66,7 @@ struct TikZCanvasInteractionOverlay: UIViewRepresentable {
             onNodeSendToBack: onNodeSendToBack,
             onNodeDelete: onNodeDelete,
             onEdgeEditLabel: onEdgeEditLabel,
+            onEdgeAddBendPoint: onEdgeAddBendPoint,
             onEdgeBringToFront: onEdgeBringToFront,
             onEdgeSendToBack: onEdgeSendToBack,
             onEdgeDelete: onEdgeDelete

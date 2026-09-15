@@ -1,4 +1,4 @@
-// Passive connector renderer with visual selection and inline label editing.
+// Passive connector renderer with visual selection and a floating label editor.
 
 import SwiftUI
 
@@ -11,52 +11,48 @@ struct TikZEdgeView: View {
     let editingLabel: Binding<String>?
     let onCommitLabel: () -> Void
 
-    private let geometry = TikZNodeGeometry()
+    private let geometry = TikZEdgePathGeometry()
 
     var body: some View {
-        let endpoints = geometry.connectorEndpoints(
-            from: sourceNode,
-            to: targetNode,
+        let route = geometry.route(
+            for: edge,
+            sourceNode: sourceNode,
+            targetNode: targetNode,
             in: canvasSize
-        )
-        let start = endpoints.start
-        let end = endpoints.end
-        let middle = CGPoint(
-            x: (start.x + end.x) / 2,
-            y: (start.y + end.y) / 2
         )
 
         ZStack {
             if selected {
-                linePath(from: start, to: end)
+                connectorPath(route)
                     .stroke(
                         Color.accentColor.opacity(0.35),
                         style: StrokeStyle(
-                            lineWidth: max(CGFloat(edge.lineWidth) + 6, 7)
+                            lineWidth: max(CGFloat(edge.lineWidth) + 6, 7),
+                            lineCap: .round,
+                            lineJoin: .round
                         )
                     )
+                    .allowsHitTesting(false)
             }
 
-            linePath(from: start, to: end)
+            connectorPath(route)
                 .stroke(
                     edge.strokeColor.color,
                     style: connectorStrokeStyle
                 )
+                .allowsHitTesting(false)
 
             if edge.directed {
-                arrowHeadBody(from: start, to: end)
+                arrowHeadBody(
+                    from: route.arrowDirectionStart,
+                    to: route.end
+                )
+                .allowsHitTesting(false)
             }
 
-            if let editingLabel {
-                TextField("Label", text: editingLabel)
-                    .font(.caption2)
-                    .foregroundStyle(edge.textColor.color)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(width: 150)
-                    .position(middle)
-                    .onSubmit { onCommitLabel() }
-            } else if !edge.label.isEmpty {
-                Text(edge.label)
+            let label = editingLabel?.wrappedValue ?? edge.label
+            if !label.isEmpty {
+                Text(label)
                     .font(.caption2)
                     .foregroundStyle(edge.textColor.color)
                     .padding(.horizontal, 4)
@@ -65,11 +61,27 @@ struct TikZEdgeView: View {
                         .thinMaterial,
                         in: RoundedRectangle(cornerRadius: 4)
                     )
-                    .position(middle)
+                    .position(route.labelPoint)
                     .allowsHitTesting(false)
             }
+
+            if let editingLabel {
+                TikZFloatingLabelEditor(
+                    text: editingLabel,
+                    title: "Connector label",
+                    onCommit: onCommitLabel
+                )
+                .position(
+                    x: canvasSize.width / 2,
+                    y: 36
+                )
+                .zIndex(100)
+            }
         }
-        .allowsHitTesting(editingLabel != nil)
+        .frame(
+            width: canvasSize.width,
+            height: canvasSize.height
+        )
     }
 
     private var connectorStrokeStyle: StrokeStyle {
@@ -81,10 +93,41 @@ struct TikZEdgeView: View {
         )
     }
 
+    private func connectorPath(_ route: TikZEdgeRoute) -> Path {
+        var path = Path()
+        path.move(to: route.start)
+
+        switch edge.geometry.kind {
+        case .straight:
+            path.addLine(to: route.end)
+        case .curve:
+            if let first = route.firstControl,
+               let second = route.secondControl {
+                path.addCurve(
+                    to: route.end,
+                    control1: first,
+                    control2: second
+                )
+            } else {
+                path.addLine(to: route.end)
+            }
+        case .polyline:
+            for point in route.bendPoints {
+                path.addLine(to: point)
+            }
+            path.addLine(to: route.end)
+        }
+
+        return path
+    }
+
     @ViewBuilder
-    private func arrowHeadBody(from start: CGPoint, to end: CGPoint) -> some View {
+    private func arrowHeadBody(
+        from start: CGPoint,
+        to end: CGPoint
+    ) -> some View {
         if edge.arrowHeadStyle == .open {
-            emptyArrowHead(from: start, to: end)
+            triangleArrowHead(from: start, to: end)
                 .stroke(
                     edge.strokeColor.color,
                     style: StrokeStyle(
@@ -94,27 +137,15 @@ struct TikZEdgeView: View {
                     )
                 )
         } else {
-            filledArrowHead(from: start, to: end)
+            triangleArrowHead(from: start, to: end)
                 .fill(edge.strokeColor.color)
         }
     }
 
-    private func linePath(from start: CGPoint, to end: CGPoint) -> Path {
-        var path = Path()
-        path.move(to: start)
-        path.addLine(to: end)
-        return path
-    }
-
-    private func filledArrowHead(from start: CGPoint, to end: CGPoint) -> Path {
-        triangleArrowHead(from: start, to: end)
-    }
-
-    private func emptyArrowHead(from start: CGPoint, to end: CGPoint) -> Path {
-        triangleArrowHead(from: start, to: end)
-    }
-
-    private func triangleArrowHead(from start: CGPoint, to end: CGPoint) -> Path {
+    private func triangleArrowHead(
+        from start: CGPoint,
+        to end: CGPoint
+    ) -> Path {
         let points = arrowWingPoints(from: start, to: end)
         var path = Path()
         path.move(to: end)
@@ -140,6 +171,7 @@ struct TikZEdgeView: View {
         )
         let px = -uy
         let py = ux
+
         return (
             CGPoint(
                 x: base.x + px * size * 0.45,

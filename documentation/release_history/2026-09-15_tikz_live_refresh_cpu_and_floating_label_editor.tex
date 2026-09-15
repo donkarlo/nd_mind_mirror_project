@@ -1,0 +1,61 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+\usepackage{adjustbox}
+\usepackage[active,tightpage]{preview}
+
+\PreviewBorder=4pt
+
+\usetikzlibrary{graphs,graphdrawing,arrows.meta,positioning,calc,fit,shapes.geometric}
+\usegdlibrary{layered}
+
+% for external graphviz
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/external_graphviz.tex}
+
+% for tags
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/part/control_sequence/kind/semtag/semtag.tex}
+
+% for links
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/seehere.tex}
+
+% for nested lists and sections
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/deep_structure.tex}
+
+\title{}
+\date{}
+\author{Mohammad Rahmani}
+
+\begin{document}
+   \maketitle
+
+   \begin{preview}
+      \section*{TikZ live-refresh CPU and floating label editor}
+
+Rapid iPad TikZ changes now update the local vector canvas immediately while canonical source uploads are rate-limited to 20 updates per second. The scheduler always preserves the newest pending source and flushes it before explicit rendering or closing the TikZ workspace.
+
+The responsive bridge no longer launches a TikZ LuaLaTeX renderer after every \texttt{update\_tikz}. Each live update now performs only the atomic source save, desktop update event, and acknowledgement. Initial-open and explicit-render behavior remain available through the existing bridge renderer.
+
+Desktop refresh scheduling now separates three costs. Canonical Source text reloads immediately, Source/Visual graphic projections receive bounded live frames at roughly 80 ms intervals even while a drag continues, and the full PDF preview is compiled only after approximately 650 ms of inactivity. This removes the previous trailing-only debounce that made a continuously moving connector appear frozen until the gesture ended.
+
+Source and Visual now share one TikZ preview coordinator. The conservative named-node and named-connector subset produced by the iPad uses a lightweight Qt vector renderer rather than starting LuaLaTeX, which substantially reduces CPU load during normal direct manipulation. Unsupported complex TikZ falls back to a single serialized LuaLaTeX worker with only the newest pending generation retained; successful older work cannot replace a newer displayed generation.
+
+Node and connector label editing now uses a floating editor at the top of the TikZ canvas instead of an inline field inside the selected object. The selected object's label still previews the draft live, tap-away still commits it, and Enter/Done remains optional. The workspace ignores the keyboard safe-area inset so the iPadOS input assistant may remain visible without pushing the drawing surface upward.
+
+   \end{preview}
+
+   \bibliographystyle{plainnat}
+   \bibliography{/home/donkarlo/Dropbox/repo/nd_shared_research/bibliography/bibliography.bib}
+\end{document}

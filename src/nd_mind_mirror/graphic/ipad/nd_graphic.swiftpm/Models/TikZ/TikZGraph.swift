@@ -43,6 +43,7 @@ struct TikZEdge: Identifiable, Hashable {
     var lineWidth: Double
     var linePattern: TikZLinePattern
     var arrowHeadStyle: TikZArrowHeadStyle
+    var geometry: TikZConnectorGeometry
 
     var style: TikZEdgeStyle {
         TikZEdgeStyle(

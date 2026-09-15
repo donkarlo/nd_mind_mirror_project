@@ -1,7 +1,8 @@
-"""Windowed Visual LaTeX editor with line deletion and asynchronous TikZ previews."""
+"Windowed Visual LaTeX editor with direct, asynchronous TikZ preview refresh."
 
 from hashlib import sha256
 from pathlib import Path
+import re
 
 from PySide6.QtCore import Qt, QUrl
 from PySide6.QtGui import (
@@ -22,7 +23,11 @@ from nd_mind_mirror.ui.editor.latex.windowed_latex_visual_editor_core import (
 
 
 class WindowedLatexVisualEditor(WindowedLatexVisualEditorCore):
-    """Add direct TikZ input projection and Ctrl+Shift+D line deletion."""
+    """Add direct TikZ projection and lightweight refresh without reparsing."""
+
+    _TIKZ_INPUT = re.compile(
+        r"^\s*\\(?:input|include)\s*\{[^}]+\}\s*(?:%.*)?$"
+    )
 
     def __init__(self, settings_path, parent=None) -> None:
         super().__init__(settings_path, parent)
@@ -58,6 +63,50 @@ class WindowedLatexVisualEditor(WindowedLatexVisualEditorCore):
             return
         self._insert_tikz_preview(cursor, raw, source_line, image)
 
+    def refresh_graphic_resources(self) -> bool:
+        """Refresh normal graphics and TikZ images without rebuilding Visual mode."""
+        refreshed_graphics = super().refresh_graphic_resources()
+        refreshed_tikz = self.refresh_tikz_resources()
+        return bool(refreshed_graphics or refreshed_tikz)
+
+    def refresh_tikz_resources(self) -> bool:
+        """Request current TikZ generations for visible raw input/include blocks."""
+        service = self._tikz_visual_preview_service
+        if service is None or self._source_path is None:
+            return False
+
+        requests: list[tuple[int, str, int]] = []
+        block = self.document().firstBlock()
+        while block.isValid():
+            meta = block.userData()
+            if (
+                isinstance(meta, _BlockMeta)
+                and meta.kind == "raw"
+                and self._TIKZ_INPUT.match(meta.raw.strip()) is not None
+            ):
+                requests.append(
+                    (
+                        block.position(),
+                        meta.raw,
+                        meta.source_line,
+                    )
+                )
+            block = block.next()
+
+        for position, raw, source_line in requests:
+            image = service.preview_for_input(
+                raw,
+                self._source_path,
+            )
+            if image is not None and not image.isNull():
+                self._replace_tikz_block(
+                    position,
+                    raw,
+                    source_line,
+                    image,
+                )
+        return bool(requests)
+
     def _insert_tikz_preview(
         self,
         cursor: QTextCursor,
@@ -82,7 +131,9 @@ class WindowedLatexVisualEditor(WindowedLatexVisualEditorCore):
         image_format = QTextImageFormat()
         image_format.setName(key.toString())
         image_format.setWidth(width)
-        image_format.setHeight(max(float(image.height()) * scale, 1.0))
+        image_format.setHeight(
+            max(float(image.height()) * scale, 1.0)
+        )
         cursor.block().setUserData(
             _BlockMeta(
                 kind="raw",
@@ -122,40 +173,61 @@ class WindowedLatexVisualEditor(WindowedLatexVisualEditorCore):
                 and meta.kind == "raw"
                 and meta.raw == raw
             ):
-                matching_blocks.append((block.position(), meta.source_line))
+                matching_blocks.append(
+                    (block.position(), meta.source_line)
+                )
             block = block.next()
 
         if not matching_blocks:
             return
 
+        for position, source_line in reversed(matching_blocks):
+            self._replace_tikz_block(
+                position,
+                raw,
+                source_line,
+                QImage(image),
+            )
+        self.viewport().update()
+
+    def _replace_tikz_block(
+        self,
+        position: int,
+        raw: str,
+        source_line: int,
+        image: QImage,
+    ) -> None:
+        document = self.document()
+        block = document.findBlock(int(position))
+        if not block.isValid():
+            return
+
         was_loading = self._loading
         self._loading = True
         self._emit_timer.stop()
-        document = self.document()
         was_modified = document.isModified()
         try:
-            for position, source_line in reversed(matching_blocks):
-                block = document.findBlock(position)
-                if not block.isValid():
-                    continue
-                cursor = QTextCursor(block)
-                cursor.select(QTextCursor.SelectionType.BlockUnderCursor)
-                cursor.removeSelectedText()
-                self._insert_tikz_preview(
-                    cursor,
-                    raw,
-                    source_line,
-                    QImage(image),
-                )
+            cursor = QTextCursor(block)
+            cursor.select(QTextCursor.SelectionType.BlockUnderCursor)
+            cursor.removeSelectedText()
+            self._insert_tikz_preview(
+                cursor,
+                raw,
+                source_line,
+                image,
+            )
             document.setModified(was_modified)
         finally:
             self._loading = was_loading
-        self.viewport().update()
 
     def keyPressEvent(self, event) -> None:
         modifiers = event.modifiers()
-        control = bool(modifiers & Qt.KeyboardModifier.ControlModifier)
-        shift = bool(modifiers & Qt.KeyboardModifier.ShiftModifier)
+        control = bool(
+            modifiers & Qt.KeyboardModifier.ControlModifier
+        )
+        shift = bool(
+            modifiers & Qt.KeyboardModifier.ShiftModifier
+        )
         alt_or_meta = bool(
             modifiers
             & (
@@ -186,8 +258,12 @@ class WindowedLatexVisualEditor(WindowedLatexVisualEditorCore):
         next_meta = None
         next_format = None
         if next_block.isValid():
-            next_meta = self._copy_block_meta(next_block.userData())
-            next_format = QTextBlockFormat(next_block.blockFormat())
+            next_meta = self._copy_block_meta(
+                next_block.userData()
+            )
+            next_format = QTextBlockFormat(
+                next_block.blockFormat()
+            )
         edit = QTextCursor(document)
         edit.beginEditBlock()
         if next_block.isValid():
@@ -205,25 +281,37 @@ class WindowedLatexVisualEditor(WindowedLatexVisualEditorCore):
                     QTextCursor.MoveMode.KeepAnchor,
                 )
             else:
-                edit.select(QTextCursor.SelectionType.Document)
+                edit.select(
+                    QTextCursor.SelectionType.Document
+                )
         edit.removeSelectedText()
         survivor = document.findBlock(start)
         if survivor.isValid():
             survivor.setUserData(next_meta)
             format_cursor = QTextCursor(survivor)
             format_cursor.setBlockFormat(
-                next_format if next_format is not None else QTextBlockFormat()
+                next_format
+                if next_format is not None
+                else QTextBlockFormat()
             )
         edit.endEditBlock()
         restored = QTextCursor(document)
         restored.setPosition(
-            min(max(start, 0), max(document.characterCount() - 1, 0))
+            min(
+                max(start, 0),
+                max(
+                    document.characterCount() - 1,
+                    0,
+                ),
+            )
         )
         self.setTextCursor(restored)
         self.ensureCursorVisible()
 
     @staticmethod
-    def _copy_block_meta(data) -> _BlockMeta | None:
+    def _copy_block_meta(
+        data,
+    ) -> _BlockMeta | None:
         if not isinstance(data, _BlockMeta):
             return None
         return _BlockMeta(
@@ -233,5 +321,7 @@ class WindowedLatexVisualEditor(WindowedLatexVisualEditorCore):
             display=data.display,
             depth=data.depth,
             source_line=data.source_line,
-            source_segments=list(data.source_segments),
+            source_segments=list(
+                data.source_segments
+            ),
         )
