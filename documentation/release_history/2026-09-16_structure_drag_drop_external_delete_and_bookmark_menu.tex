@@ -1,0 +1,53 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+\usepackage{adjustbox}
+\usepackage[active,tightpage]{preview}
+
+\PreviewBorder=4pt
+
+\usetikzlibrary{graphs,graphdrawing,arrows.meta,positioning,calc,fit,shapes.geometric}
+\usegdlibrary{layered}
+
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/external_graphviz.tex}
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/part/control_sequence/kind/semtag/semtag.tex}
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/seehere.tex}
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/deep_structure.tex}
+
+\title{Structure drag/drop, external deletion safety, and bookmark menu ownership}
+\date{2026-09-16}
+\author{Mohammad Rahmani}
+
+\begin{document}
+   \maketitle
+
+   \begin{preview}
+      \section{Changes}
+      \begin{itemize}
+         \item LaTeX Structure now includes tables in addition to headings and images.
+         \item Structure rows can be dragged to reorder complete source spans or to change a heading's parent; heading commands inside the moved subtree are shifted consistently.
+         \item Autosave no longer recreates a canonical file that was deleted externally while its editor tab remained open.
+         \item Navigator explicitly refreshes its filesystem model when an open file disappears externally and after create/delete/rename operations.
+         \item The Bookmarks menu has one contextual bookmark action instead of two competing \texttt{Bookmark Selection} actions.
+      \end{itemize}
+
+      \section{Architecture}
+      Parsing, move planning, tree drag/drop, source application, autosave policy, and filesystem-model refresh remain separate classes. The implementation does not add runtime monkey patches or hot-fix modules.
+   \end{preview}
+
+   \bibliographystyle{plainnat}
+   \bibliography{/home/donkarlo/Dropbox/repo/nd_shared_research/bibliography/bibliography.bib}
+\end{document}

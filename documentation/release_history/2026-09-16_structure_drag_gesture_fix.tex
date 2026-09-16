@@ -1,0 +1,52 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+\usepackage{adjustbox}
+\usepackage[active,tightpage]{preview}
+
+\PreviewBorder=4pt
+
+\usetikzlibrary{graphs,graphdrawing,arrows.meta,positioning,calc,fit,shapes.geometric}
+\usegdlibrary{layered}
+
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/external_graphviz.tex}
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/part/control_sequence/kind/semtag/semtag.tex}
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/seehere.tex}
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/deep_structure.tex}
+
+\title{Structure drag gesture and semantic move fixes}
+\date{2026-09-16}
+\author{Mohammad Rahmani}
+
+\begin{document}
+   \maketitle
+
+   \begin{preview}
+      \section{Bug fixes}
+      Structure drag initiation remains independent of Qt selection/current-item state, while drop placement now follows Qt's own painted drop indicator instead of a separate row-third heuristic.
+
+      Parsed Structure nodes now carry explicit parent source positions and sibling indexes. The move planner uses those relations to distinguish real reparenting from simple sibling moves. Heading subtrees are shifted using the document class hierarchy, so an article \texttt{part} correctly contains \texttt{section} rather than the undefined \texttt{chapter} command.
+
+      Figure/table rows now use a non-parent leaf level in the legacy stack renderer, preventing a later \texttt{paragraph}, \texttt{subparagraph}, or other deeper heading from being displayed as a child of an image/table row.
+
+      Deep subtree moves are rejected when their relative heading hierarchy cannot be represented; heading levels are no longer clamped together at \texttt{subparagraph}. Ambiguous heading drops beside figures or tables are rejected because LaTeX has no explicit section closing command and such a move would silently capture unrelated leaves into the moved heading. Figure/table drops inside a heading are inserted before that heading's first direct child heading so they remain direct children.
+
+      Regression coverage now includes explicit parent/sibling parsing, section-to-subsection reparenting, document-class-aware part handling, deepest-level rejection, leaf reparent safety, root promotion, skipped-level preservation, and representative mixed heading structures from \texttt{neural\_cognitive\_architecture.tex}.
+   \end{preview}
+
+   \bibliographystyle{plainnat}
+   \bibliography{/home/donkarlo/Dropbox/repo/nd_shared_research/bibliography/bibliography.bib}
+\end{document}

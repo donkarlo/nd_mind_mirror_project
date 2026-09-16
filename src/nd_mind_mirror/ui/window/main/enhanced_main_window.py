@@ -7,6 +7,9 @@ from PySide6.QtCore import QTimer
 from nd_mind_mirror.ui.editor.latex.source_tikz_preview_controller import (
     SourceTikZPreviewController,
 )
+from nd_mind_mirror.ui.window.main.autosave.existing_file_document_autosave_controller import (
+    ExistingFileDocumentAutosaveController,
+)
 from nd_mind_mirror.ui.window.main.bookmark_selection_menu_controller import (
     BookmarkSelectionMenuController,
 )
@@ -18,6 +21,9 @@ from nd_mind_mirror.ui.window.main.preview.profile.latex_preview_profile_control
 )
 from nd_mind_mirror.ui.window.main.search_aware_navigator_multi_path_context_controller import (
     SearchAwareNavigatorMultiPathContextController,
+)
+from nd_mind_mirror.ui.window.main.structure_source_rewrite_controller import (
+    StructureSourceRewriteController,
 )
 from nd_mind_mirror.ui.window.main.tikz.tikz_live_refresh_controller import (
     TikZLiveRefreshController,
@@ -32,6 +38,7 @@ class EnhancedMainWindow(BaseEnhancedMainWindow):
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
+        self._externally_missing_paths: set[Path] = set()
         workspace_root = self._app_settings.search_default_path
         self._workspace_root = Path(workspace_root).expanduser().resolve()
         self._renderer.set_workspace_default_path(workspace_root)
@@ -42,6 +49,12 @@ class EnhancedMainWindow(BaseEnhancedMainWindow):
             self._editor_panel,
             self._bookmarks_menu,
             self._toggle_bookmark_action,
+            self,
+        )
+        self._structure_source_rewrite_controller = StructureSourceRewriteController(
+            self._structure_panel,
+            self._editor_panel,
+            self,
             self,
         )
         self._latex_preview_profile_controller = LatexPreviewProfileController(self)
@@ -74,6 +87,72 @@ class EnhancedMainWindow(BaseEnhancedMainWindow):
             0,
             lambda: self._refresh_current_preview(immediate=True),
         )
+
+    def _replace_document_autosave_controller(self) -> None:
+        """Use deletion-safe local-cache autosave for the final window."""
+        existing = getattr(self, "_document_autosave_controller", None)
+        if existing is not None:
+            existing.shutdown()
+        self._document_autosave_controller = ExistingFileDocumentAutosaveController(
+            self._editor_panel,
+            protected_path=self._app_settings.latex_shortcuts_file_path,
+            on_written=self._remember_autosave_write,
+            parent=self,
+        )
+
+    def _sync_external_file_changes(self) -> None:
+        """Refresh Navigator when an open canonical file disappears externally."""
+        filesystem = getattr(
+            self,
+            "_workspace_filesystem_operation_controller",
+            None,
+        )
+        references = getattr(
+            self,
+            "_workspace_reference_maintenance_controller",
+            None,
+        )
+        if (
+            (filesystem is not None and filesystem.has_pending_work)
+            or (references is not None and references.has_pending_work)
+        ):
+            super()._sync_external_file_changes()
+            return
+
+        missing = {
+            Path(path).expanduser().resolve(strict=False)
+            for path in self._editor_panel.open_paths()
+            if not Path(path).expanduser().resolve(strict=False).is_file()
+        }
+        newly_missing = missing - self._externally_missing_paths
+        self._externally_missing_paths = missing
+        if newly_missing:
+            for path in newly_missing:
+                self._file_signatures.pop(path, None)
+            refresh = getattr(
+                self,
+                "_navigator_filesystem_model_refresh_controller",
+                None,
+            )
+            if refresh is not None:
+                current = self._editor_panel.current_path()
+                current_path = (
+                    Path(current).expanduser().resolve(strict=False)
+                    if current is not None
+                    else None
+                )
+                selected = (
+                    current_path.parent
+                    if current_path is not None and current_path in missing
+                    else None
+                )
+                refresh.refresh(selected)
+            self.statusBar().showMessage(
+                "A file open in the editor was deleted outside Mind Mirror; autosave will not recreate it.",
+                5000,
+            )
+
+        super()._sync_external_file_changes()
 
     def _on_tikz_source_updated(self, path: str) -> None:
         """Reload Source now; live graphics and PDF follow separate bounded schedules."""

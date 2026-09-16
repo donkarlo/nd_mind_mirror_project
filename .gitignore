@@ -41,3 +41,5 @@ src/*.egg-info/
 prompt/
 
 nd_graphic.zip
+# Ignore any file or directory named prompt at any depth
+prompt

@@ -1,3 +1,5 @@
+"""Render navigable LaTeX/YAML structure and semantic LaTeX drag/drop editing."""
+
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer, Signal
@@ -6,10 +8,12 @@ from PySide6.QtWidgets import (
     QAbstractItemView,
     QLabel,
     QSizePolicy,
-    QTreeWidget,
     QTreeWidgetItem,
 )
 
+from nd_mind_mirror.core.latex.structure.latex_structure_move_planner import (
+    LatexStructureMovePlanner,
+)
 from nd_mind_mirror.core.latex.structure.latex_structure_parser import (
     LatexStructureParser,
 )
@@ -20,14 +24,24 @@ from nd_mind_mirror.ui.panel.base.panel import Panel
 from nd_mind_mirror.ui.panel.structure.latex_structure_parse_worker import (
     LatexStructureParseWorker,
 )
+from nd_mind_mirror.ui.panel.structure.latex_structure_tree import (
+    LatexStructureTree,
+)
 
 
 class LatexStructurePanel(Panel):
-    """Show the complete document structure without blocking large-file UI load."""
+    """Show Structure and request canonical source rewrites for LaTeX drops."""
 
     line_activated = Signal(int)
+    source_rewrite_requested = Signal(str, str, int)
+
     _LARGE_DOCUMENT_THRESHOLD_CHARS = 120_000
     _LARGE_DOCUMENT_DEBOUNCE_MS = 650
+    _LINE_ROLE = Qt.ItemDataRole.UserRole
+    _SOURCE_POSITION_ROLE = Qt.ItemDataRole.UserRole + 1
+    _SOURCE_END_ROLE = Qt.ItemDataRole.UserRole + 2
+    _KIND_ROLE = Qt.ItemDataRole.UserRole + 3
+    _LEVEL_ROLE = Qt.ItemDataRole.UserRole + 4
     _LATEX_STRUCTURE_TOKENS = (
         "\\part",
         "\\chapter",
@@ -40,15 +54,23 @@ class LatexStructurePanel(Panel):
         "\\caption",
         "\\begin{figure",
         "\\end{figure",
+        "\\begin{table",
+        "\\end{table",
+        "\\begin{longtable",
+        "\\end{longtable",
+        "\\begin{tabular",
+        "\\end{tabular",
     )
 
     def __init__(self, parent=None) -> None:
         super().__init__("Structure", parent)
 
         self._latex_parser = LatexStructureParser()
+        self._move_planner = LatexStructureMovePlanner()
         self._yaml_parser = YamlStructureParser()
         self._path: Path | None = None
         self._source = ""
+        self._structure: list = []
         self._indent_width = 10
         self._current_line = 1
         self._structure_signature: tuple[tuple[int, str], ...] | None = None
@@ -65,19 +87,20 @@ class LatexStructurePanel(Panel):
         )
 
         self._label = QLabel("Structure", self)
-        self._tree = QTreeWidget(self)
+        self._tree = LatexStructureTree(self)
         self._tree.setHeaderHidden(True)
         self._tree.setIndentation(self._indent_width)
         self._tree.setAnimated(False)
         self._tree.setUniformRowHeights(True)
         self._tree.setSelectionMode(
-            QAbstractItemView.SelectionMode.NoSelection
+            QAbstractItemView.SelectionMode.SingleSelection
         )
         self._tree.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._tree.setEditTriggers(
             QAbstractItemView.EditTrigger.NoEditTriggers
         )
         self._tree.itemClicked.connect(self._on_item_clicked)
+        self._tree.structure_drop_requested.connect(self._on_structure_drop_requested)
 
         self._refresh_timer = QTimer(self)
         self._refresh_timer.setSingleShot(True)
@@ -118,6 +141,9 @@ class LatexStructurePanel(Panel):
             self.clear()
             return
 
+        self._tree.setDragEnabled(file_path.suffix.lower() == ".tex")
+        self._tree.setAcceptDrops(file_path.suffix.lower() == ".tex")
+        self._tree.viewport().setAcceptDrops(file_path.suffix.lower() == ".tex")
         self._label.setText(f"Structure — {file_path.name}")
 
         if self._is_large_latex_document():
@@ -130,8 +156,6 @@ class LatexStructurePanel(Panel):
                     self._source,
                 )
             ):
-                # Ordinary prose typing does not change the Structure tree.
-                # Keep the complete source current without scheduling a parse.
                 return
 
             self._parse_generation += 1
@@ -160,6 +184,7 @@ class LatexStructurePanel(Panel):
         self._pending_async_rebuild = False
         self._path = None
         self._source = ""
+        self._structure = []
         self._structure_signature = None
         self._label.setText("Structure")
         self._tree.clear()
@@ -175,19 +200,13 @@ class LatexStructurePanel(Panel):
         if suffix == ".tex":
             return tuple(
                 (line_number, line.strip())
-                for line_number, line in enumerate(
-                    source.splitlines(),
-                    start=1,
-                )
+                for line_number, line in enumerate(source.splitlines(), start=1)
                 if any(token in line for token in cls._LATEX_STRUCTURE_TOKENS)
             )
         if suffix in {".yaml", ".yml"}:
             return tuple(
                 (line_number, line.rstrip())
-                for line_number, line in enumerate(
-                    source.splitlines(),
-                    start=1,
-                )
+                for line_number, line in enumerate(source.splitlines(), start=1)
                 if (
                     line.strip()
                     and not line.lstrip().startswith("#")
@@ -211,7 +230,7 @@ class LatexStructurePanel(Panel):
         chunk = 4096
         while (
             prefix + chunk <= limit
-            and old[prefix : prefix + chunk] == new[prefix : prefix + chunk]
+            and old[prefix:prefix + chunk] == new[prefix:prefix + chunk]
         ):
             prefix += chunk
         while prefix < limit and old[prefix] == new[prefix]:
@@ -221,8 +240,8 @@ class LatexStructurePanel(Panel):
         suffix = 0
         while (
             suffix + chunk <= suffix_limit
-            and old[len(old) - suffix - chunk : len(old) - suffix]
-            == new[len(new) - suffix - chunk : len(new) - suffix]
+            and old[len(old) - suffix - chunk:len(old) - suffix]
+            == new[len(new) - suffix - chunk:len(new) - suffix]
         ):
             suffix += chunk
         while (
@@ -235,7 +254,6 @@ class LatexStructurePanel(Panel):
         new_end = len(new) - suffix
         old_changed = old[prefix:old_end]
         new_changed = new[prefix:new_end]
-
         if "\n" in old_changed or "\n" in new_changed:
             return True
         if "\\" in old_changed or "\\" in new_changed:
@@ -253,10 +271,7 @@ class LatexStructurePanel(Panel):
             + "\n"
             + line_context(new, prefix, new_end)
         )
-        return any(
-            token in context
-            for token in cls._LATEX_STRUCTURE_TOKENS
-        )
+        return any(token in context for token in cls._LATEX_STRUCTURE_TOKENS)
 
     def _is_large_latex_document(self) -> bool:
         return bool(
@@ -311,9 +326,7 @@ class LatexStructurePanel(Panel):
         generation: int,
         structure: object,
     ) -> None:
-        if generation != self._parse_generation:
-            return
-        if not isinstance(structure, list):
+        if generation != self._parse_generation or not isinstance(structure, list):
             return
         self._apply_structure(structure)
 
@@ -334,40 +347,41 @@ class LatexStructurePanel(Panel):
         if self._latex_worker is worker:
             self._latex_worker = None
         worker.deleteLater()
-
         if self._pending_async_rebuild and self._is_large_latex_document():
             self._pending_async_rebuild = False
             QTimer.singleShot(0, self._start_async_latex_rebuild)
 
     def _apply_structure(self, structure: list) -> None:
         """Replace the tree from a complete parsed structure on the GUI thread."""
+        self._structure = list(structure)
         self._tree.setUpdatesEnabled(False)
         try:
             self._tree.clear()
             stack: list[tuple[int, QTreeWidgetItem]] = []
-
             for node in structure:
                 while stack and stack[-1][0] >= node.level:
                     stack.pop()
 
-                item = QTreeWidgetItem(
-                    [f"{node.kind} — {node.title}"]
+                item = QTreeWidgetItem([f"{node.kind} — {node.title}"])
+                item.setData(0, self._LINE_ROLE, node.line_number)
+                item.setData(
+                    0,
+                    self._SOURCE_POSITION_ROLE,
+                    int(getattr(node, "source_position", -1)),
                 )
                 item.setData(
                     0,
-                    Qt.ItemDataRole.UserRole,
-                    node.line_number,
+                    self._SOURCE_END_ROLE,
+                    int(getattr(node, "source_end", -1)),
                 )
-                item.setToolTip(
-                    0,
-                    f"Line {node.line_number}: {node.kind}",
-                )
+                item.setData(0, self._KIND_ROLE, str(node.kind))
+                item.setData(0, self._LEVEL_ROLE, int(node.level))
+                item.setToolTip(0, f"Line {node.line_number}: {node.kind}")
 
                 if stack:
                     stack[-1][1].addChild(item)
                 else:
                     self._tree.addTopLevelItem(item)
-
                 stack.append((node.level, item))
 
             self._tree.expandAll()
@@ -375,6 +389,33 @@ class LatexStructurePanel(Panel):
         finally:
             self._tree.setUpdatesEnabled(True)
             self._tree.viewport().update()
+
+    def _on_structure_drop_requested(
+        self,
+        source_position: int,
+        target_position: int,
+        placement: str,
+    ) -> None:
+        """Translate one tree drop into one canonical-source edit request."""
+        if self._path is None or self._path.suffix.lower() != ".tex":
+            return
+        result = self._move_planner.move(
+            self._source,
+            self._structure,
+            source_position,
+            target_position,
+            placement,
+        )
+        if result is None:
+            return
+        rewritten, line_number = result
+        if rewritten == self._source:
+            return
+        self.source_rewrite_requested.emit(
+            self._source,
+            rewritten,
+            max(int(line_number), 1),
+        )
 
     def set_current_line(self, line_number: int) -> None:
         """Highlight the deepest structure item containing the cursor line."""
@@ -392,9 +433,7 @@ class LatexStructurePanel(Panel):
         for index in range(self._tree.topLevelItemCount()):
             walk(self._tree.topLevelItem(index))
         items.sort(
-            key=lambda item: int(
-                item.data(0, Qt.ItemDataRole.UserRole) or 0
-            )
+            key=lambda item: int(item.data(0, self._LINE_ROLE) or 0)
         )
         return items
 
@@ -402,36 +441,22 @@ class LatexStructurePanel(Panel):
         """Clear every row and paint exactly one semantic Structure highlight."""
         items = self._all_items_in_source_order()
         target: QTreeWidgetItem | None = None
-
         self._tree.setUpdatesEnabled(False)
         try:
             self._tree.clearSelection()
             self._tree.setCurrentItem(None)
-
             for item in items:
-                item.setSelected(False)
                 item.setBackground(0, self._clear_brush)
-
             for item in items:
                 try:
-                    item_line = int(
-                        item.data(
-                            0,
-                            Qt.ItemDataRole.UserRole,
-                        )
-                    )
+                    item_line = int(item.data(0, self._LINE_ROLE))
                 except (TypeError, ValueError):
                     continue
                 if item_line > self._current_line:
                     break
                 target = item
-
             if target is not None:
                 target.setBackground(0, self._highlight_brush)
-
-            selection_model = self._tree.selectionModel()
-            if selection_model is not None:
-                selection_model.clear()
         finally:
             self._tree.setUpdatesEnabled(True)
             self._tree.viewport().update()
@@ -442,13 +467,11 @@ class LatexStructurePanel(Panel):
         column: int,
     ) -> None:
         del column
-        value = item.data(
-            0,
-            Qt.ItemDataRole.UserRole,
-        )
+        value = item.data(0, self._LINE_ROLE)
         try:
             line_number = int(value)
         except (TypeError, ValueError):
             return
         if line_number > 0:
             self.line_activated.emit(line_number)
+        self._tree.clearSelection()

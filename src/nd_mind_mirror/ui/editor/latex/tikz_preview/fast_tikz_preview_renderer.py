@@ -18,6 +18,8 @@ from PySide6.QtGui import (
     QPolygonF,
 )
 
+from .preview_canvas_geometry import TikZPreviewCanvasGeometry
+
 
 @dataclass(frozen=True)
 class _Node:
@@ -51,11 +53,6 @@ class _Edge:
 
 class TikZFastPreviewRenderer:
     """Render iPad-generated nodes/connectors without launching LuaLaTeX."""
-
-    _CANVAS_WIDTH = 16.0
-    _CANVAS_HEIGHT = 11.0
-    _IMAGE_WIDTH = 960
-    _IMAGE_HEIGHT = 660
 
     _NODE = re.compile(
         r"\\node\s*(?:\[([^\]]*)\]\s*)?\(([^\)]+)\)\s*"
@@ -96,12 +93,16 @@ class TikZFastPreviewRenderer:
             return None
         node_by_name = {node.name: node for node in nodes}
         edges = self._parse_edges(source)
-        if any(edge.source not in node_by_name or edge.target not in node_by_name for edge in edges):
+        if any(
+            edge.source not in node_by_name or edge.target not in node_by_name
+            for edge in edges
+        ):
             return None
 
+        canvas = TikZPreviewCanvasGeometry.from_source(source)
         image = QImage(
-            self._IMAGE_WIDTH,
-            self._IMAGE_HEIGHT,
+            canvas.pixel_width,
+            canvas.pixel_height,
             QImage.Format.Format_ARGB32_Premultiplied,
         )
         image.fill(QColor("white"))
@@ -110,9 +111,9 @@ class TikZFastPreviewRenderer:
         painter.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
         try:
             for edge in edges:
-                self._draw_edge(painter, edge, node_by_name)
+                self._draw_edge(painter, edge, node_by_name, canvas)
             for node in nodes:
-                self._draw_node(painter, node)
+                self._draw_node(painter, node, canvas)
         finally:
             painter.end()
         return image
@@ -137,13 +138,22 @@ class TikZFastPreviewRenderer:
                     label=self._plain_label(match.group(5)),
                     x=float(match.group(3)),
                     y=float(match.group(4)),
-                    width=self._measurement(options.get("minimum width"), 1.8 if ellipse else 2.0),
-                    height=self._measurement(options.get("minimum height"), 1.1 if ellipse else 1.0),
+                    width=self._measurement(
+                        options.get("minimum width"),
+                        1.8 if ellipse else 2.0,
+                    ),
+                    height=self._measurement(
+                        options.get("minimum height"),
+                        1.1 if ellipse else 1.0,
+                    ),
                     ellipse=ellipse,
                     fill=self._color(options.get("fill"), QColor("white")),
                     stroke=self._color(options.get("draw"), QColor("black")),
                     text=self._color(options.get("text"), QColor("black")),
-                    line_width=self._measurement(options.get("line width"), 1.0),
+                    line_width=self._measurement(
+                        options.get("line width"),
+                        1.0,
+                    ),
                 )
             )
         return result
@@ -156,7 +166,11 @@ class TikZFastPreviewRenderer:
             options = self._options(raw_options)
             label_match = self._LABEL.search(path_body)
             label = self._plain_label(label_match.group(2)) if label_match else ""
-            label_options = self._options(label_match.group(1) or "") if label_match else {}
+            label_options = (
+                self._options(label_match.group(1) or "")
+                if label_match
+                else {}
+            )
             lowered = raw_options.lower()
             result.append(
                 _Edge(
@@ -166,8 +180,14 @@ class TikZFastPreviewRenderer:
                     path_body=path_body,
                     options=raw_options,
                     stroke=self._color(options.get("draw"), QColor("black")),
-                    text=self._color(label_options.get("text"), QColor("black")),
-                    line_width=self._measurement(options.get("line width"), 1.0),
+                    text=self._color(
+                        label_options.get("text"),
+                        QColor("black"),
+                    ),
+                    line_width=self._measurement(
+                        options.get("line width"),
+                        1.0,
+                    ),
                     dashed="dashed" in options,
                     directed=("->" in options or "latex" in lowered),
                     empty_arrow="latex[open]" in lowered,
@@ -175,11 +195,27 @@ class TikZFastPreviewRenderer:
             )
         return result
 
-    def _draw_node(self, painter: QPainter, node: _Node) -> None:
-        center = self._view_point(node.x, node.y)
-        width = max(node.width / self._CANVAS_WIDTH * self._IMAGE_WIDTH, 36.0)
-        height = max(node.height / self._CANVAS_HEIGHT * self._IMAGE_HEIGHT, 28.0)
-        rect = QRectF(center.x() - width / 2, center.y() - height / 2, width, height)
+    def _draw_node(
+        self,
+        painter: QPainter,
+        node: _Node,
+        canvas: TikZPreviewCanvasGeometry,
+    ) -> None:
+        center = self._view_point(node.x, node.y, canvas)
+        width = max(
+            node.width / canvas.logical_width * canvas.pixel_width,
+            36.0,
+        )
+        height = max(
+            node.height / canvas.logical_height * canvas.pixel_height,
+            28.0,
+        )
+        rect = QRectF(
+            center.x() - width / 2,
+            center.y() - height / 2,
+            width,
+            height,
+        )
         painter.setPen(QPen(node.stroke, max(node.line_width, 0.8)))
         painter.setBrush(node.fill)
         if node.ellipse:
@@ -189,37 +225,65 @@ class TikZFastPreviewRenderer:
         if node.label:
             painter.setPen(node.text)
             painter.setFont(QFont("Sans Serif", 10))
-            painter.drawText(rect.adjusted(4, 3, -4, -3), Qt.AlignmentFlag.AlignCenter, node.label)
+            painter.drawText(
+                rect.adjusted(4, 3, -4, -3),
+                Qt.AlignmentFlag.AlignCenter,
+                node.label,
+            )
 
-    def _draw_edge(self, painter: QPainter, edge: _Edge, nodes: dict[str, _Node]) -> None:
+    def _draw_edge(
+        self,
+        painter: QPainter,
+        edge: _Edge,
+        nodes: dict[str, _Node],
+        canvas: TikZPreviewCanvasGeometry,
+    ) -> None:
         source = nodes[edge.source]
         target = nodes[edge.target]
-        source_center = self._view_point(source.x, source.y)
-        target_center = self._view_point(target.x, target.y)
+        source_center = self._view_point(source.x, source.y, canvas)
+        target_center = self._view_point(target.x, target.y, canvas)
 
         curve = self._CURVE.search(edge.path_body)
         bends = [
-            self._view_point(float(x), float(y))
+            self._view_point(float(x), float(y), canvas)
             for x, y in self._BEND.findall(edge.path_body)
         ]
 
         if curve is not None:
-            first = self._view_point(float(curve.group(1)), float(curve.group(2)))
-            second = self._view_point(float(curve.group(3)), float(curve.group(4)))
-            start = self._boundary(source, source_center, first)
-            end = self._boundary(target, target_center, second)
+            first = self._view_point(
+                float(curve.group(1)),
+                float(curve.group(2)),
+                canvas,
+            )
+            second = self._view_point(
+                float(curve.group(3)),
+                float(curve.group(4)),
+                canvas,
+            )
+            start = self._boundary(source, source_center, first, canvas)
+            end = self._boundary(target, target_center, second, canvas)
             path = QPainterPath(start)
             path.cubicTo(first, second, end)
         elif bends:
-            start = self._boundary(source, source_center, bends[0])
-            end = self._boundary(target, target_center, bends[-1])
+            start = self._boundary(source, source_center, bends[0], canvas)
+            end = self._boundary(target, target_center, bends[-1], canvas)
             path = QPainterPath(start)
             for point in bends:
                 path.lineTo(point)
             path.lineTo(end)
         else:
-            start = self._boundary(source, source_center, target_center)
-            end = self._boundary(target, target_center, source_center)
+            start = self._boundary(
+                source,
+                source_center,
+                target_center,
+                canvas,
+            )
+            end = self._boundary(
+                target,
+                target_center,
+                source_center,
+                canvas,
+            )
             path = QPainterPath(start)
             path.lineTo(end)
 
@@ -237,7 +301,12 @@ class TikZFastPreviewRenderer:
         if edge.label:
             self._draw_edge_label(painter, path, edge)
 
-    def _draw_arrow(self, painter: QPainter, path: QPainterPath, edge: _Edge) -> None:
+    def _draw_arrow(
+        self,
+        painter: QPainter,
+        path: QPainterPath,
+        edge: _Edge,
+    ) -> None:
         end = path.pointAtPercent(1.0)
         before = path.pointAtPercent(0.985)
         dx = end.x() - before.x()
@@ -246,51 +315,109 @@ class TikZFastPreviewRenderer:
         ux = dx / length
         uy = dy / length
         size = 10.0
-        base = QPointF(end.x() - ux * size, end.y() - uy * size)
+        base = QPointF(
+            end.x() - ux * size,
+            end.y() - uy * size,
+        )
         px, py = -uy, ux
-        left = QPointF(base.x() + px * size * 0.45, base.y() + py * size * 0.45)
-        right = QPointF(base.x() - px * size * 0.45, base.y() - py * size * 0.45)
+        left = QPointF(
+            base.x() + px * size * 0.45,
+            base.y() + py * size * 0.45,
+        )
+        right = QPointF(
+            base.x() - px * size * 0.45,
+            base.y() - py * size * 0.45,
+        )
         polygon = QPolygonF([end, left, right])
         painter.setPen(QPen(edge.stroke, max(edge.line_width, 0.8)))
-        painter.setBrush(Qt.BrushStyle.NoBrush if edge.empty_arrow else edge.stroke)
+        painter.setBrush(
+            Qt.BrushStyle.NoBrush
+            if edge.empty_arrow
+            else edge.stroke
+        )
         painter.drawPolygon(polygon)
 
-    def _draw_edge_label(self, painter: QPainter, path: QPainterPath, edge: _Edge) -> None:
+    def _draw_edge_label(
+        self,
+        painter: QPainter,
+        path: QPainterPath,
+        edge: _Edge,
+    ) -> None:
         center = path.pointAtPercent(0.5)
         font = QFont("Sans Serif", 9)
         painter.setFont(font)
         metrics = painter.fontMetrics()
         width = max(metrics.horizontalAdvance(edge.label) + 10, 28)
         height = metrics.height() + 6
-        rect = QRectF(center.x() - width / 2, center.y() - height / 2, width, height)
+        rect = QRectF(
+            center.x() - width / 2,
+            center.y() - height / 2,
+            width,
+            height,
+        )
         painter.fillRect(rect, QColor(255, 255, 255, 235))
         painter.setPen(edge.text)
-        painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, edge.label)
+        painter.drawText(
+            rect,
+            Qt.AlignmentFlag.AlignCenter,
+            edge.label,
+        )
 
-    def _boundary(self, node: _Node, center: QPointF, toward: QPointF) -> QPointF:
-        rx = max(node.width / self._CANVAS_WIDTH * self._IMAGE_WIDTH / 2, 18.0)
-        ry = max(node.height / self._CANVAS_HEIGHT * self._IMAGE_HEIGHT / 2, 14.0)
+    def _boundary(
+        self,
+        node: _Node,
+        center: QPointF,
+        toward: QPointF,
+        canvas: TikZPreviewCanvasGeometry,
+    ) -> QPointF:
+        rx = max(
+            node.width / canvas.logical_width * canvas.pixel_width / 2,
+            18.0,
+        )
+        ry = max(
+            node.height / canvas.logical_height * canvas.pixel_height / 2,
+            14.0,
+        )
         dx = toward.x() - center.x()
         dy = toward.y() - center.y()
         if abs(dx) < 1e-6 and abs(dy) < 1e-6:
             return center
         if node.ellipse:
-            scale = 1.0 / max(math.sqrt((dx / rx) ** 2 + (dy / ry) ** 2), 1e-6)
+            scale = 1.0 / max(
+                math.sqrt((dx / rx) ** 2 + (dy / ry) ** 2),
+                1e-6,
+            )
         else:
-            scale = min(rx / max(abs(dx), 1e-6), ry / max(abs(dy), 1e-6))
-        return QPointF(center.x() + dx * scale, center.y() + dy * scale)
-
-    def _view_point(self, x: float, y: float) -> QPointF:
+            scale = min(
+                rx / max(abs(dx), 1e-6),
+                ry / max(abs(dy), 1e-6),
+            )
         return QPointF(
-            x / self._CANVAS_WIDTH * self._IMAGE_WIDTH,
-            (1.0 - y / self._CANVAS_HEIGHT) * self._IMAGE_HEIGHT,
+            center.x() + dx * scale,
+            center.y() + dy * scale,
+        )
+
+    @staticmethod
+    def _view_point(
+        x: float,
+        y: float,
+        canvas: TikZPreviewCanvasGeometry,
+    ) -> QPointF:
+        return QPointF(
+            x / canvas.logical_width * canvas.pixel_width,
+            (1.0 - y / canvas.logical_height) * canvas.pixel_height,
         )
 
     @staticmethod
     def _measurement(raw: str | None, default: float) -> float:
         if raw is None:
             return default
-        value = raw.strip().lower().replace("cm", "").replace("pt", "")
+        value = (
+            raw.strip()
+            .lower()
+            .replace("cm", "")
+            .replace("pt", "")
+        )
         try:
             return float(value)
         except ValueError:
@@ -325,7 +452,11 @@ class TikZFastPreviewRenderer:
                 bracket_depth += 1
             elif character == "]":
                 bracket_depth = max(bracket_depth - 1, 0)
-            elif character == "," and brace_depth == 0 and bracket_depth == 0:
+            elif (
+                character == ","
+                and brace_depth == 0
+                and bracket_depth == 0
+            ):
                 fields.append(raw[start:index])
                 start = index + 1
         fields.append(raw[start:])
@@ -338,6 +469,7 @@ class TikZFastPreviewRenderer:
         value = raw.strip()
         if value.startswith("{") and value.endswith("}"):
             value = value[1:-1].strip()
+
         named = {
             "black": QColor(0, 0, 0),
             "white": QColor(255, 255, 255),
@@ -354,6 +486,7 @@ class TikZFastPreviewRenderer:
         lowered = value.lower()
         if lowered in named:
             return named[lowered]
+
         if lowered.startswith("rgb,255:"):
             components: dict[str, int] = {}
             for field in value[len("rgb,255:"):].split(";"):
@@ -361,7 +494,9 @@ class TikZFastPreviewRenderer:
                     continue
                 key, number = field.split(",", 1)
                 try:
-                    components[key.strip().lower()] = int(float(number.strip()))
+                    components[key.strip().lower()] = int(
+                        float(number.strip())
+                    )
                 except ValueError:
                     continue
             if {"red", "green", "blue"}.issubset(components):

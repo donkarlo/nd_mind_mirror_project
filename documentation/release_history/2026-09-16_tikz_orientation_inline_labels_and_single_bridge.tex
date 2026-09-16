@@ -1,0 +1,75 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+\usepackage{adjustbox}
+\usepackage[active,tightpage]{preview}
+
+\PreviewBorder=4pt
+
+\usetikzlibrary{graphs,graphdrawing,arrows.meta,positioning,calc,fit,shapes.geometric}
+\usegdlibrary{layered}
+
+% for external graphviz
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/external_graphviz.tex}
+
+% for tags
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/part/control_sequence/kind/semtag/semtag.tex}
+
+% for links
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/seehere.tex}
+
+% for nested lists and sections
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/deep_structure.tex}
+
+\title{}
+\date{}
+\author{Mohammad Rahmani}
+
+\begin{document}
+   \maketitle
+
+   \begin{preview}
+      \section*{TikZ canvas orientation, inline labels, and bridge singleton fix}
+
+      The fast Ubuntu TikZ preview now reads the source-backed
+      \texttt{nd\_mind\_mirror\_canvas} metadata instead of rendering into a
+      hard-coded landscape image. A diagram edited on the default
+      \(760\times980\) iPad canvas is therefore previewed with the same portrait
+      page aspect ratio on Ubuntu.
+
+      Double-tap label editing is again performed directly inside a node or at
+      the connector label position. The temporary floating label bar above the
+      canvas was removed. Label drafts still commit on Return or when editing
+      loses focus, while the workspace continues to ignore keyboard safe-area
+      changes so the drawing canvas is not re-laid out by the compact iPad input
+      assistant.
+
+      The ND Graphic launcher now enforces one bridge instance for the current
+      workspace. Starting it replaces stale same-user bridge processes for that
+      workspace, refuses busy canonical ports instead of silently choosing
+      fallback ports, and keeps a process lock for the lifetime of the bridge.
+      Direct module startup likewise refuses fallback ports. This prevents old
+      and new bridges from repeatedly stealing the reverse iPad TCP connection,
+      which previously produced repeated reconnects, \texttt{IncompleteReadError},
+      \texttt{Unknown message: update\_tikz}, delayed saves, and unnecessary CPU
+      load.
+
+      The bridge version was advanced to \texttt{0.31.49}.
+   \end{preview}
+
+   \bibliographystyle{plainnat}
+   \bibliography{/home/donkarlo/Dropbox/repo/nd_shared_research/bibliography/bibliography.bib}
+\end{document}

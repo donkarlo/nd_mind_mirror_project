@@ -1,0 +1,45 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+\usepackage{adjustbox}
+\usepackage[active,tightpage]{preview}
+
+\PreviewBorder=4pt
+
+\title{Visual mathematics rendering and sizing fix}
+\date{2026-09-16}
+\author{Mohammad Rahmani}
+
+\begin{document}
+\maketitle
+
+\section{Fix}
+Visual mode now preloads both inline and display mathematics in the same
+LuaLaTeX batch before the QTextDocument projection is constructed. Inline
+constructs such as \verb|$X$|, \verb|$x_i$| and \verb|\(z\)| therefore use
+rendered math images instead of remaining as blue source-backed chips.
+
+Display formulas are normalized against the active Visual editor font metrics
+before insertion. Small one-line formulas are enlarged to a readable size,
+while multi-row constructs such as \texttt{align} and nested \texttt{cases}
+reserve proportional vertical space. Width remains capped by the Visual
+viewport so large equations are never forced beyond the page.
+
+The normal path still performs one LuaLaTeX compilation for all uncached math
+in a source load. Late inline tokens deliberately do not start individual TeX
+processes, preserving the CPU behavior of the batch renderer.
+
+\end{document}

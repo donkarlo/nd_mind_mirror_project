@@ -11,13 +11,27 @@ from nd_mind_mirror.graphic.bridge.unified_server import UnifiedGraphicBridgeSer
 
 
 class ResponsiveUnifiedGraphicBridgeServer(UnifiedGraphicBridgeServer):
-    """Save TikZ immediately without compiling a preview for every edit."""
+    """Save/open TikZ immediately and render only after an explicit render request."""
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.tikz_update_event_path = (
             self.workspace / ".nd_mind_mirror" / "tikz_update_event.json"
         )
+
+    async def _send_tikz_open(self, writer, path: Path) -> None:
+        """Open canonical source on iPad without launching a background LuaLaTeX render."""
+        source = path.read_text(encoding="utf-8")
+        relative = path.relative_to(self.workspace).as_posix()
+        await self._send_tcp(
+            writer,
+            {
+                "type": "open_tikz",
+                "path": relative,
+                "source": source,
+            },
+        )
+        self._log_event(f"Sent source-only TikZ editor open path={path}")
 
     async def _update_tikz(self, writer, payload: dict[str, Any]) -> None:
         """Persist source, notify Ubuntu, and ACK without an automatic render."""

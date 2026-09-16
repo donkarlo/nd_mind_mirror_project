@@ -27,6 +27,7 @@ This README describes the active functional project: desktop Python/PySide6 sour
 - **F2** renames the selected Navigator file/folder.
 - File/folder rename and drag/move remap open editor tabs and renderer paths; stale queued/running Preview work against the old path is stopped before the filesystem move.
 - After a successful background rename/move, Navigator explicitly refreshes its `QFileSystemModel` cache/watcher and restores expansion/selection, so an old filename cannot remain visible after the filesystem has already changed.
+- Externally deleted open files are detected by the periodic disk synchronizer. Navigator refreshes its filesystem-model cache immediately, and autosave refuses to recreate a path that has disappeared from disk.
 - Managed PNG/JPG/JPEG graphics move or rename together with their neighboring `.ndgraphic` sidecar. If that graphic is active in the iPad bridge, the bridge remaps its live identity to the new path/name without reloading the active iPad canvas or resetting Undo/Redo history.
 - Deleting a managed raster through the Navigator also deletes its neighboring `.ndgraphic` companion so the project does not leave a stale editable sidecar behind.
 - Rename/move detects a stale orphan destination sidecar: when the destination raster no longer exists but its old `.ndgraphic` remains and belongs to that managed graphic workflow, the new raster/sidecar pair can safely replace the orphan instead of failing with an `already exists` collision.
@@ -46,6 +47,9 @@ This README describes the active functional project: desktop Python/PySide6 sour
 ### Structure panel
 
 - LaTeX hierarchy recognizes `\part`, `\chapter`, `\section`, `\subsection`, `\subsubsection`, `\paragraph`, and `\subparagraph`.
+- Structure also lists caption-aware `figure` graphics and `table`/`table*`/`longtable` content, plus standalone `tabular`, `tabular*`, and `tabularx` environments.
+- LaTeX Structure rows are draggable. Dropping before/after another row reorders the complete canonical source span; dropping a heading onto another heading reparents the dragged subtree and shifts its heading levels consistently.
+- Figure/image and table rows move their complete owning environment instead of moving only `\includegraphics`, `\caption`, or `tabular` fragments.
 - YAML has a hierarchy-oriented Structure view.
 - `Ctrl+Shift+F` auto-formats `.yaml`/`.yml` indentation using the configured editor indent size while preserving comments, key order, quoting, and block-scalar text.
 - Clicking Structure moves the editor to the corresponding source location.
@@ -152,6 +156,7 @@ The controller handles Qt standard-key matching and German/Swiss QWERTZ layouts.
 - Bookmark labels prefer a custom name, then the saved selected text, then the source anchor, so the Bookmarks menu and **Manage Bookmarks…** show what was highlighted.
 - Bookmarks keep line/column information, can be renamed/removed, are persisted, and relocate when preceding content changes. Saved selection endpoints move with the relocated bookmark anchor.
 - The Bookmarks menu lists bookmarks across files.
+- The Bookmarks menu has one contextual command owner: it shows **Bookmark Selection** when a source range is selected and otherwise **Toggle Bookmark at Cursor**, so duplicate selection actions cannot appear.
 - **Bookmarks → Manage Bookmarks…** provides Go To and Delete operations and preserves the saved selection payload when navigating.
 
 ## Live PDF Preview
@@ -337,19 +342,19 @@ Each desktop application session starts a bridge process from the current projec
 
 The active source/tests/settings currently cover these functional areas:
 
-1. Workspace root configuration, ignored-path policy, deterministic Navigator reveal/centering, explicit post-rename filesystem-model refresh, horizontal scrolling, multi-selection, grouped context menus, copy/cut/paste, collision naming, create/rename/delete/drag/move, path copying/sharing, and iPad image/TikZ actions.
+1. Workspace root configuration, ignored-path policy, deterministic Navigator reveal/centering, explicit post-rename/external-delete filesystem-model refresh, horizontal scrolling, multi-selection, grouped context menus, copy/cut/paste, collision naming, create/rename/delete/drag/move, path copying/sharing, and iPad image/TikZ actions.
 2. Semantic repository reference discovery/rewrite across relative, workspace-relative, absolute, `/repo/...`, extensionless LaTeX, graphics, bibliography, listing/verbatim, minted, URL/href, and supported document-link contexts.
 3. Background reference scanning/maintenance and responsive filesystem workers, including managed raster + `.ndgraphic` lifecycle rules.
 4. LaTeX Source editing, completion/snippets, indentation/formatting, RTL/LTR direction, logical line numbers, wrapping, selection-consistent bookmarks, image/TikZ insertion, special-character helpers, line deletion, and selection-aware context actions.
 5. LaTeX Visual projection/editing, source mapping, graphics, inline source-backed TikZ previews, nested fractions, justified prose/lists, Persian typography, image paste, bookmarks, and bounded large-document windowing.
 6. YAML editing, syntax highlighting, hierarchical Structure parsing, smart/shared indentation, and formatting that preserves YAML content structure.
 7. Generic text/code editing with the shared source editor infrastructure.
-8. Structure parsing/navigation/highlighting for LaTeX and YAML, including `\includegraphics` entries and caption-aware graphic labels.
+8. Structure parsing/navigation/highlighting for LaTeX and YAML, including heading subtree spans, caption-aware images and tables, standalone tabular environments, and canonical-source drag/reorder/reparent operations.
 9. Two-tab workspace search: Double-Shift file/folder search with exact/prefix/substring/fuzzy and ordered `>` hierarchy matching, plus recursive text-in-files search with selectable roots, persisted per-tab state, LaTeX structural grouping, exact occurrence navigation, and Navigator folder-scoped search actions.
 10. Pinned/Open two-row tab management, drag ordering, persisted order, max-tab/LRU behavior, recent-file switching, `Ctrl+Tab`, `Ctrl+W`, path remapping, and session restoration.
 11. Undo/Redo, current-line deletion, Find/Replace, bold, bookmarks, editor zoom reset, configurable application shortcuts, and user-editable LaTeX shorthand expansion.
 12. LuaLaTeX live Preview, recursive input resolution, workspace-rooted Preview reference materialization, graphic dependencies, bibliography passes, generation cancellation, selectable PDF text, zoom/pan, Fit/Auto Fit, reverse SyncTeX, structured/copyable diagnostics, selection highlight/caret mapping, Lock, Extend, Detach/Attach, toggle, and PDF export.
-13. Autosave, external-file synchronization, local autosave staging, persisted UI/editor state, settings reload, and per-feature performance/debounce controls.
+13. Autosave, external-file synchronization, local autosave staging, deletion-safe autosave commit semantics, persisted UI/editor state, settings reload, and per-feature performance/debounce controls.
 14. Native iPad PencilKit raster drawing plus direct source-backed TikZ editing, including reliable select/double-tap label edit, separate move/resize controls, arbitrary native colors, TikZ canvas sizing, Undo/Redo-compatible source updates, and shared transport.
 15. Ubuntu↔iPad bridge transport, open/update/save acknowledgements, revision tracking, managed sidecars, background preservation, stale-path rename aliases, current-session bridge process ownership, and Source/Visual/Preview refresh after accepted graphic updates.
 16. Startup/package tooling, canonical iPad ZIP generation, crash/startup diagnostics, preferred virtual environment selection, Python cache relocation, regression tests, examples, templates, icons, and release-history documentation.

@@ -1,0 +1,58 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+\usepackage{adjustbox}
+\usepackage[active,tightpage]{preview}
+
+\PreviewBorder=4pt
+
+\usetikzlibrary{graphs,graphdrawing,arrows.meta,positioning,calc,fit,shapes.geometric}
+\usegdlibrary{layered}
+
+% for external graphviz
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/external_graphviz.tex}
+
+% for tags
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/part/control_sequence/kind/semtag/semtag.tex}
+
+% for links
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/seehere.tex}
+
+% for nested lists and sections
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/deep_structure.tex}
+
+\title{}
+\date{}
+\author{Mohammad Rahmani}
+
+\begin{document}
+   \maketitle
+
+   \begin{preview}
+      \section*{TikZ preview lifecycle, portrait canvas, and open-time CPU fix}
+
+      The Source TikZ preview controller now treats Qt editor lifetime explicitly. It checks the underlying Shiboken object before accessing an editor, viewport, document, scroll bar, or preview widget, clears its active-editor reference on the editor's \texttt{destroyed} signal, and safely abandons delayed refreshes that target deleted \texttt{SelectionLatexEditor} instances. This removes the repeated \texttt{Internal C++ object already deleted} exception loop seen after editor replacement and prevents that loop from consuming CPU.
+
+      Opening a TikZ document through the responsive bridge is now source-only. The bridge sends the canonical source immediately and does not start LuaLaTeX merely because the editor was opened. LuaLaTeX rendering remains available only through an explicit \texttt{render\_tikz} request or the desktop fallback renderer when it is actually required.
+
+      Canvas geometry is now represented by a shared \texttt{TikZCanvasGeometry} model. Fast previews and the LuaLaTeX fallback both honor \texttt{\% nd\_mind\_mirror\_canvas: WIDTHxHEIGHT}. For a portrait iPad canvas such as \texttt{760x980}, PDF-to-PNG conversion is explicitly scaled to the same portrait dimensions instead of exposing the logical \texttt{16x11} TikZ coordinate box as a landscape preview.
+
+      The graphic bridge version is increased to \texttt{0.31.50} so that Control Panel logs can distinguish this runtime from stale pre-fix bridge processes.
+   \end{preview}
+
+   \bibliographystyle{plainnat}
+   \bibliography{/home/donkarlo/Dropbox/repo/nd_shared_research/bibliography/bibliography.bib}
+\end{document}

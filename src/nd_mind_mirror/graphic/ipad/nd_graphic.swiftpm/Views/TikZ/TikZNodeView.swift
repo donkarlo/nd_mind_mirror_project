@@ -1,4 +1,4 @@
-// Passive TikZ node renderer with a floating label editor above the canvas.
+// Passive TikZ node renderer with in-place label editing.
 
 import SwiftUI
 
@@ -12,7 +12,11 @@ struct TikZNodeView: View {
 
     var body: some View {
         let center = mapper.viewPoint(for: node.position, in: canvasSize)
-        let size = mapper.viewSize(width: node.width, height: node.height, in: canvasSize)
+        let size = mapper.viewSize(
+            width: node.width,
+            height: node.height,
+            in: canvasSize
+        )
 
         ZStack {
             shapeBody
@@ -20,9 +24,20 @@ struct TikZNodeView: View {
                 .position(x: center.x, y: center.y)
                 .allowsHitTesting(false)
 
-            let label = editingLabel?.wrappedValue ?? node.label
-            if !label.isEmpty {
-                Text(label)
+            if let editingLabel {
+                TikZInlineLabelEditor(
+                    text: editingLabel,
+                    textColor: node.textColor.color,
+                    font: .caption,
+                    width: max(size.width - 10, 44),
+                    height: max(size.height - 10, 28),
+                    backgroundColor: .clear,
+                    onCommit: onCommitLabel
+                )
+                .position(x: center.x, y: center.y)
+                .zIndex(20)
+            } else if !node.label.isEmpty {
+                Text(node.label)
                     .font(.caption)
                     .foregroundStyle(node.textColor.color)
                     .lineLimit(2)
@@ -31,19 +46,6 @@ struct TikZNodeView: View {
                     .frame(width: size.width, height: size.height)
                     .position(x: center.x, y: center.y)
                     .allowsHitTesting(false)
-            }
-
-            if let editingLabel {
-                TikZFloatingLabelEditor(
-                    text: editingLabel,
-                    title: "Node label — \(node.name)",
-                    onCommit: onCommitLabel
-                )
-                .position(
-                    x: canvasSize.width / 2,
-                    y: 36
-                )
-                .zIndex(100)
             }
         }
         .frame(

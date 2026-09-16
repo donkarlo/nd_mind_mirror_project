@@ -1,4 +1,4 @@
-"""Own bookmark menu commands and the editor-scoped bookmark shortcut."""
+"""Own the single contextual bookmark command shown in the Bookmarks menu."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from PySide6.QtWidgets import QApplication, QWidget
 
 
 class BookmarkSelectionMenuController(QObject):
-    """Route menu clicks and the configured bookmark shortcut through one command path."""
+    """Route the one bookmark action to a selection or cursor bookmark."""
 
     def __init__(
         self,
@@ -23,17 +23,12 @@ class BookmarkSelectionMenuController(QObject):
         self._toggle_action = toggle_action
         self._application = QApplication.instance()
 
-        self._selection_action = QAction("Bookmark Selection", self)
-        self._selection_action.triggered.connect(self._toggle_current_selection)
         self._menu.aboutToShow.connect(self._refresh_action)
-
-        # The controller is the single command owner. Menu activation and the
-        # keyboard path therefore cannot drift apart.
         try:
             self._toggle_action.triggered.disconnect()
         except (RuntimeError, TypeError):
             pass
-        self._toggle_action.triggered.connect(self._toggle_current_bookmark)
+        self._toggle_action.triggered.connect(self._toggle_contextual_bookmark)
 
         if self._application is not None:
             self._application.installEventFilter(self)
@@ -54,47 +49,41 @@ class BookmarkSelectionMenuController(QObject):
 
         event.accept()
         if event_type == QEvent.Type.ShortcutOverride:
-            # Accept the override so Qt does not dispatch the QAction shortcut
-            # separately; the following KeyPress executes the command once.
             return super().eventFilter(watched, event)
 
         if not event.isAutoRepeat():
-            self._toggle_current_bookmark()
+            self._toggle_contextual_bookmark()
         return True
 
     def _refresh_action(self) -> None:
-        """Keep Bookmark Selection immediately after the normal toggle action."""
-        self._menu.removeAction(self._selection_action)
-        actions = list(self._menu.actions())
-
-        before = None
-        try:
-            toggle_index = actions.index(self._toggle_action)
-        except ValueError:
-            toggle_index = -1
-        if 0 <= toggle_index + 1 < len(actions):
-            before = actions[toggle_index + 1]
-
-        if before is None:
-            self._menu.addAction(self._selection_action)
-        else:
-            self._menu.insertAction(before, self._selection_action)
-
-        editor = self._editor_panel.current_editor()
-        capture = getattr(editor, "_selection_bookmark_context", None)
-        self._selection_action.setEnabled(
-            capture is not None and capture.capture_selection() is not None
+        """Keep one action and describe the operation it will perform now."""
+        self._toggle_action.setText(
+            "Bookmark Selection"
+            if self._selection_is_available()
+            else "Toggle Bookmark at Cursor"
         )
+        self._toggle_action.setEnabled(self._editor_panel.current_editor() is not None)
 
-    def _toggle_current_bookmark(self, _checked: bool = False) -> None:
-        """Toggle a range bookmark when selected, otherwise toggle the current line."""
+    def _toggle_contextual_bookmark(self, _checked: bool = False) -> None:
+        editor = self._editor_panel.current_editor()
+        if editor is None:
+            return
+        if self._selection_is_available():
+            toggle_selection = getattr(editor, "toggle_bookmark_selection", None)
+            if callable(toggle_selection):
+                toggle_selection()
+                return
         self._editor_panel.toggle_current_bookmark()
 
-    def _toggle_current_selection(self, _checked: bool = False) -> None:
+    def _selection_is_available(self) -> bool:
         editor = self._editor_panel.current_editor()
-        toggle = getattr(editor, "toggle_bookmark_selection", None)
-        if callable(toggle):
-            toggle()
+        capture = getattr(editor, "_selection_bookmark_context", None)
+        if capture is None:
+            return False
+        capture_selection = getattr(capture, "capture_selection", None)
+        if not callable(capture_selection):
+            return False
+        return capture_selection() is not None
 
     def _event_matches_toggle_shortcut(self, event) -> bool:
         return self._event_matches_shortcut(

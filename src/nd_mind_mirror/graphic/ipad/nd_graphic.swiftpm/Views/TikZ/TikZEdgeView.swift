@@ -1,4 +1,4 @@
-// Passive connector renderer with visual selection and a floating label editor.
+// Passive connector renderer with in-place label editing.
 
 import SwiftUI
 
@@ -50,9 +50,21 @@ struct TikZEdgeView: View {
                 .allowsHitTesting(false)
             }
 
-            let label = editingLabel?.wrappedValue ?? edge.label
-            if !label.isEmpty {
-                Text(label)
+            if let editingLabel {
+                TikZInlineLabelEditor(
+                    text: editingLabel,
+                    textColor: edge.textColor.color,
+                    font: .caption2,
+                    width: min(max(canvasSize.width * 0.24, 96), 220),
+                    height: 30,
+                    backgroundColor: Color(uiColor: .systemBackground)
+                        .opacity(0.94),
+                    onCommit: onCommitLabel
+                )
+                .position(route.labelPoint)
+                .zIndex(20)
+            } else if !edge.label.isEmpty {
+                Text(edge.label)
                     .font(.caption2)
                     .foregroundStyle(edge.textColor.color)
                     .padding(.horizontal, 4)
@@ -63,19 +75,6 @@ struct TikZEdgeView: View {
                     )
                     .position(route.labelPoint)
                     .allowsHitTesting(false)
-            }
-
-            if let editingLabel {
-                TikZFloatingLabelEditor(
-                    text: editingLabel,
-                    title: "Connector label",
-                    onCommit: onCommitLabel
-                )
-                .position(
-                    x: canvasSize.width / 2,
-                    y: 36
-                )
-                .zIndex(100)
             }
         }
         .frame(

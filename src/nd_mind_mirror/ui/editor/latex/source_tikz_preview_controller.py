@@ -7,6 +7,7 @@ import re
 
 from PySide6.QtCore import QEvent, QObject, QSignalBlocker, QTimer
 from PySide6.QtGui import QImage, QTextCursor, QTextFormat
+from shiboken6 import isValid
 
 from nd_mind_mirror.ui.editor.latex.latex_editor import LatexEditor
 from nd_mind_mirror.ui.editor.latex.source_tikz_preview_widget import (
@@ -65,35 +66,51 @@ class SourceTikZPreviewController(QObject):
         self.schedule_refresh()
 
     def schedule_refresh(self) -> None:
-        self._refresh_timer.start()
+        """Coalesce Source preview work while the editor is changing."""
+        if isValid(self._refresh_timer):
+            self._refresh_timer.start()
 
     def eventFilter(self, watched, event) -> bool:
+        """Track viewport resizes without touching an editor after Qt destroys it."""
         editor = self._active_editor
-        if (
-            editor is not None
-            and watched is editor.viewport()
-            and event.type() == QEvent.Type.Resize
-        ):
-            self.schedule_refresh()
+        if self._editor_is_alive(editor):
+            viewport = self._viewport(editor)
+            if (
+                viewport is not None
+                and watched is viewport
+                and event.type() == QEvent.Type.Resize
+            ):
+                self.schedule_refresh()
         return super().eventFilter(watched, event)
 
     def refresh_positions(self) -> None:
-        editor = self._editor_panel.current_editor()
+        """Reposition live preview widgets only for a valid active Source editor."""
+        editor = self._current_live_editor()
         if editor is not self._active_editor:
             self.schedule_refresh()
             return
-        if not isinstance(editor, LatexEditor) or editor.edit_mode != "source":
+        if editor is None or editor.edit_mode != "source":
             self._hide_unused(0)
             return
-        if editor.viewport().width() != self._layout_viewport_width:
+
+        viewport = self._viewport(editor)
+        if viewport is None:
+            self._reset_dead_editor()
+            return
+        if viewport.width() != self._layout_viewport_width:
             self.schedule_refresh()
             return
 
-        viewport_height = editor.viewport().height()
+        viewport_height = viewport.height()
         horizontal = editor.horizontalScrollBar().value()
         used = 0
+        document = editor.document()
+        if not isValid(document):
+            self._reset_dead_editor()
+            return
+
         for item in self._layout:
-            block = editor.document().findBlock(int(item["block_position"]))
+            block = document.findBlock(int(item["block_position"]))
             if not block.isValid():
                 continue
             line_rect = editor.cursorRect(QTextCursor(block))
@@ -102,9 +119,9 @@ class SourceTikZPreviewController(QObject):
             if y > viewport_height or y + height < 0:
                 continue
 
-            widget = self._widget(used, editor.viewport())
+            widget = self._widget(used, viewport)
             width = int(item["width"])
-            available = max(editor.viewport().width() - 32, 120)
+            available = max(viewport.width() - 32, 120)
             x = max((available - (width + 6)) // 2 + 16 - horizontal, 0)
             if widget.display_image(
                 QImage(item["image"]),
@@ -116,29 +133,39 @@ class SourceTikZPreviewController(QObject):
         self._hide_unused(used)
 
     def _rebuild_layout(self) -> None:
-        editor = self._editor_panel.current_editor()
+        """Rebuild preview reservations once, abandoning destroyed editor instances."""
+        editor = self._current_live_editor()
         if editor is not self._active_editor:
             self._detach_editor()
-            self._active_editor = editor if isinstance(editor, LatexEditor) else None
-            if self._active_editor is not None:
-                self._active_editor.viewport().installEventFilter(self)
-                self._active_editor.verticalScrollBar().valueChanged.connect(
-                    self._on_scroll
-                )
-                self._active_editor.horizontalScrollBar().valueChanged.connect(
-                    self._on_scroll
-                )
+            if editor is not None:
+                self._attach_editor(editor)
 
-        if not isinstance(editor, LatexEditor) or editor.edit_mode != "source":
-            self._clear_reserved_space(editor if isinstance(editor, LatexEditor) else None)
+        editor = self._active_editor
+        if editor is None:
+            self._layout = []
+            self._layout_viewport_width = -1
+            self._hide_unused(0)
+            return
+        if editor.edit_mode != "source":
+            self._clear_reserved_space(editor)
             self._layout = []
             self._layout_viewport_width = -1
             self._hide_unused(0)
             return
 
+        viewport = self._viewport(editor)
+        document = editor.document()
+        if viewport is None or not isValid(document):
+            self._reset_dead_editor()
+            return
+
         source = editor.toPlainText()
         self._clear_reserved_space(editor)
-        available = max(editor.viewport().width() - 32, 120)
+        if not self._editor_is_alive(editor):
+            self._reset_dead_editor()
+            return
+
+        available = max(viewport.width() - 32, 120)
         layout: list[dict[str, object]] = []
         reservations: dict[int, int] = {}
 
@@ -148,11 +175,14 @@ class SourceTikZPreviewController(QObject):
             if image is None or image.isNull():
                 continue
 
-            block = editor.document().findBlock(match.start())
+            block = document.findBlock(match.start())
             if not block.isValid():
                 continue
             native_width = max(int(image.width()), 1)
-            width = min(native_width, max(int(available * self._MAX_WIDTH_RATIO), 1))
+            width = min(
+                native_width,
+                max(int(available * self._MAX_WIDTH_RATIO), 1),
+            )
             scale = width / native_width
             height = max(int(round(float(image.height()) * scale)) + 6, 1)
             block_position = block.position()
@@ -170,9 +200,32 @@ class SourceTikZPreviewController(QObject):
             )
 
         self._apply_reserved_space(editor, reservations)
+        if not self._editor_is_alive(editor):
+            self._reset_dead_editor()
+            return
         self._layout = layout
-        self._layout_viewport_width = editor.viewport().width()
+        self._layout_viewport_width = viewport.width()
         self.refresh_positions()
+
+    def _attach_editor(self, editor: LatexEditor) -> None:
+        """Attach filters/signals to one live editor and clear them on destruction."""
+        if not self._editor_is_alive(editor):
+            return
+        viewport = self._viewport(editor)
+        if viewport is None:
+            return
+        self._active_editor = editor
+        viewport.installEventFilter(self)
+        editor.verticalScrollBar().valueChanged.connect(self._on_scroll)
+        editor.horizontalScrollBar().valueChanged.connect(self._on_scroll)
+        editor.destroyed.connect(self._on_active_editor_destroyed)
+
+    def _on_active_editor_destroyed(self, *_args) -> None:
+        """Drop Python references immediately when Qt destroys the editor C++ object."""
+        self._active_editor = None
+        self._layout = []
+        self._layout_viewport_width = -1
+        self._hide_unused(0)
 
     def _on_preview_ready(
         self,
@@ -182,13 +235,13 @@ class SourceTikZPreviewController(QObject):
     ) -> None:
         if not isinstance(image, QImage) or image.isNull():
             return
-        editor = self._editor_panel.current_editor()
-        if not isinstance(editor, LatexEditor):
+        editor = self._current_live_editor()
+        if editor is None:
             return
         try:
             if Path(referring_file).expanduser().resolve() != editor.source_path:
                 return
-        except OSError:
+        except (OSError, RuntimeError):
             return
         self.schedule_refresh()
 
@@ -196,26 +249,74 @@ class SourceTikZPreviewController(QObject):
         self.refresh_positions()
 
     def _detach_editor(self) -> None:
+        """Detach from the previous editor without dereferencing a deleted Qt object."""
         editor = self._active_editor
-        if editor is None:
-            return
-        self._clear_reserved_space(editor)
-        try:
-            editor.viewport().removeEventFilter(self)
-            editor.verticalScrollBar().valueChanged.disconnect(self._on_scroll)
-            editor.horizontalScrollBar().valueChanged.disconnect(self._on_scroll)
-        except (RuntimeError, TypeError):
-            pass
         self._active_editor = None
         self._layout = []
         self._layout_viewport_width = -1
+
+        if not self._editor_is_alive(editor):
+            self._clear_widgets()
+            return
+
+        self._clear_reserved_space(editor)
+        viewport = self._viewport(editor)
+        try:
+            if viewport is not None:
+                viewport.removeEventFilter(self)
+            editor.verticalScrollBar().valueChanged.disconnect(self._on_scroll)
+            editor.horizontalScrollBar().valueChanged.disconnect(self._on_scroll)
+            editor.destroyed.disconnect(self._on_active_editor_destroyed)
+        except (RuntimeError, TypeError):
+            pass
         self._clear_widgets()
+
+    def _reset_dead_editor(self) -> None:
+        """Reset controller state after a Qt wrapper loses its backing C++ object."""
+        self._active_editor = None
+        self._layout = []
+        self._layout_viewport_width = -1
+        self._hide_unused(0)
+
+    def _current_live_editor(self) -> LatexEditor | None:
+        try:
+            editor = self._editor_panel.current_editor()
+        except RuntimeError:
+            return None
+        if not isinstance(editor, LatexEditor):
+            return None
+        return editor if self._editor_is_alive(editor) else None
+
+    @staticmethod
+    def _editor_is_alive(editor: LatexEditor | None) -> bool:
+        if editor is None:
+            return False
+        try:
+            return bool(isValid(editor))
+        except RuntimeError:
+            return False
+
+    @staticmethod
+    def _viewport(editor: LatexEditor):
+        if not SourceTikZPreviewController._editor_is_alive(editor):
+            return None
+        try:
+            viewport = editor.viewport()
+        except RuntimeError:
+            return None
+        return viewport if isValid(viewport) else None
 
     @classmethod
     def _clear_reserved_space(cls, editor: LatexEditor | None) -> None:
-        if editor is None:
+        if not cls._editor_is_alive(editor):
             return
-        document = editor.document()
+        try:
+            document = editor.document()
+        except RuntimeError:
+            return
+        if not isValid(document):
+            return
+
         was_modified = document.isModified()
         editor_blocker = QSignalBlocker(editor)
         document_blocker = QSignalBlocker(document)
@@ -229,6 +330,8 @@ class SourceTikZPreviewController(QObject):
                     QTextCursor(block).setBlockFormat(block_format)
                 block = block.next()
             document.setModified(was_modified)
+        except RuntimeError:
+            return
         finally:
             del document_blocker
             del editor_blocker
@@ -239,9 +342,15 @@ class SourceTikZPreviewController(QObject):
         editor: LatexEditor,
         reservations: dict[int, int],
     ) -> None:
-        if not reservations:
+        if not reservations or not cls._editor_is_alive(editor):
             return
-        document = editor.document()
+        try:
+            document = editor.document()
+        except RuntimeError:
+            return
+        if not isValid(document):
+            return
+
         was_modified = document.isModified()
         editor_blocker = QSignalBlocker(editor)
         document_blocker = QSignalBlocker(document)
@@ -255,6 +364,8 @@ class SourceTikZPreviewController(QObject):
                 block_format.setProperty(cls._BLOCK_TIKZ_SPACE_PROPERTY, True)
                 QTextCursor(block).setBlockFormat(block_format)
             document.setModified(was_modified)
+        except RuntimeError:
+            return
         finally:
             del document_blocker
             del editor_blocker
@@ -263,22 +374,27 @@ class SourceTikZPreviewController(QObject):
         while len(self._widgets) <= index:
             self._widgets.append(SourceTikZPreviewWidget(parent))
         widget = self._widgets[index]
-        if widget.parent() is not parent:
+        if not isValid(widget):
+            widget = SourceTikZPreviewWidget(parent)
+            self._widgets[index] = widget
+        elif widget.parent() is not parent:
             widget.setParent(parent)
         return widget
 
     def _hide_unused(self, used: int) -> None:
         for widget in self._widgets[max(int(used), 0):]:
             try:
-                widget.hide()
+                if isValid(widget):
+                    widget.hide()
             except RuntimeError:
                 pass
 
     def _clear_widgets(self) -> None:
         for widget in self._widgets:
             try:
-                widget.hide()
-                widget.deleteLater()
+                if isValid(widget):
+                    widget.hide()
+                    widget.deleteLater()
             except RuntimeError:
                 pass
         self._widgets.clear()

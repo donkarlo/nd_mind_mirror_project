@@ -1,4 +1,4 @@
-"""Render canonical TikZ source to a fixed-coordinate PNG preview."""
+"""Render canonical TikZ source to a source-backed PNG preview."""
 
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ import tempfile
 from nd_mind_mirror.core.render.latex.reference.latex_preview_reference_materializer import (
     LatexPreviewReferenceMaterializer,
 )
+from nd_mind_mirror.graphic.tikz.canvas_geometry import TikZCanvasGeometry
 
 
 DEFAULT_LIBRARIES = (
@@ -36,7 +37,7 @@ class TikZRenderer:
         self._materializer = LatexPreviewReferenceMaterializer(self.workspace)
 
     def render(self, source: str, source_file: Path) -> TikZRenderResult:
-        """Render source with LuaLaTeX and return a PNG preview."""
+        """Render source with LuaLaTeX and preserve explicit iPad canvas orientation."""
         lualatex = shutil.which("lualatex")
         converter = shutil.which("pdftocairo") or shutil.which("pdftoppm")
         if not lualatex:
@@ -91,17 +92,15 @@ class TikZRenderer:
                 raise RuntimeError(self._last_log_lines(log))
 
             png_path = temp / "diagram.png"
+            converter_args = self._converter_args(
+                converter=converter,
+                pdf_path=pdf_path,
+                output_prefix=temp / "diagram",
+                source=source,
+            )
             try:
                 converted = subprocess.run(
-                    [
-                        converter,
-                        "-png",
-                        "-singlefile",
-                        "-r",
-                        "144",
-                        str(pdf_path),
-                        str(temp / "diagram"),
-                    ],
+                    converter_args,
                     cwd=temp,
                     text=True,
                     stdout=subprocess.PIPE,
@@ -126,6 +125,31 @@ class TikZRenderer:
             )
 
     @staticmethod
+    def _converter_args(
+        *,
+        converter: str,
+        pdf_path: Path,
+        output_prefix: Path,
+        source: str,
+    ) -> list[str]:
+        """Scale marked iPad diagrams to the exact source canvas aspect ratio."""
+        args = [converter, "-png", "-singlefile"]
+        canvas = TikZCanvasGeometry.from_marker(source)
+        if canvas is None:
+            args.extend(["-r", "144"])
+        else:
+            args.extend(
+                [
+                    "-scale-to-x",
+                    str(canvas.pixel_width),
+                    "-scale-to-y",
+                    str(canvas.pixel_height),
+                ]
+            )
+        args.extend([str(pdf_path), str(output_prefix)])
+        return args
+
+    @staticmethod
     def _preview_document(source: str) -> str:
         """Wrap fragments in standalone only for rendering, never for saving."""
         if "\\documentclass" in source:
@@ -144,7 +168,7 @@ class TikZRenderer:
 
     @staticmethod
     def _with_render_canvas(source: str) -> str:
-        """Give iPad and renderer the same 16x11 TikZ coordinate canvas."""
+        """Give iPad and renderer the same 16x11 logical TikZ coordinate canvas."""
         marker = "\\path[use as bounding box] (0,0) rectangle (16,11);\n"
         begin = "\\begin{tikzpicture}"
         if begin in source:

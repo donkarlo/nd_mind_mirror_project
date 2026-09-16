@@ -1,3 +1,5 @@
+"""Large LaTeX editor with canonical-buffer-safe structural source replacement."""
+
 from PySide6.QtCore import QPoint, QSignalBlocker
 from PySide6.QtWidgets import QTextEdit
 
@@ -13,12 +15,7 @@ from nd_mind_mirror.ui.editor.latex.large.source_typing_burst_controller import 
 
 
 class LargeLatexEditor(IncrementalLargeLatexEditor):
-    """Edit a bounded rich Source window backed by the complete source buffer.
-
-    QTextEdit owns only the materialized window. LatexSourceBuffer remains the
-    canonical complete document, including when Visual mode commits a full
-    serialized source back to the editor.
-    """
+    """Edit a bounded rich Source window backed by the complete source buffer."""
 
     _DEFAULT_SOURCE_WINDOW_CHARS = 40_000
     _FULL_DOCUMENT_IDLE_MS = 2_000
@@ -59,6 +56,33 @@ class LargeLatexEditor(IncrementalLargeLatexEditor):
         self._typing_burst_controller.became_idle.connect(
             self._resume_deferred_source_window_shift
         )
+
+    def apply_structural_source(self, source: str, line_number: int) -> None:
+        """Apply a Structure drag/drop rewrite to the complete canonical buffer."""
+        canonical_source = str(source)
+        if canonical_source == self.toPlainText():
+            return
+
+        target_line = max(int(line_number), 1)
+        self._source_buffer.set_source(canonical_source, focus_position=0)
+        target_position = self._source_buffer.full_position_for_location(
+            target_line,
+            1,
+        )
+        self._source_buffer.select_around_position(target_position)
+        self._change_generation += 1
+        self._canonical_modified = True
+        if self._source_buffer.is_windowed:
+            self._load_visible_window(canonical_modified=True)
+        else:
+            self._load_complete_source(canonical_modified=True)
+
+        self._visual_dirty = True
+        if self._edit_mode == "visual":
+            self._refresh_visual_projection()
+        self.content_changed.emit(canonical_source)
+        self.modification_changed.emit(True)
+        self.go_to_source_location(target_line, 1, align_top=True)
 
     def _apply_visual_source(self, source: str) -> None:
         """Commit Visual output to the canonical buffer, never to a local window."""
