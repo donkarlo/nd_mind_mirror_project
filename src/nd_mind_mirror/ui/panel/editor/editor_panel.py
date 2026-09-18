@@ -19,9 +19,18 @@ from nd_mind_mirror.core.bookmark.range.range_bookmark_migrator import (
 
 
 class EditorPanel(EditorPanelCore):
-    """Create editors and expose one bookmark repository for normal/large text."""
+    """Create editors and preserve per-tab editing state for normal/large text."""
 
-    _SOURCE_VIRTUALIZATION_THRESHOLD_CHARS = 1_000_000
+    def __init__(self, completions, app_settings, parent=None) -> None:
+        self._active_editor: TextEditor | None = None
+        self._pending_view_state_restore_paths: set[str] = set()
+        super().__init__(completions, app_settings, parent)
+
+    def apply_settings(self, app_settings) -> None:
+        super().apply_settings(app_settings)
+        for editor in list(self._paths):
+            if isinstance(editor, TextEditor):
+                self._apply_cursor_preferences(editor)
 
     def set_bookmarks(self, data: dict | None) -> None:
         """Migrate all persisted bookmark groups into the range-only repository."""
@@ -53,6 +62,44 @@ class EditorPanel(EditorPanelCore):
                 editor.set_bookmarks(
                     self._bookmarks_by_path.get(str(path), [])
                 )
+
+    def set_view_states(self, states: dict | None) -> None:
+        """Load persisted view states while retaining LaTeX Source/Visual fields."""
+        self._remembered_view_states = {}
+        if not isinstance(states, dict):
+            return
+
+        integer_fields = {
+            "cursor",
+            "vertical",
+            "horizontal",
+            "active_source_line",
+            "active_source_column",
+            "visible_source_line",
+            "visible_source_column",
+        }
+        for raw_path, raw_state in states.items():
+            if not isinstance(raw_state, dict):
+                continue
+            try:
+                path = str(Path(str(raw_path)).expanduser().resolve())
+                state = dict(raw_state)
+                for key in integer_fields:
+                    if key in state:
+                        state[key] = int(state[key])
+                if "edit_mode" in state:
+                    state["edit_mode"] = (
+                        "visual"
+                        if str(state["edit_mode"]).strip().lower() == "visual"
+                        else "source"
+                    )
+                self._remembered_view_states[path] = state
+            except (TypeError, ValueError, OSError):
+                continue
+
+        self._pending_view_state_restore_paths = set(
+            self._remembered_view_states
+        )
 
     def open_file(
         self,
@@ -90,9 +137,12 @@ class EditorPanel(EditorPanelCore):
                 parent=self,
             )
         elif file_path.suffix.lower() in {".tex", ".tikz"}:
+            large_document_threshold = (
+                self._app_settings.editor_source_large_document_threshold_chars
+            )
             latex_editor_type = (
                 SelectionLargeLatexEditor
-                if len(content) >= self._SOURCE_VIRTUALIZATION_THRESHOLD_CHARS
+                if len(content) >= large_document_threshold
                 else SelectionLatexEditor
             )
             editor = latex_editor_type(
@@ -113,14 +163,7 @@ class EditorPanel(EditorPanelCore):
             editor.set_bookmarks(
                 self._bookmarks_by_path.get(str(file_path), [])
             )
-
-        remembered_state = self._remembered_view_states.get(str(file_path))
-        if remembered_state is not None:
-            QTimer.singleShot(
-                0,
-                lambda item=editor, state=dict(remembered_state):
-                item.restore_view_state(state),
-            )
+        self._apply_cursor_preferences(editor)
 
         self._paths[editor] = file_path
 
@@ -166,6 +209,77 @@ class EditorPanel(EditorPanelCore):
             editor.setFocus()
 
         return True
+
+    def _on_current_changed(self, index: int) -> None:
+        editor = self.current_editor()
+        previous_editor = self._active_editor
+        if previous_editor is not None and previous_editor is not editor:
+            self._remember_editor_view_state(previous_editor)
+
+        super()._on_current_changed(index)
+
+        self._active_editor = editor
+        if editor is None:
+            return
+        path = self._paths.get(editor)
+        if path is None:
+            return
+
+        self._apply_cursor_preferences(editor)
+        self._restore_persisted_view_state_once(editor, path)
+
+    def _restore_persisted_view_state_once(
+        self,
+        editor: TextEditor,
+        path: Path,
+    ) -> None:
+        """Restore session state only on the first activation of this tab.
+
+        A live QTextEdit already owns its cursor and scrollbars while it remains
+        open. Reapplying the persisted session snapshot on every tab switch
+        overwrites that live state and makes Ctrl+Tab appear to lose the caret.
+        """
+        key = str(path)
+        if key not in self._pending_view_state_restore_paths:
+            return
+        self._pending_view_state_restore_paths.discard(key)
+        remembered_state = self._remembered_view_states.get(key)
+        if remembered_state is None:
+            return
+        QTimer.singleShot(
+            0,
+            lambda item=editor, expected_path=path, state=dict(remembered_state):
+            self._restore_editor_view_state(item, expected_path, state),
+        )
+
+    def _on_editor_cursor_changed(self, editor: TextEditor) -> None:
+        self._remember_editor_view_state(editor)
+        super()._on_editor_cursor_changed(editor)
+
+    def _remember_editor_view_state(self, editor: TextEditor) -> None:
+        path = self._paths.get(editor)
+        if path is None:
+            return
+        self._remembered_view_states[str(path)] = dict(editor.view_state())
+
+    def _restore_editor_view_state(
+        self,
+        editor: TextEditor,
+        expected_path: Path,
+        state: dict[str, object],
+    ) -> None:
+        if self.current_editor() is not editor:
+            return
+        if self._paths.get(editor) != expected_path:
+            return
+        editor.restore_view_state(state)
+
+    def _apply_cursor_preferences(self, editor: TextEditor) -> None:
+        editor.apply_cursor_preferences(
+            color=self._app_settings.editor_cursor_color,
+            size_percent=self._app_settings.editor_cursor_size_percent,
+            thickness=self._app_settings.editor_cursor_thickness,
+        )
 
     def replace_bookmarks_for_path(
         self,
@@ -260,3 +374,4 @@ class EditorPanel(EditorPanelCore):
         if callable(current_revision):
             return int(current_revision()) == int(revision)
         return int(editor.document().revision()) == int(revision)
+

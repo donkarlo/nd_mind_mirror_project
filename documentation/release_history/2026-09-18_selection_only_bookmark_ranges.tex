@@ -1,0 +1,58 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+
+\title{Selection-only bookmark range fix}
+\date{2026-09-18}
+\author{Mohammad Rahmani}
+
+\begin{document}
+\maketitle
+
+\section{Problem}
+A short text selection could resolve through the Visual line/column approximation
+to a much broader canonical range, so a bookmark could cover a paragraph instead
+of only the selected text. Legacy cursor-oriented entry points also made the
+bookmark semantics look line-based even though the persisted model was range-based.
+
+The persistent Visual bookmark paint also depended on the same approximate
+line/column projection. Headings and text following inline LaTeX could therefore
+lose the exact selected highlight after the normal QTextEdit selection changed.
+
+\section{Fix}
+Bookmark creation is now strictly selection-only. Source selections use their
+exact character offsets, including the canonical offset of a virtualized Source
+window. Visual selections first resolve the exact selected LaTeX or visible text
+near the projected position; an implausibly broad fallback is rejected rather
+than converted into a paragraph, line, or structural bookmark.
+
+Bookmark toggle semantics now compare exact ranges. Merely overlapping an
+existing bookmark no longer means that the existing bookmark is the selected
+bookmark. The compatibility cursor toggle delegates to selection-only behavior,
+so a cursor without a selection cannot create a bookmark.
+
+A selection-aware bookmark highlighter now resolves the stored bookmarked text
+back into the Visual document near its canonical projection. The yellow
+highlight therefore remains on the exact bookmarked text after the transient
+selection is released, including ordinary headings and inline-formatted text.
+
+\section{Regression coverage}
+Tests cover exact regular Source offsets, virtualized Source offsets, Visual
+selection recovery from an incorrectly broad paragraph projection, rejection of
+unsafe broad fallbacks, exact-range toggle semantics, the no-selection case, and
+exact Visual bookmark text lookup.
+
+\end{document}

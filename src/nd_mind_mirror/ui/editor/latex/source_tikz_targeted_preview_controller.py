@@ -10,21 +10,38 @@ from shiboken6 import isValid
 from nd_mind_mirror.ui.editor.latex.source_tikz_preview_controller import (
     SourceTikZPreviewController,
 )
+from nd_mind_mirror.ui.editor.latex.source_tikz_preview_anchor import (
+    SourceTikZPreviewAnchor,
+)
 
 
 class SourceTikZTargetedPreviewController(SourceTikZPreviewController):
     """Replace only the Source preview whose referenced TikZ file changed."""
 
-    def notify_tikz_changed(self, path: str | Path) -> None:
+    def notify_tikz_changed(
+        self,
+        path: str | Path,
+        *,
+        allow_fallback: bool = False,
+    ) -> None:
+        """Refresh the active Source preview without live LuaLaTeX fallback."""
         target = Path(path).expanduser().resolve(strict=False)
         editor = self._current_live_editor()
-        if editor is not self._active_editor:
-            # A tab/view transition legitimately needs the normal one-time rebuild.
-            self.schedule_refresh()
+        if editor is None or editor is not self._active_editor:
             return
-        self._refresh_target(editor, target)
+        self._refresh_target(
+            editor,
+            target,
+            allow_fallback=bool(allow_fallback),
+        )
 
-    def _refresh_target(self, editor, target: Path) -> bool:
+    def _refresh_target(
+        self,
+        editor,
+        target: Path,
+        *,
+        allow_fallback: bool = False,
+    ) -> bool:
         if editor is None or editor.edit_mode != "source":
             return False
 
@@ -43,11 +60,19 @@ class SourceTikZTargetedPreviewController(SourceTikZPreviewController):
             if resolved is None or resolved != target:
                 continue
 
-            image = self._service.preview_for_input(raw, editor.source_path)
+            image = self._service.preview_for_input(
+                raw,
+                editor.source_path,
+                allow_fallback=bool(allow_fallback),
+            )
             if image is None or image.isNull():
                 continue
 
-            block = document.findBlock(match.start())
+            anchor_position = SourceTikZPreviewAnchor.position(
+                match.start(),
+                match.end(),
+            )
+            block = document.findBlock(anchor_position)
             if not block.isValid():
                 continue
 
@@ -61,6 +86,7 @@ class SourceTikZTargetedPreviewController(SourceTikZPreviewController):
             block_position = block.position()
             replacement = {
                 "block_position": block_position,
+                "anchor_position": anchor_position,
                 "image": QImage(image),
                 "width": width,
                 "height": height,
@@ -84,7 +110,7 @@ class SourceTikZTargetedPreviewController(SourceTikZPreviewController):
             changed = True
 
         if changed:
-            self._layout.sort(key=lambda item: int(item["block_position"]))
+            self._layout.sort(key=lambda item: int(item["anchor_position"]))
             self._layout_viewport_width = viewport.width()
             self.refresh_positions()
         return changed
@@ -107,4 +133,9 @@ class SourceTikZTargetedPreviewController(SourceTikZPreviewController):
             return
         target = self._service.target_for_input(raw, editor.source_path)
         if target is not None:
-            self._refresh_target(editor, target)
+            # The fallback result is already cached, so this lookup is fast-only.
+            self._refresh_target(
+                editor,
+                target,
+                allow_fallback=False,
+            )

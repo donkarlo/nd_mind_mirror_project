@@ -1,0 +1,49 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+\usepackage{adjustbox}
+\usepackage[active,tightpage]{preview}
+
+\PreviewBorder=4pt
+
+\usetikzlibrary{graphs,graphdrawing,arrows.meta,positioning,calc,fit,shapes.geometric}
+\usegdlibrary{layered}
+
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/external_graphviz.tex}
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/part/control_sequence/kind/semtag/semtag.tex}
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/seehere.tex}
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/deep_structure.tex}
+
+\title{}
+\date{}
+\author{Mohammad Rahmani}
+
+\begin{document}
+   \maketitle
+
+   \begin{preview}
+      \section*{External graphic bridge SIGTERM fix}
+
+      Mind Mirror no longer performs stale graphic-bridge cleanup from the bridge manager constructor. A healthy canonical bridge already listening on port 8766, including a bridge launched by ND Control Panel, is now adopted as an external bridge before any stale-process cleanup is considered.
+
+      Stale cleanup runs only when the canonical endpoint is unreachable and Mind Mirror actually needs to start an iPad bridge. The endpoint is checked again after cleanup to avoid racing a bridge that appeared concurrently. Closing Mind Mirror continues to terminate only a bridge process that Mind Mirror itself created, never an externally owned Control Panel bridge.
+
+      This prevents a healthy \texttt{Mind mirror ipad} process from receiving SIGTERM and being reported by ND Control Panel as \texttt{exit code -15} during ordinary Mind Mirror startup.
+   \end{preview}
+
+   \bibliographystyle{plainnat}
+   \bibliography{/home/donkarlo/Dropbox/repo/nd_shared_research/bibliography/bibliography.bib}
+\end{document}

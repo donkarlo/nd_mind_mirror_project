@@ -35,6 +35,9 @@ editor:
   indent_guides_enabled: true
   indent_guide_color: "#d0d0d0"
   indent_guide_width: 1.0
+  cursor_color: "#202124"
+  cursor_size_percent: 100
+  cursor_thickness: 2
   cursor_width: 2
   cursor_flash_time_ms: 650
   soft_wrap: true
@@ -111,4 +114,4 @@ graphic:
     canvas_height: 980
   bridge_http_url: "http://127.0.0.1:8766"
   bridge_token: ""
-  auto_start_bridge: true
+  auto_start_bridge: false

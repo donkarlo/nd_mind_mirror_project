@@ -1,0 +1,35 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+\usepackage{adjustbox}
+\usepackage[active,tightpage]{preview}
+
+\PreviewBorder=4pt
+
+\begin{document}
+   \begin{preview}
+      \section*{2026-09-18 --- Preserve live cursor state across tab switches}
+
+      Fixed a tab-state regression where the persisted session snapshot was
+      reapplied every time an already-open editor tab became active. This
+      overwrote the live QTextEdit cursor and scroll position after Ctrl+Tab or
+      normal tab switching.
+
+      Persisted cursor/view state is now consumed only once, on the first
+      activation after session restoration. While a tab remains open, its live
+      editor instance is authoritative for caret and viewport state.
+   \end{preview}
+\end{document}

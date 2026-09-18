@@ -67,7 +67,10 @@ class TikZVisualPreviewService(QObject):
         self,
         raw: str,
         referring_file: str | Path | None,
+        *,
+        allow_fallback: bool = True,
     ) -> QImage | None:
+        """Return a preview while optionally forbidding expensive LuaLaTeX fallback."""
         request = self._resolve_request(raw, referring_file)
         if request is None:
             return None
@@ -80,6 +83,7 @@ class TikZVisualPreviewService(QObject):
             key=key,
             referring_file=referring_path,
             raw_input=raw,
+            allow_fallback=bool(allow_fallback),
         )
 
     def _resolve_request(

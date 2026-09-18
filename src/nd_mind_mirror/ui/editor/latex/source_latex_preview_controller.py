@@ -618,10 +618,25 @@ class SourceLatexPreviewController(QObject):
                 ),
             )
         )
-        old_y = int(anchor.get("y", 0))
-        new_y = int(editor.cursorRect(cursor).top())
-        old_value = int(anchor.get("value", 0))
-        scrollbar.setValue(old_value + (new_y - old_y))
+        anchor_y = int(anchor.get("y", 0))
+        current_y = int(editor.cursorRect(cursor).top())
+        current_value = int(scrollbar.value())
+        scrollbar.setValue(
+            self._anchored_scroll_value(
+                current_value,
+                anchor_y,
+                current_y,
+            )
+        )
+
+    @staticmethod
+    def _anchored_scroll_value(
+        current_value: int,
+        anchor_y: int,
+        current_y: int,
+    ) -> int:
+        """Return an idempotent scroll correction for a preserved source anchor."""
+        return int(current_value) + int(current_y) - int(anchor_y)
 
     def _remember_image(self, raw: str, image: QImage) -> None:
         """Keep a bounded insertion-ordered cache of successfully rendered snippets."""
@@ -670,3 +685,4 @@ class SourceLatexPreviewController(QObject):
             except RuntimeError:
                 pass
         self._widgets.clear()
+

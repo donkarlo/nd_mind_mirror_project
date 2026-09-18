@@ -33,7 +33,12 @@ class WindowedLatexVisualEditor(ResourceWindowedLatexVisualEditor):
         self._math_visual_preview_service.preload_display_math(str(source))
         super().load_source(source, source_path)
 
-    def refresh_tikz_path(self, changed_path: str | Path) -> bool:
+    def refresh_tikz_path(
+        self,
+        changed_path: str | Path,
+        *,
+        allow_fallback: bool = False,
+    ) -> bool:
         """Refresh only blocks that reference ``changed_path``."""
         service = self._tikz_visual_preview_service
         if service is None or self._source_path is None:
@@ -61,7 +66,11 @@ class WindowedLatexVisualEditor(ResourceWindowedLatexVisualEditor):
             block = block.next()
 
         for position, raw, source_line in reversed(requests):
-            image = service.preview_for_input(raw, self._source_path)
+            image = service.preview_for_input(
+                raw,
+                self._source_path,
+                allow_fallback=bool(allow_fallback),
+            )
             if image is None or image.isNull():
                 continue
             self._replace_tikz_block(

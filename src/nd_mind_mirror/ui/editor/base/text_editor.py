@@ -1,9 +1,12 @@
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QPainter, QTextBlockFormat, QTextCursor
+from PySide6.QtGui import QTextBlockFormat, QTextCursor
 from PySide6.QtWidgets import QTextEdit
 
 from nd_mind_mirror.ui.editor.base.text_editor_rich_core import (
     TextEditor as RichTextEditor,
+)
+from nd_mind_mirror.ui.editor.cursor.cursor_appearance_controller import (
+    CursorAppearanceController,
 )
 
 
@@ -23,6 +26,21 @@ class TextEditor(RichTextEditor):
         # this flag must exist before dynamic dispatch reaches our override.
         self._large_document_mode = False
         super().__init__(parent)
+        self._cursor_appearance = CursorAppearanceController(self)
+
+    def apply_cursor_preferences(
+        self,
+        *,
+        color: str,
+        size_percent: int,
+        thickness: int,
+    ) -> None:
+        """Apply configurable caret appearance to this source editor."""
+        self._cursor_appearance.apply(
+            color=color,
+            size_percent=size_percent,
+            thickness=thickness,
+        )
 
     @property
     def large_document_mode(self) -> bool:
@@ -194,19 +212,3 @@ class TextEditor(RichTextEditor):
         # indent-guide and soft-wrap-marker painters, which are decorative.
         QTextEdit.paintEvent(self, event)
 
-        if self.hasFocus():
-            return
-        cursor = self.textCursor()
-        if cursor.hasSelection():
-            return
-
-        rectangle = self.cursorRect(cursor)
-        painter = QPainter(self.viewport())
-        painter.setPen(self.palette().text().color())
-        painter.drawLine(
-            rectangle.left(),
-            rectangle.top(),
-            rectangle.left(),
-            rectangle.bottom(),
-        )
-        painter.end()

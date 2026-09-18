@@ -3,19 +3,18 @@ from __future__ import annotations
 from pathlib import Path
 import json
 import threading
+import time
 import urllib.error
-import urllib.request
 import urllib.parse
+import urllib.request
+
+from nd_mind_mirror.graphic.core.bridge_process_manager import (
+    GraphicBridgeProcessManager,
+)
 
 
 class GraphicBridgeNotifier:
-    """Publish the graphic that the iPad should open.
-
-    The request file is durable and is enough on its own: the Ubuntu bridge
-    watches it and also replays the latest request to an iPad that connects
-    later.  The tiny HTTP POST is only a low-latency nudge when the bridge is
-    already running.
-    """
+    """Publish one graphic request and start the shared iPad bridge on demand."""
 
     def __init__(
         self,
@@ -30,8 +29,17 @@ class GraphicBridgeNotifier:
         self.request_path = (
             self.workspace_root / ".nd_mind_mirror" / "graphic_open_request.json"
         )
+        self._process_manager = GraphicBridgeProcessManager(
+            workspace_root=self.workspace_root,
+        )
 
-    def request_open(self, sidecar_path: str | Path, *, operation: str = "update") -> str:
+    def request_open(
+        self,
+        sidecar_path: str | Path,
+        *,
+        operation: str = "update",
+    ) -> str:
+        """Persist the request, ensure one bridge exists, then nudge it over HTTP."""
         sidecar = Path(sidecar_path).expanduser().resolve()
         relative = sidecar.relative_to(self.workspace_root).as_posix()
         operation = "insert" if str(operation).lower() == "insert" else "update"
@@ -40,9 +48,11 @@ class GraphicBridgeNotifier:
         temp = self.request_path.with_suffix(".tmp")
         temp.write_text(json.dumps(payload), encoding="utf-8")
         temp.replace(self.request_path)
+        self._process_manager.start_if_needed()
         threading.Thread(
             target=self._post_best_effort,
             args=(payload,),
+            name="nd-graphic-bridge-open",
             daemon=True,
         ).start()
         return relative
@@ -61,7 +71,10 @@ class GraphicBridgeNotifier:
             headers={"Content-Type": "application/json"},
             method="POST",
         )
-        try:
-            urllib.request.urlopen(request, timeout=0.45).read(16)
-        except (OSError, urllib.error.URLError, ValueError):
-            return
+        for attempt in range(4):
+            try:
+                urllib.request.urlopen(request, timeout=0.45).read(16)
+                return
+            except (OSError, urllib.error.URLError, ValueError):
+                if attempt < 3:
+                    time.sleep(0.20)

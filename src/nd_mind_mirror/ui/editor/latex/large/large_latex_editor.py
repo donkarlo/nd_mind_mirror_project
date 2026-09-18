@@ -15,7 +15,7 @@ from nd_mind_mirror.ui.editor.latex.large.source_typing_burst_controller import 
 
 
 class LargeLatexEditor(IncrementalLargeLatexEditor):
-    """Edit a bounded rich Source window backed by the complete source buffer."""
+    """Edit a large Source document through one canonical chunk buffer."""
 
     _DEFAULT_SOURCE_WINDOW_CHARS = 40_000
     _FULL_DOCUMENT_IDLE_MS = 2_000
@@ -41,6 +41,7 @@ class LargeLatexEditor(IncrementalLargeLatexEditor):
             max(threshold, 120_000),
             window_chars,
         )
+        self._source_materialization_stale = False
 
         self._deferred_window_shift_value: int | None = None
         self._typing_burst_controller = SourceTypingBurstController(
@@ -56,6 +57,19 @@ class LargeLatexEditor(IncrementalLargeLatexEditor):
         self._typing_burst_controller.became_idle.connect(
             self._resume_deferred_source_window_shift
         )
+
+    def set_edit_mode(self, mode: str) -> None:
+        """Materialize canonical Source only when Visual is actually left."""
+        requested = "visual" if str(mode).strip().lower() == "visual" else "source"
+        if requested == "source" and self._edit_mode == "visual":
+            self._visual_editor.flush_pending_source_change()
+            if self._source_materialization_stale:
+                if self._source_buffer.is_windowed:
+                    self._load_visible_window(canonical_modified=True)
+                else:
+                    self._load_complete_source(canonical_modified=True)
+
+        super().set_edit_mode(requested)
 
     def apply_structural_source(self, source: str, line_number: int) -> None:
         """Apply a Structure drag/drop rewrite to the complete canonical buffer."""
@@ -85,16 +99,12 @@ class LargeLatexEditor(IncrementalLargeLatexEditor):
         self.go_to_source_location(target_line, 1, align_top=True)
 
     def _apply_visual_source(self, source: str) -> None:
-        """Commit Visual output to the canonical buffer, never to a local window."""
-        if not self.source_is_windowed:
-            super()._apply_visual_source(source)
-            return
-
+        """Commit Visual output without rewriting the hidden Source QTextDocument."""
         canonical_source = str(source)
         if self._syncing_from_visual or canonical_source == self.toPlainText():
             return
 
-        visual_anchor, visual_position = (
+        _visual_anchor, visual_position = (
             self._visual_editor.source_selection_locations()
         )
         self._syncing_from_visual = True
@@ -107,20 +117,27 @@ class LargeLatexEditor(IncrementalLargeLatexEditor):
             self._source_buffer.select_around_position(focus_position)
             self._change_generation += 1
             self._canonical_modified = True
-            self._load_visible_window(canonical_modified=True)
-            self._set_source_selection_from_locations(
-                visual_anchor,
-                visual_position,
-            )
+            self._source_materialization_stale = True
+            self.document().setModified(True)
             self._visual_dirty = False
         finally:
             self._syncing_cursor_views = False
             self._syncing_from_visual = False
 
-        self.content_changed.emit(canonical_source)
+        self._schedule_canonical_content_emit()
         self.modification_changed.emit(True)
         if self._edit_mode == "visual":
             self.active_cursor_changed.emit()
+
+    def _schedule_canonical_content_emit(self) -> None:
+        """Delay full-document consumers until large-document editing is idle."""
+        self._content_emit_timer.setInterval(
+            max(
+                int(self._source_large_document_debounce_ms),
+                self._FULL_DOCUMENT_IDLE_MS,
+            )
+        )
+        self._content_emit_timer.start()
 
     def _synchronize_visible_change(
         self,
@@ -226,6 +243,7 @@ class LargeLatexEditor(IncrementalLargeLatexEditor):
             self._source_window_loading = False
 
         self._canonical_modified = bool(modified)
+        self._source_materialization_stale = False
         if hasattr(self, "_highlighter"):
             self._highlighter.rehighlight()
         self.viewport().update()

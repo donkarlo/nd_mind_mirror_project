@@ -1,19 +1,23 @@
-"""Large LaTeX editor using the exact same range-bookmark model."""
+"""Large LaTeX editor with selection-only canonical range bookmarks."""
 
 from nd_mind_mirror.ui.editor.latex.large.large_latex_editor import LargeLatexEditor
+from nd_mind_mirror.ui.editor.latex.latex_tab_view_state_mixin import (
+    LatexTabViewStateMixin,
+)
 from nd_mind_mirror.ui.editor.latex.tikz_targeted_visual_refresh_mixin import (
     TikZTargetedVisualRefreshMixin,
 )
-from nd_mind_mirror.ui.editor.bookmark.range.range_bookmark_editor_mixin import (
-    RangeBookmarkEditorMixin,
+from nd_mind_mirror.ui.editor.bookmark.range.selection_range_bookmark_editor_mixin import (
+    SelectionRangeBookmarkEditorMixin,
 )
 
 
 class SelectionLargeLatexEditor(
-    RangeBookmarkEditorMixin,
+    SelectionRangeBookmarkEditorMixin,
+    LatexTabViewStateMixin,
     TikZTargetedVisualRefreshMixin,
     LargeLatexEditor,
 ):
-    """Virtualized Source/Visual editor sharing the regular bookmark mechanism."""
+    """Large Source/Visual editor where only selected text can be bookmarked."""
 
     pass

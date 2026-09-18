@@ -8,11 +8,21 @@ from pathlib import Path
 class TikZTargetedVisualRefreshMixin:
     """Refresh one Visual TikZ dependency without rebuilding unrelated graphics."""
 
-    def refresh_visual_tikz_path(self, path: str | Path) -> bool:
+    def refresh_visual_tikz_path(
+        self,
+        path: str | Path,
+        *,
+        allow_fallback: bool = False,
+    ) -> bool:
         self._visual_dirty = True
         if self._edit_mode != "visual":
             return False
         refresh = getattr(self._visual_editor, "refresh_tikz_path", None)
         if not callable(refresh):
             return False
-        return bool(refresh(path))
+        return bool(
+            refresh(
+                path,
+                allow_fallback=bool(allow_fallback),
+            )
+        )

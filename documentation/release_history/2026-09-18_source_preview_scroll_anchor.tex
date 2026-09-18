@@ -1,0 +1,49 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+
+\usetikzlibrary{graphs,graphdrawing}
+\usegdlibrary{layered}
+
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/external_graphviz.tex}
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/part/control_sequence/kind/semtag/semtag.tex}
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/seehere.tex}
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/deep_structure.tex}
+
+\title{Stable Source Preview Scroll Anchoring}
+\date{2026-09-18}
+\author{Mohammad Rahmani}
+
+\begin{document}
+   \maketitle
+
+   \section{Fixed behavior}
+
+   Source scrolling no longer jumps upward when asynchronously rendered formula
+   or table previews change reserved block space above the visible viewport.
+
+   The scroll-anchor correction now uses the scrollbar value that is current at
+   the moment of each correction.  Consequently, the immediate correction and
+   the deferred correction after Qt geometry recalculation are idempotent: the
+   second pass preserves the first pass instead of restoring the stale pre-layout
+   scrollbar value.
+
+   A regression test covers both repeated restoration after geometry settles and
+   shrinking preview space above the viewport.
+
+   \bibliographystyle{plainnat}
+   \bibliography{/home/donkarlo/Dropbox/repo/nd_shared_research/bibliography/bibliography.bib}
+\end{document}

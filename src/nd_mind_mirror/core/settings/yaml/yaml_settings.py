@@ -9,7 +9,40 @@ from nd_mind_mirror.core.settings.yaml.yaml_settings_base import (
 
 
 class YamlSettings(BaseYamlSettings):
-    """Expose Preview profiles, TikZ canvas defaults, and document templates."""
+    """Expose editor appearance, Preview profiles, and document templates."""
+
+    @property
+    def editor_cursor_color(self) -> str:
+        value = str(
+            self._get("editor", "cursor_color", default="#202124")
+        ).strip()
+        return value or "#202124"
+
+    @property
+    def editor_cursor_size_percent(self) -> int:
+        value = self._positive_int(
+            self._get("editor", "cursor_size_percent", default=100),
+            100,
+        )
+        return max(25, min(value, 200))
+
+    @property
+    def editor_cursor_thickness(self) -> int:
+        legacy_width = self._get("editor", "cursor_width", default=2)
+        value = self._positive_int(
+            self._get(
+                "editor",
+                "cursor_thickness",
+                default=legacy_width,
+            ),
+            2,
+        )
+        return max(1, min(value, 12))
+
+    @property
+    def editor_cursor_width(self) -> int:
+        """Backward-compatible alias for the old ``cursor_width`` setting."""
+        return self.editor_cursor_thickness
 
     @property
     def preview_latex_profile(self) -> str:

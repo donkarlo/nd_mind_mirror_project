@@ -39,6 +39,10 @@ from nd_mind_mirror.ui.window.main.tikz_update_event_controller import (
 class EnhancedMainWindow(BaseEnhancedMainWindow):
     """Compose search-aware desktop features over the shared image/TikZ bridge."""
 
+    _TIKZ_LIVE_INTERVAL_MS = 180
+    _TIKZ_FALLBACK_IDLE_MS = 1200
+    _TIKZ_PDF_AFTER_FALLBACK_MS = 1500
+
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self._externally_missing_paths: set[Path] = set()
@@ -78,16 +82,26 @@ class EnhancedMainWindow(BaseEnhancedMainWindow):
             self._on_tikz_source_updated
         )
 
+        self._pending_tikz_idle_paths: set[Path] = set()
+        self._tikz_pdf_compile_timer = QTimer(self)
+        self._tikz_pdf_compile_timer.setSingleShot(True)
+        self._tikz_pdf_compile_timer.setInterval(
+            self._TIKZ_PDF_AFTER_FALLBACK_MS
+        )
+        self._tikz_pdf_compile_timer.timeout.connect(
+            self._compile_tikz_pdf_after_idle
+        )
+
         self._tikz_live_refresh_controller = TikZLiveRefreshController(
             self,
-            live_interval_ms=50,
-            pdf_idle_delay_ms=1200,
+            live_interval_ms=self._TIKZ_LIVE_INTERVAL_MS,
+            pdf_idle_delay_ms=self._TIKZ_FALLBACK_IDLE_MS,
         )
         self._tikz_live_refresh_controller.live_refresh_requested.connect(
             self._refresh_tikz_live_projections
         )
         self._tikz_live_refresh_controller.pdf_refresh_requested.connect(
-            self._refresh_tikz_pdf_projection
+            self._refresh_tikz_idle_projections
         )
 
         QTimer.singleShot(
@@ -162,27 +176,58 @@ class EnhancedMainWindow(BaseEnhancedMainWindow):
         super()._sync_external_file_changes()
 
     def _on_tikz_source_updated(self, path: str) -> None:
-        """Reload Source now; live graphics and PDF follow separate bounded schedules."""
+        """Coalesce iPad saves before touching Source, Visual, or PDF projections."""
         source_path = self._resolve_tikz_event_path(path)
-        self._reload_open_tikz_source(source_path)
+        self._pending_tikz_idle_paths.add(source_path)
+        self._tikz_pdf_compile_timer.stop()
         self._tikz_live_refresh_controller.submit(source_path)
 
     def _refresh_tikz_live_projections(self, paths: object) -> None:
-        """Refresh only Source/Visual projections that depend on changed TikZ files."""
+        """Refresh Source/Visual at a bounded rate using only the cheap fast path."""
         if not isinstance(paths, tuple):
             return
 
         editor = self._editor_panel.current_editor()
         visual_refresh = getattr(editor, "refresh_visual_tikz_path", None)
         for source_path in paths:
+            self._reload_open_tikz_source(source_path)
             self._source_tikz_preview_controller.notify_tikz_changed(
-                source_path
+                source_path,
+                allow_fallback=False,
             )
             if callable(visual_refresh):
-                visual_refresh(source_path)
+                visual_refresh(
+                    source_path,
+                    allow_fallback=False,
+                )
 
-    def _refresh_tikz_pdf_projection(self) -> None:
-        """Compile the full PDF only after the external TikZ edit stream is idle."""
+    def _refresh_tikz_idle_projections(self) -> None:
+        """Permit one serialized fallback after the TikZ edit stream becomes idle."""
+        paths = tuple(sorted(self._pending_tikz_idle_paths, key=str))
+        self._pending_tikz_idle_paths.clear()
+        if not paths:
+            return
+
+        editor = self._editor_panel.current_editor()
+        visual_refresh = getattr(editor, "refresh_visual_tikz_path", None)
+        for source_path in paths:
+            self._reload_open_tikz_source(source_path)
+            self._source_tikz_preview_controller.notify_tikz_changed(
+                source_path,
+                allow_fallback=True,
+            )
+            if callable(visual_refresh):
+                visual_refresh(
+                    source_path,
+                    allow_fallback=True,
+                )
+
+        # Do not compete with the serialized TikZ fallback. Full-document PDF
+        # compilation is delayed again and is cancelled by any new iPad save.
+        self._tikz_pdf_compile_timer.start()
+
+    def _compile_tikz_pdf_after_idle(self) -> None:
+        """Compile the full document only after fallback work has had quiet time."""
         if self._preview_enabled:
             self._refresh_current_preview(immediate=True)
 
@@ -194,7 +239,7 @@ class EnhancedMainWindow(BaseEnhancedMainWindow):
         return (self._workspace_root / candidate).resolve(strict=False)
 
     def _reload_open_tikz_source(self, source_path: Path) -> None:
-        """Apply the canonical iPad save immediately to an already-open Source tab."""
+        """Apply the canonical iPad save to an already-open Source tab."""
         current_content = self._editor_panel.content_for_path(source_path)
         if current_content is None or not source_path.is_file():
             return

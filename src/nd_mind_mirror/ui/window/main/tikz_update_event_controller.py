@@ -7,12 +7,17 @@ from pathlib import Path
 
 from PySide6.QtCore import QObject, QTimer, Signal
 
+from nd_mind_mirror.graphic.core.bridge_process_manager import (
+    GraphicBridgeProcessManager,
+)
+
 
 class TikZUpdateEventController(QObject):
-    """Poll one tiny atomic event file instead of scanning the workspace tree."""
+    """Poll quickly only while the shared iPad bridge is actually running."""
 
     updated = Signal(str)
-    _POLL_MS = 45
+    _ACTIVE_POLL_MS = 45
+    _IDLE_POLL_MS = 1000
     _COALESCE_MS = 55
 
     def __init__(self, workspace_root: str | Path, parent=None) -> None:
@@ -26,7 +31,7 @@ class TikZUpdateEventController(QObject):
         self._pending_path = ""
 
         self._poll_timer = QTimer(self)
-        self._poll_timer.setInterval(self._POLL_MS)
+        self._poll_timer.setInterval(self._IDLE_POLL_MS)
         self._poll_timer.timeout.connect(self._poll)
         self._poll_timer.start()
 
@@ -36,6 +41,11 @@ class TikZUpdateEventController(QObject):
         self._emit_timer.timeout.connect(self._emit_pending)
 
     def _poll(self) -> None:
+        if not GraphicBridgeProcessManager.managed_bridge_is_running():
+            self._set_poll_interval(self._IDLE_POLL_MS)
+            return
+
+        self._set_poll_interval(self._ACTIVE_POLL_MS)
         signature = self._file_signature()
         if signature is None or signature == self._signature:
             return
@@ -49,6 +59,11 @@ class TikZUpdateEventController(QObject):
             return
         self._pending_path = path
         self._emit_timer.start()
+
+    def _set_poll_interval(self, interval_ms: int) -> None:
+        interval = max(int(interval_ms), 1)
+        if self._poll_timer.interval() != interval:
+            self._poll_timer.setInterval(interval)
 
     def _emit_pending(self) -> None:
         path = self._pending_path

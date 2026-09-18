@@ -1,0 +1,58 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+\usepackage{adjustbox}
+\usepackage[active,tightpage]{preview}
+
+\PreviewBorder=4pt
+
+\usetikzlibrary{graphs,graphdrawing,arrows.meta,positioning,calc,fit,shapes.geometric}
+\usegdlibrary{layered}
+
+% for external graphviz
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/external_graphviz.tex}
+
+% for tags
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/part/control_sequence/kind/semtag/semtag.tex}
+
+% for links
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/seehere.tex}
+
+% for nested lists and sections
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/deep_structure.tex}
+
+\title{}
+\date{}
+\author{Mohammad Rahmani}
+
+\begin{document}
+   \maketitle
+
+   \begin{preview}
+      \section*{TikZ iPad idle-render CPU fix}
+
+      Opening a TikZ document on the iPad is source-only again. The configured bridge no longer re-enables the automatic LuaLaTeX preview that had bypassed the earlier source-only bridge behavior.
+
+      Explicit iPad TikZ render requests are now coalesced behind an idle delay. A newer request cancels the pending one, so a stream of edits cannot queue a separate expensive render for each intermediate revision.
+
+      Desktop Source and Visual TikZ refreshes now distinguish live and idle rendering. Live iPad saves are coalesced to a 180 ms cadence and are restricted to the fast Qt preview path; the LuaLaTeX fallback is forbidden while edits are arriving. After 1.2 seconds of inactivity, the newest dependency may run one serialized fallback, and the full-document PDF refresh is delayed again so it does not compete with that fallback.
+
+      Canonical TikZ Source reloads are also coalesced with the live projection refresh rather than running once for every bridge event. Bridge version \texttt{0.31.51} identifies the corrected runtime.
+   \end{preview}
+
+   \bibliographystyle{plainnat}
+   \bibliography{/home/donkarlo/Dropbox/repo/nd_shared_research/bibliography/bibliography.bib}
+\end{document}

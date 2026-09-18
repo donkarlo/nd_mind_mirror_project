@@ -1,0 +1,51 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+\usepackage{adjustbox}
+\usepackage[active,tightpage]{preview}
+
+\PreviewBorder=4pt
+
+\usetikzlibrary{graphs,graphdrawing,arrows.meta,positioning,calc,fit,shapes.geometric}
+\usegdlibrary{layered}
+
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/external_graphviz.tex}
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/part/control_sequence/kind/semtag/semtag.tex}
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/seehere.tex}
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/deep_structure.tex}
+
+\title{}
+\date{}
+\author{Mohammad Rahmani}
+
+\begin{document}
+   \maketitle
+
+   \begin{preview}
+      \section*{2026-09-18: Graphic bridge and TikZ performance fixes}
+      \begin{itemize}
+         \item Removed the second per-session graphic-bridge launcher. Mind Mirror now keeps one canonical bridge owner and starts the bridge only when an image or TikZ iPad operation requests it.
+         \item Disabled automatic bridge startup in both default and active settings. Stale bridge processes left by older sessions are terminated once during the next Mind Mirror startup.
+         \item Replaced whole-workspace bridge watching with bounded monitoring of only the active sidecar and image. Reverse iPad LAN discovery now runs only while an explicit image/TikZ request is pending.
+         \item Reduced idle iPad/TikZ polling so no high-frequency filesystem work runs while the managed bridge is inactive.
+         \item Source TikZ previews are anchored to the end of the complete \verb|\input{...}| or \verb|\include{...}| source line, so wrapped include lines render their image below the source rather than above part of it.
+         \item Removed the full-document QTextBlock scan used to clear TikZ preview spacing; the controller now tracks and updates only blocks it owns.
+      \end{itemize}
+   \end{preview}
+
+   \bibliographystyle{plainnat}
+   \bibliography{/home/donkarlo/Dropbox/repo/nd_shared_research/bibliography/bibliography.bib}
+\end{document}

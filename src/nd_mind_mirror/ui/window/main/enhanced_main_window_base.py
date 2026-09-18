@@ -37,8 +37,8 @@ from nd_mind_mirror.ui.window.main.graphic_open_session_path_controller import (
 from nd_mind_mirror.ui.window.main.workspace.managed_graphic_filesystem_operation_controller import (
     ManagedGraphicWorkspaceFilesystemOperationController,
 )
-from nd_mind_mirror.graphic.core.bridge_session_process_controller import (
-    GraphicBridgeSessionProcessController,
+from nd_mind_mirror.graphic.core.bridge_process_manager import (
+    GraphicBridgeProcessManager,
 )
 
 
@@ -77,14 +77,6 @@ class EnhancedMainWindow(FeatureEnhancedMainWindow):
                 self,
             )
         )
-        self._graphic_bridge_session_process_controller = (
-            GraphicBridgeSessionProcessController(
-                workspace_root=self._app_settings.search_default_path,
-                project_root=self._app_settings.project_root,
-                parent=self,
-            )
-        )
-        self._graphic_bridge_session_process_controller.start()
         self._refresh_current_preview(immediate=True)
         self._workspace_reference_maintenance_controller = (
             WorkspaceReferenceMaintenanceController(self, self)
@@ -175,7 +167,9 @@ class EnhancedMainWindow(FeatureEnhancedMainWindow):
         )
 
     def _sync_graphic_update_event(self) -> None:
-        """Force Source and Visual image caches to follow every accepted iPad save event."""
+        """Process iPad image events only while the shared bridge is active."""
+        if not GraphicBridgeProcessManager.managed_bridge_is_running():
+            return
         previous_signature = getattr(self, "_graphic_update_event_signature", None)
         super()._sync_graphic_update_event()
         if getattr(self, "_graphic_update_event_signature", None) == previous_signature:

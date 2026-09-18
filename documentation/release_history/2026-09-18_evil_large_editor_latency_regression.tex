@@ -1,0 +1,64 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+
+\title{Evil large Source and Visual latency regression fix}
+\date{2026-09-18}
+\author{Mohammad Rahmani}
+
+\begin{document}
+   \maketitle
+
+   \section{Problem}
+   The approximately 312,000-character \texttt{evil.tex} document became
+   effectively unusable in Source and Visual modes.  The editor-selection path
+   had regressed to a hard-coded 1,000,000-character cutoff even though the
+   configured large-document threshold is 120,000 characters.  Consequently,
+   \texttt{evil.tex} opened with the regular LaTeX editor instead of the
+   large-document specialization.
+
+   Visual typing had a second cost.  After a bounded Visual projection was
+   serialized, the large editor could rewrite the complete hidden Source
+   \texttt{QTextDocument}.  This defeated a substantial part of Visual
+   windowing because a full Source layout and syntax-highlight pass could occur
+   after each Visual propagation cycle.
+
+   \section{Fix}
+   \begin{itemize}
+      \item \texttt{EditorPanel} again uses
+      \texttt{editor\_source\_large\_document\_threshold\_chars} as the single
+      decision threshold for choosing \texttt{SelectionLargeLatexEditor}.
+      \item The hard-coded 1,000,000-character cutoff is removed.
+      \item Visual edits update the canonical \texttt{LatexSourceBuffer} while
+      the Source widget is hidden, without replacing the hidden complete
+      \texttt{QTextDocument} on every Visual edit.
+      \item Full-document consumers are scheduled only after the existing
+      large-document idle interval.
+      \item When the user returns from Visual to Source, pending Visual edits
+      are flushed first and the latest canonical Source is materialized exactly
+      at that view-transition boundary.
+   \end{itemize}
+
+   \section{Regression coverage}
+   A regression test constructs an \texttt{evil}-sized source between 300,000
+   and 400,000 characters, verifies that Visual projection remains bounded to
+   40,000 characters, verifies the configured 120,000-character editor
+   threshold path, and checks that ordinary Visual propagation does not invoke
+   complete hidden-Source materialization.
+
+   \bibliographystyle{plainnat}
+   \bibliography{/home/donkarlo/Dropbox/repo/nd_shared_research/bibliography/bibliography.bib}
+\end{document}

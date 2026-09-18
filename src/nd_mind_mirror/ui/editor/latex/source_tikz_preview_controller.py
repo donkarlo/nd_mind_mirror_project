@@ -13,15 +13,18 @@ from nd_mind_mirror.ui.editor.latex.latex_editor import LatexEditor
 from nd_mind_mirror.ui.editor.latex.source_tikz_preview_widget import (
     SourceTikZPreviewWidget,
 )
+from nd_mind_mirror.ui.editor.latex.source_tikz_preview_anchor import (
+    SourceTikZPreviewAnchor,
+)
 from nd_mind_mirror.ui.editor.latex.tikz_visual_preview_service import (
     TikZVisualPreviewService,
 )
 
 
 class SourceTikZPreviewController(QObject):
-    """Project referenced TikZ children under their canonical Source lines."""
+    """Project referenced TikZ children below their complete Source input/include lines."""
 
-    _REFRESH_DELAY_MS = 45
+    _REFRESH_DELAY_MS = 70
     _IMAGE_GAP_PX = 8
     _MAX_WIDTH_RATIO = 0.92
     _BLOCK_TIKZ_SPACE_PROPERTY = int(QTextFormat.Property.UserProperty) + 431
@@ -44,6 +47,7 @@ class SourceTikZPreviewController(QObject):
         self._active_editor: LatexEditor | None = None
         self._layout: list[dict[str, object]] = []
         self._layout_viewport_width = -1
+        self._reserved_blocks: dict[int, object] = {}
 
         self._refresh_timer = QTimer(self)
         self._refresh_timer.setSingleShot(True)
@@ -84,7 +88,7 @@ class SourceTikZPreviewController(QObject):
         return super().eventFilter(watched, event)
 
     def refresh_positions(self) -> None:
-        """Reposition live preview widgets only for a valid active Source editor."""
+        """Place every preview below the end of its full input/include source line."""
         editor = self._current_live_editor()
         if editor is not self._active_editor:
             self.schedule_refresh()
@@ -109,13 +113,15 @@ class SourceTikZPreviewController(QObject):
             self._reset_dead_editor()
             return
 
+        max_position = max(document.characterCount() - 1, 0)
         for item in self._layout:
-            block = document.findBlock(int(item["block_position"]))
-            if not block.isValid():
-                continue
-            line_rect = editor.cursorRect(QTextCursor(block))
+            anchor = QTextCursor(document)
+            anchor.setPosition(
+                max(0, min(int(item["anchor_position"]), max_position))
+            )
+            anchor_rect = editor.cursorRect(anchor)
             height = int(item["height"])
-            y = int(line_rect.bottom()) + self._IMAGE_GAP_PX
+            y = int(anchor_rect.bottom()) + self._IMAGE_GAP_PX
             if y > viewport_height or y + height < 0:
                 continue
 
@@ -133,7 +139,7 @@ class SourceTikZPreviewController(QObject):
         self._hide_unused(used)
 
     def _rebuild_layout(self) -> None:
-        """Rebuild preview reservations once, abandoning destroyed editor instances."""
+        """Rebuild only TikZ reservations; never scan every QTextBlock in the document."""
         editor = self._current_live_editor()
         if editor is not self._active_editor:
             self._detach_editor()
@@ -175,9 +181,11 @@ class SourceTikZPreviewController(QObject):
             if image is None or image.isNull():
                 continue
 
-            block = document.findBlock(match.start())
+            anchor_position = SourceTikZPreviewAnchor.position(match.start(), match.end())
+            block = document.findBlock(anchor_position)
             if not block.isValid():
                 continue
+
             native_width = max(int(image.width()), 1)
             width = min(
                 native_width,
@@ -193,6 +201,7 @@ class SourceTikZPreviewController(QObject):
             layout.append(
                 {
                     "block_position": block_position,
+                    "anchor_position": anchor_position,
                     "image": QImage(image),
                     "width": width,
                     "height": height,
@@ -225,6 +234,7 @@ class SourceTikZPreviewController(QObject):
         self._active_editor = None
         self._layout = []
         self._layout_viewport_width = -1
+        self._reserved_blocks.clear()
         self._hide_unused(0)
 
     def _on_preview_ready(
@@ -256,6 +266,7 @@ class SourceTikZPreviewController(QObject):
         self._layout_viewport_width = -1
 
         if not self._editor_is_alive(editor):
+            self._reserved_blocks.clear()
             self._clear_widgets()
             return
 
@@ -276,6 +287,7 @@ class SourceTikZPreviewController(QObject):
         self._active_editor = None
         self._layout = []
         self._layout_viewport_width = -1
+        self._reserved_blocks.clear()
         self._hide_unused(0)
 
     def _current_live_editor(self) -> LatexEditor | None:
@@ -306,43 +318,50 @@ class SourceTikZPreviewController(QObject):
             return None
         return viewport if isValid(viewport) else None
 
-    @classmethod
-    def _clear_reserved_space(cls, editor: LatexEditor | None) -> None:
-        if not cls._editor_is_alive(editor):
+    def _clear_reserved_space(self, editor: LatexEditor | None) -> None:
+        """Clear only blocks previously owned by this controller."""
+        if not self._editor_is_alive(editor):
+            self._reserved_blocks.clear()
             return
         try:
             document = editor.document()
         except RuntimeError:
+            self._reserved_blocks.clear()
             return
         if not isValid(document):
+            self._reserved_blocks.clear()
             return
 
         was_modified = document.isModified()
         editor_blocker = QSignalBlocker(editor)
         document_blocker = QSignalBlocker(document)
         try:
-            block = document.begin()
-            while block.isValid():
+            for block in tuple(self._reserved_blocks.values()):
+                if block is None or not block.isValid():
+                    continue
                 block_format = block.blockFormat()
-                if bool(block_format.property(cls._BLOCK_TIKZ_SPACE_PROPERTY)):
-                    block_format.setBottomMargin(0.0)
-                    block_format.clearProperty(cls._BLOCK_TIKZ_SPACE_PROPERTY)
-                    QTextCursor(block).setBlockFormat(block_format)
-                block = block.next()
+                if not bool(
+                    block_format.property(self._BLOCK_TIKZ_SPACE_PROPERTY)
+                ):
+                    continue
+                block_format.setBottomMargin(0.0)
+                block_format.clearProperty(self._BLOCK_TIKZ_SPACE_PROPERTY)
+                QTextCursor(block).setBlockFormat(block_format)
             document.setModified(was_modified)
         except RuntimeError:
-            return
+            pass
         finally:
+            self._reserved_blocks.clear()
             del document_blocker
             del editor_blocker
 
-    @classmethod
     def _apply_reserved_space(
-        cls,
+        self,
         editor: LatexEditor,
         reservations: dict[int, int],
     ) -> None:
-        if not reservations or not cls._editor_is_alive(editor):
+        """Reserve image space only on the include blocks that need it."""
+        if not reservations or not self._editor_is_alive(editor):
             return
         try:
             document = editor.document()
@@ -361,8 +380,9 @@ class SourceTikZPreviewController(QObject):
                     continue
                 block_format = block.blockFormat()
                 block_format.setBottomMargin(float(max(int(height), 0)))
-                block_format.setProperty(cls._BLOCK_TIKZ_SPACE_PROPERTY, True)
+                block_format.setProperty(self._BLOCK_TIKZ_SPACE_PROPERTY, True)
                 QTextCursor(block).setBlockFormat(block_format)
+                self._reserved_blocks[int(block.position())] = block
             document.setModified(was_modified)
         except RuntimeError:
             return

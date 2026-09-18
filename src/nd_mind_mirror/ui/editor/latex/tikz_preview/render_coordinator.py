@@ -66,8 +66,9 @@ class TikZPreviewRenderCoordinator(QObject):
         key: tuple[Path, int, int],
         referring_file: Path,
         raw_input: str,
+        allow_fallback: bool = True,
     ) -> QImage | None:
-        """Return the exact/fallback frame and render only when the fast subset cannot."""
+        """Return a preview and start LuaLaTeX only when fallback is explicitly allowed."""
         target = target.resolve()
         referring = str(referring_file.resolve())
 
@@ -79,26 +80,31 @@ class TikZPreviewRenderCoordinator(QObject):
             if cached is not None and not cached.isNull():
                 return QImage(cached)
 
-        # iPad-generated diagrams stay on this cheap Qt path. This is what keeps
-        # dragging live without launching LuaLaTeX for every intermediate point.
         fast = self._fast_renderer.render(source, target)
         if fast is not None and not fast.isNull():
             self._store_fast_frame(target, key, fast)
             return QImage(fast)
 
-        start_request: tuple[Path, str, tuple[Path, int, int]] | None = None
         with self._lock:
             fallback = self._latest_image_by_target.get(target)
-            if key not in self._failed:
-                self._latest_request_by_target[target] = (source, key)
-                if target not in self._running_key_by_target:
-                    self._running_key_by_target[target] = key
-                    start_request = (target, source, key)
             fallback_copy = (
                 QImage(fallback)
                 if fallback is not None and not fallback.isNull()
                 else None
             )
+
+        # Live iPad updates use this branch. A frame may remain one generation
+        # behind, but no LuaLaTeX process is ever launched while strokes arrive.
+        if not allow_fallback:
+            return fallback_copy
+
+        start_request: tuple[Path, str, tuple[Path, int, int]] | None = None
+        with self._lock:
+            if key not in self._failed:
+                self._latest_request_by_target[target] = (source, key)
+                if target not in self._running_key_by_target:
+                    self._running_key_by_target[target] = key
+                    start_request = (target, source, key)
 
         if start_request is not None:
             self._start_fallback_render(*start_request)
