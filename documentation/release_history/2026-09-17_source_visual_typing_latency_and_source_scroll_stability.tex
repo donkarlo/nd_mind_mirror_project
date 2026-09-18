@@ -1,0 +1,80 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+
+\usetikzlibrary{graphs,graphdrawing}
+\usegdlibrary{layered}
+
+% for external graphviz
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/external_graphviz.tex}
+
+% for tags
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/part/control_sequence/kind/semtag/semtag.tex}
+
+% for links
+\input{/home/donkarlo/Dropbox/repo/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/seehere.tex}
+
+\title{Source and Visual typing latency and Source scroll stability fix}
+\date{2026-09-17}
+\author{Mohammad Rahmani}
+
+\begin{document}
+   \maketitle
+
+   \section{Problems}
+      Source typing could pause when the graphical formula/table preview controller
+      launched LuaLaTeX synchronously on the GUI thread. The controller also removed
+      all preview bottom margins before rebuilding them. Near the bottom of a Source
+      document this temporarily reduced the scrollbar maximum, so Qt clamped the
+      current scroll position and the page visibly jumped upward when the margins
+      were added again.
+
+      Visual edits were also propagated aggressively enough that full Visual
+      serialization and Source synchronization could start during ordinary typing
+      pauses.
+
+   \section{Fix}
+      \begin{itemize}
+         \item Formula/table Source preview rendering now runs in a dedicated
+         short-lived worker thread. The GUI thread only extracts spans, maintains
+         cached images, and applies the final overlay layout.
+         \item While a render is running, newer edits replace the pending request.
+         Stale render results are cached when useful but are never committed as the
+         active Source layout.
+         \item Existing Source preview margins remain active until the replacement
+         layout is ready. Margin updates are differential instead of clearing and
+         rescanning the entire document.
+         \item The Source controller preserves the visible top anchor and explicitly
+         keeps the scrollbar pinned to the bottom when the user was already at the
+         bottom. This removes the end-of-file upward jump reproduced in
+         \texttt{neural\_cognitive\_architecture.tex}.
+         \item The normal Source content debounce is increased from 70 ms to 240 ms.
+         \item The normal Visual propagation debounce is increased from 180 ms to
+         650 ms, and the large Visual debounce from 650 ms to 1200 ms.
+         \item The PDF preview debounce is increased from 120 ms to 260 ms so preview
+         work starts after a short typing idle period instead of competing with
+         keystrokes.
+      \end{itemize}
+
+   \section{Data safety}
+      The canonical LaTeX source remains unchanged by the preview controller. The
+      worker renders temporary standalone snippets only. Source/Visual mode changes
+      still use the existing synchronous pending-edit flush boundary, so the larger
+      debounce values do not discard final Visual keystrokes.
+
+   \bibliographystyle{plainnat}
+   \bibliography{/home/donkarlo/Dropbox/repo/nd_shared_research/bibliography/bibliography.bib}
+\end{document}

@@ -1,0 +1,49 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+\usepackage{adjustbox}
+\usepackage[active,tightpage]{preview}
+
+\PreviewBorder=4pt
+
+\title{Bookmark rewrite startup regression fix}
+\date{2026-09-17}
+\author{Mohammad Rahmani}
+
+\begin{document}
+   \maketitle
+
+   \begin{preview}
+      The application startup still imported
+      \texttt{SelectionBookmarkContextController} from
+      \texttt{persistent\_editor\_visuals.py} after the retired selection-bookmark
+      implementation had been removed.  Mind Mirror therefore failed during
+      module import before the main window could be created.
+
+      \texttt{PersistentEditorVisuals} is now bookmark-free.  It keeps only its
+      persistent caret, logical line-number, source indentation, layout padding,
+      and existing non-bookmark startup responsibilities.  It no longer imports
+      the removed selection-bookmark controller or source bookmark resolver, and
+      it no longer installs legacy bookmark highlighting/toggle monkey patches.
+
+      Normal and virtualized large LaTeX editors continue to use the same
+      canonical character-range bookmark model through
+      \texttt{RangeBookmarkEditorMixin}.
+   \end{preview}
+
+   \bibliographystyle{plainnat}
+   \bibliography{/home/donkarlo/Dropbox/repo/nd_shared_research/bibliography/bibliography.bib}
+\end{document}

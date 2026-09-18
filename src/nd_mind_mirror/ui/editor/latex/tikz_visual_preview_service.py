@@ -41,6 +41,28 @@ class TikZVisualPreviewService(QObject):
             self._on_shared_preview_ready
         )
 
+    def target_for_input(
+        self,
+        raw: str,
+        referring_file: str | Path | None,
+    ) -> Path | None:
+        """Resolve a raw input/include to its canonical target without rendering it."""
+        if referring_file in (None, ""):
+            return None
+        match = self._INPUT.match(str(raw).strip())
+        if match is None:
+            return None
+        referring_path = Path(referring_file).expanduser().resolve()
+        target = self._resolver.resolve(
+            match.group("target"),
+            referring_path,
+            command="input",
+            require_exists=True,
+        )
+        if target is None or not target.is_file():
+            return None
+        return target.expanduser().resolve()
+
     def preview_for_input(
         self,
         raw: str,
@@ -65,20 +87,10 @@ class TikZVisualPreviewService(QObject):
         raw: str,
         referring_file: str | Path | None,
     ) -> tuple[Path, str, tuple[Path, int, int], Path] | None:
-        if referring_file in (None, ""):
-            return None
-        match = self._INPUT.match(raw.strip())
-        if match is None:
+        target = self.target_for_input(raw, referring_file)
+        if target is None or referring_file in (None, ""):
             return None
         referring_path = Path(referring_file).expanduser().resolve()
-        target = self._resolver.resolve(
-            match.group("target"),
-            referring_path,
-            command="input",
-            require_exists=True,
-        )
-        if target is None or not target.is_file():
-            return None
         try:
             source = target.read_text(encoding="utf-8")
             if "\\begin{tikzpicture}" not in source:

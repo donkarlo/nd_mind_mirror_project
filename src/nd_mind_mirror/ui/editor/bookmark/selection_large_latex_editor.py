@@ -1,12 +1,19 @@
-"""Large LaTeX editor with selection-aware bookmarks."""
+"""Large LaTeX editor using the exact same range-bookmark model."""
 
 from nd_mind_mirror.ui.editor.latex.large.large_latex_editor import LargeLatexEditor
-from nd_mind_mirror.ui.editor.bookmark.selection_bookmark_editor_mixin import (
-    SelectionBookmarkEditorMixin,
+from nd_mind_mirror.ui.editor.latex.tikz_targeted_visual_refresh_mixin import (
+    TikZTargetedVisualRefreshMixin,
+)
+from nd_mind_mirror.ui.editor.bookmark.range.range_bookmark_editor_mixin import (
+    RangeBookmarkEditorMixin,
 )
 
 
-class SelectionLargeLatexEditor(SelectionBookmarkEditorMixin, LargeLatexEditor):
-    """Keep range bookmarks available in the virtualized large Source editor."""
+class SelectionLargeLatexEditor(
+    RangeBookmarkEditorMixin,
+    TikZTargetedVisualRefreshMixin,
+    LargeLatexEditor,
+):
+    """Virtualized Source/Visual editor sharing the regular bookmark mechanism."""
 
     pass

@@ -1,0 +1,40 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+
+\title{Targeted TikZ live refresh and readable Visual math}
+\date{2026-09-16}
+\author{Mohammad Rahmani}
+
+\begin{document}
+\maketitle
+
+\section{Fix}
+Rendered mathematics now keeps its high-resolution raster while
+\texttt{QTextImageFormat} receives a separate logical display size derived from
+the Visual editor typography.  Inline formulas remain line-sized, one-line
+display formulas are enlarged to a readable display height, and multi-row
+\texttt{align}/\texttt{gather}/\texttt{cases} formulas reserve height
+proportional to their rows.  Raster DPI no longer determines the apparent
+formula size.
+
+Live TikZ updates are now dependency-scoped.  A changed TikZ path refreshes only
+the matching Source preview and matching Visual raw block rather than invoking
+the generic whole-Visual graphic refresh.  The live update cadence is aligned
+with the iPad's approximately 20 Hz source stream, while full-document PDF
+compilation is delayed until 1200 ms of edit-stream inactivity.
+
+\end{document}

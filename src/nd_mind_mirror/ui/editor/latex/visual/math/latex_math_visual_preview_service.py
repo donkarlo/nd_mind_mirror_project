@@ -15,13 +15,7 @@ from .latex_math_renderer import LatexMathRenderer
 
 
 class LatexMathVisualPreviewService(QObject):
-    """Prepare inline and display formulas before Visual projection is built.
-
-    All formulas already present in the canonical source are rendered with one
-    LuaLaTeX batch. The QTextDocument can therefore replace both inline source
-    tokens and display blocks immediately from the cache without starting one
-    TeX process per formula.
-    """
+    """Prepare inline and display formulas before Visual projection is built."""
 
     preview_ready = Signal(str, object)
 
@@ -63,12 +57,7 @@ class LatexMathVisualPreviewService(QObject):
         return cls.is_inline_math(raw) or cls.is_display_math(raw)
 
     def preload_display_math(self, source: str) -> int:
-        """Preload every unique inline and display formula with one TeX batch.
-
-        The historical method name is kept because the windowed editor already
-        calls it at the projection boundary; its responsibility now covers all
-        mathematics so inline tokens are ready before their blocks are inserted.
-        """
+        """Preload every unique inline and display formula with one TeX batch."""
         formulas = self._all_formulas(str(source))
         missing = [raw for raw in formulas if raw not in self._cache]
         if not missing:
@@ -85,12 +74,11 @@ class LatexMathVisualPreviewService(QObject):
             image = rendered.get(raw)
             if image is None or image.isNull():
                 continue
-            prepared = self._size_policy.prepare(
+            self._cache[raw] = self._size_policy.prepare(
                 raw,
                 image,
                 display=self.is_display_math(raw),
             )
-            self._cache[raw] = QImage(prepared)
             count += 1
 
         if count:
@@ -123,8 +111,6 @@ class LatexMathVisualPreviewService(QObject):
         if cached is not None and not cached.isNull():
             return QImage(cached)
 
-        # Avoid launching one LuaLaTeX process per inline token. Inline math
-        # present in source is batch-preloaded before Visual projection.
         if self.is_inline_math(key):
             return None
         if not self.is_display_math(key):
@@ -136,14 +122,31 @@ class LatexMathVisualPreviewService(QObject):
             self._log_failure("single", exc)
             return None
 
-        prepared = self._size_policy.prepare(key, image, display=True)
-        self._cache[key] = QImage(prepared)
+        self._cache[key] = self._size_policy.prepare(
+            key,
+            image,
+            display=True,
+        )
         print(
             "[visual-math] rendered 1 late display formula",
             file=sys.stderr,
             flush=True,
         )
-        return QImage(prepared)
+        return QImage(self._cache[key])
+
+    def logical_size(
+        self,
+        raw: str,
+        image: QImage,
+        *,
+        display: bool,
+    ) -> tuple[float, float]:
+        """Return DPI-independent logical dimensions for QTextImageFormat."""
+        return self._size_policy.logical_size(
+            raw,
+            image,
+            display=display,
+        )
 
     def _all_formulas(self, source: str) -> list[str]:
         formulas: list[str] = []

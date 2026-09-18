@@ -4,8 +4,11 @@ from pathlib import Path
 
 from PySide6.QtCore import QTimer
 
-from nd_mind_mirror.ui.editor.latex.source_tikz_preview_controller import (
-    SourceTikZPreviewController,
+from nd_mind_mirror.ui.editor.latex.source_latex_preview_controller import (
+    SourceLatexPreviewController,
+)
+from nd_mind_mirror.ui.editor.latex.source_tikz_targeted_preview_controller import (
+    SourceTikZTargetedPreviewController,
 )
 from nd_mind_mirror.ui.window.main.autosave.existing_file_document_autosave_controller import (
     ExistingFileDocumentAutosaveController,
@@ -58,7 +61,11 @@ class EnhancedMainWindow(BaseEnhancedMainWindow):
             self,
         )
         self._latex_preview_profile_controller = LatexPreviewProfileController(self)
-        self._source_tikz_preview_controller = SourceTikZPreviewController(
+        self._source_latex_preview_controller = SourceLatexPreviewController(
+            self._editor_panel,
+            self,
+        )
+        self._source_tikz_preview_controller = SourceTikZTargetedPreviewController(
             self._editor_panel,
             workspace_root,
             self,
@@ -73,8 +80,8 @@ class EnhancedMainWindow(BaseEnhancedMainWindow):
 
         self._tikz_live_refresh_controller = TikZLiveRefreshController(
             self,
-            live_interval_ms=80,
-            pdf_idle_delay_ms=650,
+            live_interval_ms=50,
+            pdf_idle_delay_ms=1200,
         )
         self._tikz_live_refresh_controller.live_refresh_requested.connect(
             self._refresh_tikz_live_projections
@@ -161,15 +168,18 @@ class EnhancedMainWindow(BaseEnhancedMainWindow):
         self._tikz_live_refresh_controller.submit(source_path)
 
     def _refresh_tikz_live_projections(self, paths: object) -> None:
-        """Refresh Source/Visual TikZ images at a bounded live frame rate."""
+        """Refresh only Source/Visual projections that depend on changed TikZ files."""
         if not isinstance(paths, tuple):
             return
 
+        editor = self._editor_panel.current_editor()
+        visual_refresh = getattr(editor, "refresh_visual_tikz_path", None)
         for source_path in paths:
             self._source_tikz_preview_controller.notify_tikz_changed(
-                str(source_path)
+                source_path
             )
-        self._editor_panel.refresh_current_visual_graphics()
+            if callable(visual_refresh):
+                visual_refresh(source_path)
 
     def _refresh_tikz_pdf_projection(self) -> None:
         """Compile the full PDF only after the external TikZ edit stream is idle."""

@@ -1,0 +1,52 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+\usepackage{adjustbox}
+\usepackage[active,tightpage]{preview}
+
+\PreviewBorder=4pt
+
+\title{Source formula/table live previews and Visual display-math sizing}
+\date{2026-09-17}
+\author{Mohammad Rahmani}
+
+\begin{document}
+\maketitle
+
+\section{Fix}
+The Visual display-math size policy is now applied to the rendered image itself
+before the image reaches the QTextDocument projection.  The previous code
+computed readable logical dimensions but the display insertion path never used
+those dimensions, so a standalone equation could still be shown at the tiny
+native raster size.  One-line, tall, and multi-row display formulas now receive
+font-relative readable dimensions while remaining bounded by the Visual
+viewport width.
+
+\section{Source live previews}
+Source mode gains non-destructive graphical projections for inline mathematics,
+display mathematics, and tabular environments.  The canonical LaTeX text is
+never modified by a preview: overlays are anchored to the source range and
+space is reserved only in QTextBlock formatting.  Inline formula renders are
+anchored immediately after the formula source position; display formulas and
+tables are centered below the source range.
+
+The Source controller listens to document/content/view changes and uses a short
+debounce.  LuaLaTeX renders only uncached snippet text, so editing a formula or
+table causes the graphical projection to refresh after the source changes while
+unchanged snippets reuse their in-memory images.  A failing unsupported snippet
+is isolated so it does not suppress valid previews elsewhere in the document.
+
+\end{document}

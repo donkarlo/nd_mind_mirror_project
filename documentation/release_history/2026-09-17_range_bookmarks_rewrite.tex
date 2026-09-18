@@ -1,0 +1,43 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+
+\title{Canonical range bookmark rewrite}
+\date{2026-09-17}
+\author{Mohammad Rahmani}
+
+\begin{document}
+\maketitle
+
+\section{Feature}
+Bookmarks are now canonical half-open character ranges rather than line
+markers.  Source and Visual use the same range model, and the virtualized large
+Source editor passes its local edit offsets into that same canonical tracker
+instead of maintaining a second bookmark mechanism.
+
+A selected range can be added from the Source or Visual context menu.  A
+right-click inside an existing bookmarked range offers removal instead.  The
+Bookmarks menu exposes the same contextual Add/Remove command.  Bookmarked text
+is presented with a yellow background in Source and Visual without modifying
+the LaTeX source.
+
+Persisted bookmarks store a stable id, start and end character offsets, the
+selected text snapshot, and an optional name.  Existing selection bookmarks are
+migrated once; old line-only bookmarks are intentionally omitted from the new
+range-only model.  Manage Bookmarks rebuilds from the live repository on every
+refresh and provides navigation, single removal, and removal of all bookmarks.
+
+\end{document}
