@@ -4,8 +4,8 @@ from pathlib import Path
 
 from PySide6.QtCore import QTimer
 
-from nd_mind_mirror.ui.editor.latex.source_latex_preview_controller import (
-    SourceLatexPreviewController,
+from nd_mind_mirror.ui.editor.latex.readable_source_latex_preview_controller import (
+    ReadableSourceLatexPreviewController,
 )
 from nd_mind_mirror.ui.editor.latex.source_tikz_targeted_preview_controller import (
     SourceTikZTargetedPreviewController,
@@ -65,7 +65,7 @@ class EnhancedMainWindow(BaseEnhancedMainWindow):
             self,
         )
         self._latex_preview_profile_controller = LatexPreviewProfileController(self)
-        self._source_latex_preview_controller = SourceLatexPreviewController(
+        self._source_latex_preview_controller = ReadableSourceLatexPreviewController(
             self._editor_panel,
             self,
         )
@@ -255,6 +255,7 @@ class EnhancedMainWindow(BaseEnhancedMainWindow):
         self._remember_file_signature(source_path)
 
     def _replace_navigator_context_controller(self) -> None:
+        """Install the search-aware Navigator context controller."""
         existing = getattr(self, "_navigator_context_controller", None)
         self._navigator_context_controller = (
             SearchAwareNavigatorMultiPathContextController.replace(
@@ -267,9 +268,11 @@ class EnhancedMainWindow(BaseEnhancedMainWindow):
         )
 
     def _show_file_search_from_navigator(self, path: Path) -> None:
+        """Open file search scoped to a Navigator path."""
         self._search_window.show_file_search(path)
 
     def _show_text_search_from_navigator(self, path: Path) -> None:
+        """Open text search scoped to a Navigator path."""
         self._search_window.show_text_search(path)
 
     def _open_search_text_location(
@@ -278,6 +281,7 @@ class EnhancedMainWindow(BaseEnhancedMainWindow):
         line: int,
         column: int,
     ) -> None:
+        """Open a search result and move the editor to its requested location."""
         source_path = Path(path).expanduser().resolve(strict=False)
         if not source_path.is_file():
             self.statusBar().showMessage(
@@ -295,6 +299,7 @@ class EnhancedMainWindow(BaseEnhancedMainWindow):
         )
 
     def _reload_yaml_settings(self) -> bool:
+        """Reload settings and propagate workspace/preview profile changes."""
         loaded = super()._reload_yaml_settings()
         if not loaded:
             return False

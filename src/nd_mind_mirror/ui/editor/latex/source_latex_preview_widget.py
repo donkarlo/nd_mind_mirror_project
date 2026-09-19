@@ -30,7 +30,7 @@ class SourceLatexPreviewWidget(QLabel):
         x: int,
         y: int,
     ) -> bool:
-        """Display one preview image at a target width and viewport position."""
+        """Display one preview image with minimal widget churn while scrolling."""
         if image.isNull():
             self.hide()
             return False
@@ -51,7 +51,11 @@ class SourceLatexPreviewWidget(QLabel):
             self.resize(scaled.width() + 6, scaled.height() + 6)
             self._cache_key = cache_key
 
-        self.move(int(x), int(y))
-        self.show()
-        self.raise_()
+        target_x = int(x)
+        target_y = int(y)
+        if self.x() != target_x or self.y() != target_y:
+            self.move(target_x, target_y)
+        if not self.isVisible():
+            self.show()
+            self.raise_()
         return True

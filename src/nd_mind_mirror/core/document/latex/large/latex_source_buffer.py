@@ -86,21 +86,27 @@ class LatexSourceBuffer:
         chars_removed: int,
         inserted_text: str,
     ) -> None:
-        """Apply one QTextDocument edit without rebuilding the visible source.
+        """Apply an edit whose position is relative to the visible Source window."""
+        old_window_start = self.window_start
+        old_window_end = self.window_end
+        local_limit = max(old_window_end - old_window_start, 0)
+        local_start = max(0, min(int(local_position), local_limit))
+        full_start = old_window_start + local_start
+        self.apply_full_edit(full_start, chars_removed, inserted_text)
 
-        local_position is relative to the materialized editor window.  For a
-        non-windowed document the window starts at zero, so the same method
-        also handles complete QPlainTextEdit documents.
-        """
+    def apply_full_edit(
+        self,
+        full_position: int,
+        chars_removed: int,
+        inserted_text: str,
+    ) -> None:
+        """Apply one canonical edit without rebuilding untouched chunks."""
         old_total = self.total_length
         old_first = self._window_first_chunk
         old_last = self._window_last_chunk
-        old_window_start = self.window_start
         old_window_end = self.window_end
 
-        local_limit = max(old_window_end - old_window_start, 0)
-        local_start = max(0, min(int(local_position), local_limit))
-        full_start = max(0, min(old_window_start + local_start, old_total))
+        full_start = max(0, min(int(full_position), old_total))
         removed = max(int(chars_removed), 0)
         full_end = max(full_start, min(full_start + removed, old_total))
 
@@ -170,6 +176,30 @@ class LatexSourceBuffer:
 
     def replace_source(self, source: str, focus_position: int = 0) -> None:
         self.set_source(source, focus_position=focus_position)
+
+    def replace_source_incrementally(self, source: str) -> bool:
+        """Apply the changed middle of a complete replacement source.
+
+        Visual mode still emits one complete canonical string.  Comparing it
+        with the current canonical source is cheap, while rebuilding every
+        chunk on each Visual keystroke is not.  Keep the common prefix/suffix
+        chunks and replace only the changed middle.
+        """
+        value = str(source)
+        current = self.source
+        if value == current:
+            return False
+
+        prefix = self._common_prefix_length(current, value)
+        suffix = self._common_suffix_length(current, value, prefix)
+        current_end = len(current) - suffix
+        value_end = len(value) - suffix
+        self.apply_full_edit(
+            prefix,
+            current_end - prefix,
+            value[prefix:value_end],
+        )
+        return True
 
     def select_around_line(self, line_number: int) -> None:
         self.select_around_position(
@@ -303,6 +333,41 @@ class LatexSourceBuffer:
 
     def window_start_location(self) -> tuple[int, int]:
         return self.location_for_full_position(self.window_start)
+
+    @staticmethod
+    def _common_prefix_length(left: str, right: str) -> int:
+        limit = min(len(left), len(right))
+        index = 0
+        block = 8_192
+        while (
+            index + block <= limit
+            and left[index:index + block] == right[index:index + block]
+        ):
+            index += block
+        while index < limit and left[index] == right[index]:
+            index += 1
+        return index
+
+    @staticmethod
+    def _common_suffix_length(left: str, right: str, prefix: int) -> int:
+        limit = min(len(left), len(right)) - max(int(prefix), 0)
+        suffix = 0
+        block = 8_192
+        while suffix + block <= limit:
+            left_start = len(left) - suffix - block
+            right_start = len(right) - suffix - block
+            if (
+                left[left_start:left_start + block]
+                != right[right_start:right_start + block]
+            ):
+                break
+            suffix += block
+        while (
+            suffix < limit
+            and left[len(left) - suffix - 1] == right[len(right) - suffix - 1]
+        ):
+            suffix += 1
+        return suffix
 
     def _chunk_index_for_position(self, position: int) -> int:
         if len(self._chunks) == 1:

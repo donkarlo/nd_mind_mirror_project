@@ -13,6 +13,9 @@ from nd_mind_mirror.ui.editor.bookmark.selection_latex_editor import (
 )
 from nd_mind_mirror.ui.editor.yaml.yaml_editor import YamlEditor
 from nd_mind_mirror.ui.panel.editor.editor_panel_core import EditorPanel as EditorPanelCore
+from nd_mind_mirror.ui.panel.editor.view_state.editor_view_state_coordinator import (
+    EditorViewStateCoordinator,
+)
 from nd_mind_mirror.core.bookmark.range.range_bookmark_migrator import (
     RangeBookmarkMigrator,
 )
@@ -25,6 +28,17 @@ class EditorPanel(EditorPanelCore):
         self._active_editor: TextEditor | None = None
         self._pending_view_state_restore_paths: set[str] = set()
         super().__init__(completions, app_settings, parent)
+
+        self._view_state_coordinator = EditorViewStateCoordinator(
+            self.current_editor,
+            self,
+        )
+        self._view_state_coordinator.state_captured.connect(
+            self._store_editor_view_state
+        )
+        self._view_state_coordinator.current_view_resolved.connect(
+            self.current_view_changed.emit
+        )
 
     def apply_settings(self, app_settings) -> None:
         super().apply_settings(app_settings)
@@ -195,7 +209,11 @@ class EditorPanel(EditorPanelCore):
                 lambda value, item=editor: self._on_editor_view_changed(item)
             )
         editor.horizontalScrollBar().valueChanged.connect(
-            lambda value, item=editor: self._remember_editor_view_state(item)
+            lambda value, item=editor:
+            self._schedule_editor_view_state(
+                item,
+                resolve_current_view=False,
+            )
         )
 
         index = self._tabs.addTab(editor, "")
@@ -209,6 +227,14 @@ class EditorPanel(EditorPanelCore):
             editor.setFocus()
 
         return True
+
+    def close_tab(self, index: int) -> None:
+        """Cancel deferred state work before the editor is destroyed."""
+        if 0 <= int(index) < self._tabs.count():
+            editor = self._tabs.widget(int(index))
+            if isinstance(editor, TextEditor):
+                self._view_state_coordinator.cancel_editor(editor)
+        super().close_tab(index)
 
     def _on_current_changed(self, index: int) -> None:
         editor = self.current_editor()
@@ -253,14 +279,53 @@ class EditorPanel(EditorPanelCore):
         )
 
     def _on_editor_cursor_changed(self, editor: TextEditor) -> None:
-        self._remember_editor_view_state(editor)
+        self._schedule_editor_view_state(
+            editor,
+            resolve_current_view=False,
+        )
         super()._on_editor_cursor_changed(editor)
 
-    def _remember_editor_view_state(self, editor: TextEditor) -> None:
+    def _on_editor_view_changed(self, editor: TextEditor) -> None:
+        """Defer expensive visible-source resolution until scrolling becomes idle."""
+        self._schedule_editor_view_state(
+            editor,
+            resolve_current_view=(editor is self.current_editor()),
+        )
+
+    def _schedule_editor_view_state(
+        self,
+        editor: TextEditor,
+        *,
+        resolve_current_view: bool,
+    ) -> None:
         path = self._paths.get(editor)
         if path is None:
             return
-        self._remembered_view_states[str(path)] = dict(editor.view_state())
+        self._view_state_coordinator.request_capture(
+            editor,
+            path,
+            resolve_current_view=resolve_current_view,
+        )
+
+    def _remember_editor_view_state(self, editor: TextEditor) -> None:
+        """Synchronously capture state only at an explicit lifecycle boundary."""
+        path = self._paths.get(editor)
+        if path is None:
+            return
+        self._view_state_coordinator.capture_now(
+            editor,
+            path,
+            resolve_current_view=False,
+        )
+
+    def _store_editor_view_state(
+        self,
+        path: str,
+        state: object,
+    ) -> None:
+        if not isinstance(state, dict):
+            return
+        self._remembered_view_states[str(path)] = dict(state)
 
     def _restore_editor_view_state(
         self,
@@ -374,4 +439,3 @@ class EditorPanel(EditorPanelCore):
         if callable(current_revision):
             return int(current_revision()) == int(revision)
         return int(editor.document().revision()) == int(revision)
-

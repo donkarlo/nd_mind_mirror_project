@@ -4,9 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QTimer, Qt, Slot
+from PySide6.QtCore import QEvent, Qt, Slot
 from PySide6.QtGui import QColor, QPalette
-from PySide6.QtWidgets import QAbstractItemView
 
 from nd_mind_mirror.core.workspace.path.workspace_reference_resolver import (
     ReferenceOccurrence,
@@ -16,6 +15,9 @@ from nd_mind_mirror.ui.editor.latex.latex_editor import LatexEditor
 from nd_mind_mirror.ui.window.main.navigator_active_selection_controller import (
     NavigatorActiveSelectionController,
 )
+from nd_mind_mirror.ui.window.main.navigator_path_reveal_controller import (
+    NavigatorPathRevealController,
+)
 
 
 class NavigatorStrictActiveSelectionController(
@@ -24,10 +26,9 @@ class NavigatorStrictActiveSelectionController(
     """Center and highlight the file represented by each Source/Visual click."""
 
     _GRAPHIC_COMMANDS = {"includegraphics", "includepdf"}
-    _CENTER_DELAYS_MS = (0, 100, 300)
 
     def __init__(self, editor_panel, file_system_panel, parent=None) -> None:
-        """Install selection styling plus Source/Visual click synchronization."""
+        """Install event-driven path reveal plus Source/Visual click synchronization."""
         self._editor_panel = editor_panel
         self._click_editor = None
         self._source_viewport = None
@@ -37,23 +38,26 @@ class NavigatorStrictActiveSelectionController(
         )
         self._occurrence_cache_key: tuple[int, int, str] | None = None
         self._occurrence_cache: tuple[ReferenceOccurrence, ...] = ()
-        self._pending_center_path: Path | None = None
 
         super().__init__(editor_panel, file_system_panel, parent)
         self._tree = file_system_panel._tree
+        self._path_reveal_controller = NavigatorPathRevealController(
+            file_system_panel,
+            self,
+        )
+        self._path_reveal_controller.path_revealed.connect(
+            self._on_path_revealed
+        )
         self._configure_selection_palette()
+        self._attach_current_editor()
 
-        QTimer.singleShot(0, self._attach_current_editor)
         current = editor_panel.current_path()
         if current is not None:
-            QTimer.singleShot(
-                0,
-                lambda path=str(current): self._reveal_centered(path),
-            )
+            self._reveal_centered(current)
 
     @Slot(str, str)
     def _on_current_document_changed(self, path: str, _content: str) -> None:
-        """Attach the new editor and center its file in Navigator."""
+        """Attach the new editor and reveal its file when the model is ready."""
         self._attach_current_editor()
         if path:
             self._reveal_centered(path)
@@ -209,36 +213,14 @@ class NavigatorStrictActiveSelectionController(
         return path if path.is_file() else None
 
     def _reveal_centered(self, path: str | Path) -> None:
-        """Select one path and center it vertically and horizontally in Navigator."""
-        target = Path(path).expanduser().resolve(strict=False)
-        self._pending_center_path = target
-        self._file_system_panel.select_path(target, force_reveal=True)
-        for delay in self._CENTER_DELAYS_MS:
-            QTimer.singleShot(
-                delay,
-                lambda item=target: self._center_selected_path(item),
-            )
+        """Request one path; the model signals when it can be selected."""
+        self._path_reveal_controller.reveal(path)
 
-    def _center_selected_path(self, target: Path) -> None:
-        """Center the selected row after asynchronous QFileSystemModel reveals settle."""
-        if self._pending_center_path != target:
-            return
-        selected = self._file_system_panel.selected_path()
-        if not selected:
-            return
-        try:
-            if Path(selected).expanduser().resolve(strict=False) != target:
-                return
-        except OSError:
-            return
-
+    def _on_path_revealed(self, _path: str) -> None:
+        """Center the already selected row horizontally after successful reveal."""
         index = self._tree.currentIndex()
         if not index.isValid():
             return
-        self._tree.scrollTo(
-            index,
-            QAbstractItemView.ScrollHint.PositionAtCenter,
-        )
         self._center_index_horizontally(index)
 
     def _center_index_horizontally(self, index) -> None:

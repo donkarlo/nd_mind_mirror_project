@@ -1,0 +1,41 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+\usepackage{adjustbox}
+\usepackage[active,tightpage]{preview}
+
+\PreviewBorder=4pt
+
+\title{Deferred Source View-State Capture}
+\date{2026-09-19}
+\author{Mohammad Rahmani}
+
+\begin{document}
+\maketitle
+
+\begin{preview}
+\section{Bug fix}
+
+Source scrolling no longer computes the complete per-tab view state and visible
+source position for every scrollbar value change. A dedicated
+\texttt{EditorViewStateCoordinator} now coalesces rapid view activity, captures
+the expensive state only after scrolling becomes idle, and flushes state
+synchronously at tab-switch boundaries. This removes
+\texttt{cursorForPosition()} based view-state work from the Source scroll hot
+path while preserving exact tab restoration.
+
+\end{preview}
+\end{document}

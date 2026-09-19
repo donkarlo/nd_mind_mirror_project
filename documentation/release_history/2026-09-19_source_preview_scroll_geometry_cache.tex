@@ -1,0 +1,40 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+\usepackage{adjustbox}
+\usepackage[active,tightpage]{preview}
+
+\PreviewBorder=4pt
+
+\title{Source Preview Scroll Geometry Cache}
+\date{2026-09-19}
+\author{Mohammad Rahmani}
+
+\begin{document}
+\maketitle
+
+\begin{preview}
+\section{Bug fix}
+
+Source scrolling around rendered images, formulas, and tables no longer queries
+\texttt{QTextDocument} geometry on every scrollbar event. Preview positions are
+resolved once after each layout rebuild into document-space pixel coordinates,
+indexed by vertical position, and scrolling only subtracts the current scrollbar
+offset. Repeated \texttt{raise()} calls for already-visible preview widgets were
+also removed.
+
+\end{preview}
+\end{document}

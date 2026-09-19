@@ -1,0 +1,18 @@
+\documentclass[a4paper]{article}
+\usepackage[active,tightpage]{preview}
+\PreviewBorder=4pt
+\title{Incremental Source Typing for Range Bookmarks}
+\date{2026-09-19}
+\author{Mohammad Rahmani}
+\begin{document}
+\maketitle
+\begin{preview}
+\section{Bug fix}
+Large Source typing no longer materializes the complete canonical LaTeX source
+for every character merely to update range bookmarks. Bookmark source state is
+now maintained by a chunked incremental buffer, direct Source edits transform
+bookmark ranges incrementally, and bookmark highlighting refreshes only the
+active Source or Visual projection. Hidden Visual mapping and per-caret
+bookmark repainting have been removed from the Source typing hot path.
+\end{preview}
+\end{document}

@@ -27,11 +27,9 @@ class RangeBookmarkCollection:
         second = max(first, min(second, len(source)))
         if second <= first:
             return None
-
         exact = self.for_exact_range(first, second)
         if exact is not None:
             return exact
-
         item = RangeBookmark.create(first, second, source[first:second])
         self._items.append(item)
         self._items.sort(key=lambda value: (value.start_char, value.end_char, value.id))
@@ -56,8 +54,7 @@ class RangeBookmarkCollection:
     def at_position(self, position: int) -> RangeBookmark | None:
         point = int(position)
         candidates = [
-            item
-            for item in self._items
+            item for item in self._items
             if item.start_char <= point < item.end_char
         ]
         if not candidates:
@@ -70,8 +67,7 @@ class RangeBookmarkCollection:
     def overlapping(self, start: int, end: int) -> RangeBookmark | None:
         first, second = sorted((int(start), int(end)))
         candidates = [
-            item
-            for item in self._items
+            item for item in self._items
             if item.start_char < second and first < item.end_char
         ]
         if not candidates:
@@ -88,6 +84,30 @@ class RangeBookmarkCollection:
                 return item
         return None
 
+    def apply_source_edit(
+        self,
+        position: int,
+        chars_removed: int,
+        inserted_text: str,
+    ) -> bool:
+        changed = False
+        updated: list[RangeBookmark] = []
+        for item in self._items:
+            transformed = item.after_source_edit(
+                position,
+                chars_removed,
+                inserted_text,
+            )
+            if transformed is None:
+                changed = True
+                continue
+            if transformed != item:
+                changed = True
+            updated.append(transformed)
+        if changed:
+            self.replace(updated)
+        return changed
+
     def apply_edit(
         self,
         position: int,
@@ -98,10 +118,24 @@ class RangeBookmarkCollection:
         point = max(int(position), 0)
         removed = max(int(chars_removed), 0)
         added = max(int(chars_added), 0)
+        source = str(source_after)
         changed = False
         updated: list[RangeBookmark] = []
 
         for item in self._items:
+            reanchored = self._reanchor_surviving_text_in_replacement(
+                item,
+                point,
+                removed,
+                added,
+                source,
+            )
+            if reanchored is not None:
+                if reanchored != item:
+                    changed = True
+                updated.append(reanchored)
+                continue
+
             start, end = self._transform(
                 item.start_char,
                 item.end_char,
@@ -109,7 +143,7 @@ class RangeBookmarkCollection:
                 removed,
                 added,
             )
-            refreshed = item.with_range(start, end, source_after)
+            refreshed = item.with_range(start, end, source)
             if refreshed is None:
                 changed = True
                 continue
@@ -121,6 +155,47 @@ class RangeBookmarkCollection:
         return changed
 
     @staticmethod
+    def _reanchor_surviving_text_in_replacement(
+        item: RangeBookmark,
+        point: int,
+        removed: int,
+        added: int,
+        source_after: str,
+    ) -> RangeBookmark | None:
+        if removed <= 0 or added <= 0 or not item.text:
+            return None
+        cut_end = point + removed
+        if not (point <= item.start_char and item.end_char <= cut_end):
+            return None
+
+        replacement_start = max(0, min(point, len(source_after)))
+        replacement_end = max(
+            replacement_start,
+            min(point + added, len(source_after)),
+        )
+        if replacement_end <= replacement_start:
+            return None
+
+        expected = replacement_start + max(
+            0,
+            min(item.start_char - point, replacement_end - replacement_start),
+        )
+        candidates: list[int] = []
+        found = source_after.find(item.text, replacement_start, replacement_end)
+        while found >= 0:
+            candidates.append(found)
+            found = source_after.find(
+                item.text,
+                found + 1,
+                replacement_end,
+            )
+        if not candidates:
+            return None
+
+        start = min(candidates, key=lambda value: abs(value - expected))
+        return item.with_range(start, start + len(item.text), source_after)
+
+    @staticmethod
     def _transform(
         start: int,
         end: int,
@@ -128,7 +203,6 @@ class RangeBookmarkCollection:
         removed: int,
         added: int,
     ) -> tuple[int, int]:
-        """Transform one half-open bookmark range through one canonical edit."""
         if removed == 0:
             if point < start:
                 return start + added, end + added
@@ -138,16 +212,11 @@ class RangeBookmarkCollection:
 
         cut_end = point + removed
         delta = added - removed
-
-        # Edit is completely before or after the bookmarked range.
         if cut_end <= start:
             return start + delta, end + delta
         if point >= end:
             return start, end
 
-        # The replacement overlaps the bookmark.  Map the left endpoint to the
-        # replacement start when it was consumed; map the right endpoint to the
-        # end of inserted content when it was consumed.
         if start < point:
             new_start = start
         elif start >= cut_end:

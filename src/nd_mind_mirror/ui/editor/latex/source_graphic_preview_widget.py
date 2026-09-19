@@ -29,16 +29,17 @@ class SourceGraphicPreviewWidget(QLabel):
         target_width: int,
         x: int,
         y: int,
+        *,
+        image_signature: tuple[int, int] | None = None,
     ) -> bool:
-        """Show image_path at exactly target_width while preserving its aspect ratio."""
-        try:
-            stat = image_path.stat()
-        except OSError:
+        """Show one cached raster while keeping scroll-time widget work minimal."""
+        signature = image_signature or self._read_signature(image_path)
+        if signature is None:
             self.hide()
             return False
 
         width = max(int(target_width), 1)
-        cache_key = (str(image_path), int(stat.st_mtime_ns), int(stat.st_size), width)
+        cache_key = (str(image_path), int(signature[0]), int(signature[1]), width)
         if cache_key != self._cache_key:
             pixmap = QPixmap(str(image_path))
             if pixmap.isNull():
@@ -53,7 +54,20 @@ class SourceGraphicPreviewWidget(QLabel):
             self.resize(scaled.width() + 6, scaled.height() + 6)
             self._cache_key = cache_key
 
-        self.move(int(x), int(y))
-        self.show()
-        self.raise_()
+        target_x = int(x)
+        target_y = int(y)
+        if self.x() != target_x or self.y() != target_y:
+            self.move(target_x, target_y)
+        if not self.isVisible():
+            self.show()
+            self.raise_()
         return True
+
+    @staticmethod
+    def _read_signature(image_path: Path) -> tuple[int, int] | None:
+        """Read one raster signature when a controller-side cached value is unavailable."""
+        try:
+            stat = image_path.stat()
+        except OSError:
+            return None
+        return int(stat.st_mtime_ns), int(stat.st_size)

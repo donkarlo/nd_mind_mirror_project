@@ -1,0 +1,40 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+\usepackage{adjustbox}
+\usepackage[active,tightpage]{preview}
+
+\PreviewBorder=4pt
+
+\title{Event-Driven Navigator Active-File Reveal}
+\date{2026-09-19}
+\author{Mohammad Rahmani}
+
+\begin{document}
+\maketitle
+
+\begin{preview}
+\section{Bug fix}
+
+Active editor tabs no longer depend on fixed-delay retries to become highlighted
+in Navigator. A dedicated \texttt{NavigatorPathRevealController} now follows
+\texttt{QFileSystemModel} loading events, expands ancestor directories
+incrementally, and selects the requested file as soon as its model index is
+valid. Rapid tab changes replace stale pending targets, and delayed timer-based
+selection retries were removed from the strict active-selection controller.
+
+\end{preview}
+\end{document}

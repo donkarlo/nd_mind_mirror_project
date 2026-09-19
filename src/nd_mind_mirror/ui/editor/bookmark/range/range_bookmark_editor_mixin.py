@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from PySide6.QtGui import QTextCursor
+
 from nd_mind_mirror.core.bookmark.range.range_bookmark_position_mapper import (
     RangeBookmarkPositionMapper,
 )
@@ -50,8 +52,6 @@ class RangeBookmarkEditorMixin:
             self,
         )
 
-        # The old gutter represented line bookmarks. Range bookmarks are shown
-        # directly on the text, so both legacy bookmark gutters stay hidden.
         for gutter_name in ("_source_bookmark_gutter", "_visual_bookmark_gutter"):
             gutter = getattr(self, gutter_name, None)
             if gutter is not None:
@@ -59,24 +59,17 @@ class RangeBookmarkEditorMixin:
 
         self._range_bookmark_suppress_document_change = False
 
-        # Regular and large Source editors share this same model. Large Source
-        # already connects contentsChange to _synchronize_visible_change, where
-        # this mixin intercepts the canonical position. Regular Source needs one
-        # direct connection.
         if not hasattr(self, "_source_buffer"):
             self.document().contentsChange.connect(
                 self._on_range_bookmark_document_change
             )
 
-        self.cursorPositionChanged.connect(self._range_bookmark_highlighter.refresh)
-        self._visual_editor.cursorPositionChanged.connect(
-            self._range_bookmark_highlighter.refresh
-        )
-        self.active_view_changed.connect(self._range_bookmark_highlighter.refresh)
+        # Bookmark painting follows bookmark/view changes, not each caret move.
+        self.active_view_changed.connect(self._refresh_active_range_bookmarks)
 
     def set_bookmarks(self, bookmarks: list[dict[str, object]] | None) -> None:
         self._range_bookmark_tracker.load(bookmarks, self.toPlainText())
-        self._range_bookmark_highlighter.refresh()
+        self._refresh_active_range_bookmarks()
 
     def bookmarks(self) -> list[dict[str, object]]:
         return self._range_bookmark_tracker.serialize()
@@ -186,7 +179,7 @@ class RangeBookmarkEditorMixin:
 
         self.active_cursor_changed.emit()
         self.active_view_changed.emit()
-        self._range_bookmark_highlighter.refresh()
+        self._refresh_active_range_bookmarks()
         return True
 
     def contextMenuEvent(self, event) -> None:
@@ -194,7 +187,6 @@ class RangeBookmarkEditorMixin:
 
     def set_content(self, content: str) -> None:
         tracker = getattr(self, "_range_bookmark_tracker", None)
-        old_source = tracker.source if tracker is not None else ""
         self._range_bookmark_suppress_document_change = True
         try:
             super().set_content(content)
@@ -206,7 +198,7 @@ class RangeBookmarkEditorMixin:
             if changed:
                 self._range_bookmark_model_changed()
             else:
-                self._range_bookmark_highlighter.refresh()
+                self._refresh_active_range_bookmarks()
 
     def _apply_visual_source(self, source: str) -> None:
         tracker = getattr(self, "_range_bookmark_tracker", None)
@@ -221,7 +213,7 @@ class RangeBookmarkEditorMixin:
             if changed:
                 self._range_bookmark_model_changed()
             else:
-                self._range_bookmark_highlighter.refresh()
+                self._refresh_active_range_bookmarks()
 
     def _synchronize_visible_change(
         self,
@@ -229,7 +221,7 @@ class RangeBookmarkEditorMixin:
         chars_removed: int,
         chars_added: int,
     ) -> None:
-        """Intercept the large editor's local window edit into the same tracker."""
+        """Apply a large Source edit incrementally to canonical text and bookmarks."""
         tracker = getattr(self, "_range_bookmark_tracker", None)
         suppressed = bool(
             getattr(self, "_range_bookmark_suppress_document_change", False)
@@ -239,6 +231,7 @@ class RangeBookmarkEditorMixin:
         if bool(getattr(self, "source_is_windowed", False)):
             canonical_position += max(int(getattr(self, "source_window_start", 0)), 0)
 
+        inserted = self._range_bookmark_inserted_text(position, chars_added)
         super()._synchronize_visible_change(
             position,
             chars_removed,
@@ -247,16 +240,14 @@ class RangeBookmarkEditorMixin:
 
         if tracker is None or suppressed or window_loading:
             return
-        changed = tracker.apply_edit(
+
+        changed = tracker.apply_source_edit(
             canonical_position,
             chars_removed,
-            chars_added,
-            self.toPlainText(),
+            inserted,
         )
         if changed:
             self._range_bookmark_model_changed()
-        else:
-            self._range_bookmark_highlighter.refresh()
 
     def _on_range_bookmark_document_change(
         self,
@@ -264,25 +255,53 @@ class RangeBookmarkEditorMixin:
         chars_removed: int,
         chars_added: int,
     ) -> None:
+        """Apply a regular Source edit without serializing the complete document."""
         if bool(getattr(self, "_range_bookmark_suppress_document_change", False)):
             return
+
         tracker = getattr(self, "_range_bookmark_tracker", None)
         if tracker is None:
             return
-        changed = tracker.apply_edit(
+
+        inserted = self._range_bookmark_inserted_text(position, chars_added)
+        changed = tracker.apply_source_edit(
             position,
             chars_removed,
-            chars_added,
-            self.toPlainText(),
+            inserted,
         )
         if changed:
             self._range_bookmark_model_changed()
-        else:
-            self._range_bookmark_highlighter.refresh()
+
+    def _range_bookmark_inserted_text(
+        self,
+        position: int,
+        chars_added: int,
+    ) -> str:
+        """Read only the newly inserted local document span."""
+        count = max(int(chars_added), 0)
+        if count <= 0:
+            return ""
+
+        document = self.document()
+        limit = max(document.characterCount() - 1, 0)
+        start = max(0, min(int(position), limit))
+        end = max(start, min(start + count, limit))
+
+        cursor = QTextCursor(document)
+        cursor.setPosition(start)
+        cursor.setPosition(end, QTextCursor.MoveMode.KeepAnchor)
+        return (
+            cursor.selectedText()
+            .replace("\u2029", "\n")
+            .replace("\u2028", "\n")
+        )
 
     def _range_bookmark_model_changed(self) -> None:
-        self._range_bookmark_highlighter.refresh()
+        self._refresh_active_range_bookmarks()
         self.bookmarks_changed.emit(self.bookmarks())
+
+    def _refresh_active_range_bookmarks(self) -> None:
+        self._range_bookmark_highlighter.refresh()
 
     def _active_canonical_selection(self) -> tuple[int, int] | None:
         if self._edit_mode == "visual":
@@ -362,7 +381,6 @@ class RangeBookmarkEditorMixin:
         self,
         location: tuple[int, int],
     ) -> int:
-        """Return a position valid in the currently materialized Source widget."""
         if bool(getattr(self, "source_is_windowed", False)):
             local_provider = getattr(self, "_local_position_for_location", None)
             if callable(local_provider):

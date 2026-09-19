@@ -8,32 +8,54 @@ from nd_mind_mirror.core.bookmark.range.range_bookmark_collection import (
 from nd_mind_mirror.core.bookmark.range.range_bookmark_migrator import (
     RangeBookmarkMigrator,
 )
+from nd_mind_mirror.core.bookmark.range.range_bookmark_source_buffer import (
+    RangeBookmarkSourceBuffer,
+)
 
 
 class RangeBookmarkTracker:
     """Keep one character-range model regardless of editor virtualization."""
 
     def __init__(self, source: str = "") -> None:
-        self._source = str(source)
+        self._source_buffer = RangeBookmarkSourceBuffer(source)
         self._collection = RangeBookmarkCollection()
         self._migrator = RangeBookmarkMigrator()
 
     @property
     def source(self) -> str:
-        return self._source
+        return self._source_buffer.source
 
     @property
     def collection(self) -> RangeBookmarkCollection:
         return self._collection
 
     def load(self, raw_bookmarks: list[dict[str, object]] | None, source: str) -> None:
-        self._source = str(source)
+        value = str(source)
+        self._source_buffer.set_source(value)
         self._collection.replace(
-            self._migrator.migrate(raw_bookmarks, self._source)
+            self._migrator.migrate(raw_bookmarks, value)
         )
 
     def serialize(self) -> list[dict[str, object]]:
         return [item.to_dict() for item in self._collection.items]
+
+    def apply_source_edit(
+        self,
+        position: int,
+        chars_removed: int,
+        inserted_text: str,
+    ) -> bool:
+        changed = self._collection.apply_source_edit(
+            position,
+            chars_removed,
+            inserted_text,
+        )
+        self._source_buffer.apply_edit(
+            position,
+            chars_removed,
+            inserted_text,
+        )
+        return changed
 
     def apply_edit(
         self,
@@ -49,12 +71,12 @@ class RangeBookmarkTracker:
             chars_added,
             source,
         )
-        self._source = source
+        self._source_buffer.set_source(source)
         return changed
 
     def replace_source(self, source_after: str) -> bool:
         new_source = str(source_after)
-        old_source = self._source
+        old_source = self.source
         if new_source == old_source:
             return False
 

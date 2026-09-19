@@ -89,7 +89,7 @@ class PathAwareGraphicBridgeServer(RevisionAwareGraphicBridgeServer):
                 await asyncio.sleep(0.5)
 
     def _load_durable_rename_alias(self) -> None:
-        """Load the latest alias at startup without reopening a historical document."""
+        """Load only a durable rename that still matches the live workspace."""
         self._last_seen_rename_request_mtime_ns = self._rename_request_mtime_ns()
         if self._last_seen_rename_request_mtime_ns <= 0:
             return
@@ -98,8 +98,14 @@ class PathAwareGraphicBridgeServer(RevisionAwareGraphicBridgeServer):
                 self.rename_request_path.read_text(encoding="utf-8")
             )
             old_path, new_path, key = self._rename_payload_paths(payload)
-            self._path_aliases.register(old_path, new_path)
             self._last_applied_rename_request_key = key
+            if not self._rename_matches_workspace_state(old_path, new_path):
+                self._log_event(
+                    "Ignored stale durable graphic rename alias "
+                    f"old={old_path} new={new_path}"
+                )
+                return
+            self._path_aliases.register(old_path, new_path)
             self._remap_open_request(old_path, new_path)
         except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
             self._log_event(
@@ -113,7 +119,7 @@ class PathAwareGraphicBridgeServer(RevisionAwareGraphicBridgeServer):
         *,
         broadcast: bool,
     ) -> dict[str, object]:
-        """Register one rename and remap the active document when it is affected."""
+        """Register one completed rename and remap the active document when needed."""
         old_path, new_path, key = self._rename_payload_paths(payload)
         if key == self._last_applied_rename_request_key:
             return {
@@ -122,11 +128,22 @@ class PathAwareGraphicBridgeServer(RevisionAwareGraphicBridgeServer):
                 "duplicate": True,
             }
 
+        self._last_applied_rename_request_key = key
+        if not self._rename_matches_workspace_state(old_path, new_path):
+            self._log_event(
+                "Ignored stale graphic rename request "
+                f"old={old_path} new={new_path}"
+            )
+            return {
+                "ok": True,
+                "active_remapped": False,
+                "stale": True,
+            }
+
         self._path_aliases.register(old_path, new_path)
         previous = self.current_sidecar
         remapped_sidecar = self._remap_candidate(previous, old_path, new_path)
         self._remap_open_request(old_path, new_path)
-        self._last_applied_rename_request_key = key
 
         if (
             remapped_sidecar is None
@@ -215,6 +232,11 @@ class PathAwareGraphicBridgeServer(RevisionAwareGraphicBridgeServer):
         except ValueError as exc:
             raise ValueError("Workspace path must stay inside the workspace") from exc
         return path
+
+    @staticmethod
+    def _rename_matches_workspace_state(old_path: Path, new_path: Path) -> bool:
+        """Return whether a rename event still describes the completed filesystem move."""
+        return not old_path.exists() and new_path.exists()
 
     @staticmethod
     def _remap_candidate(

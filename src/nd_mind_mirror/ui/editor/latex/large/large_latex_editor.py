@@ -26,8 +26,8 @@ class LargeLatexEditor(IncrementalLargeLatexEditor):
         threshold = int(
             getattr(
                 app_settings,
-                "editor_source_virtualization_threshold_chars",
-                self._DEFAULT_VIRTUALIZATION_THRESHOLD_CHARS,
+                "editor_source_large_document_threshold_chars",
+                120_000,
             )
         )
         window_chars = int(
@@ -38,7 +38,7 @@ class LargeLatexEditor(IncrementalLargeLatexEditor):
             )
         )
         self._source_buffer = LatexSourceBuffer(
-            max(threshold, 120_000),
+            max(threshold, 10_000),
             window_chars,
         )
         self._source_materialization_stale = False
@@ -99,18 +99,22 @@ class LargeLatexEditor(IncrementalLargeLatexEditor):
         self.go_to_source_location(target_line, 1, align_top=True)
 
     def _apply_visual_source(self, source: str) -> None:
-        """Commit Visual output without rewriting the hidden Source QTextDocument."""
-        canonical_source = str(source)
-        if self._syncing_from_visual or canonical_source == self.toPlainText():
+        """Commit Visual output without rebuilding the full canonical buffer."""
+        if self._syncing_from_visual:
             return
 
+        canonical_source = str(source)
         _visual_anchor, visual_position = (
             self._visual_editor.source_selection_locations()
         )
         self._syncing_from_visual = True
         self._syncing_cursor_views = True
         try:
-            self._source_buffer.replace_source(canonical_source)
+            changed = self._source_buffer.replace_source_incrementally(
+                canonical_source
+            )
+            if not changed:
+                return
             focus_position = self._source_buffer.full_position_for_location(
                 *visual_position
             )

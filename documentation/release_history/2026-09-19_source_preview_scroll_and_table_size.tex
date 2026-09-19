@@ -1,0 +1,16 @@
+\documentclass[a4paper]{article}
+
+\title{Source Preview Scroll Performance and Table Readability}
+\date{2026-09-19}
+\author{Mohammad Rahmani}
+
+\begin{document}
+\maketitle
+
+\section{Bug fix}
+
+Source-mode rendered previews were adjusted to reduce unnecessary work while scrolling through image-heavy sections. Preview positioning now targets the visible source region instead of repeatedly processing every preview in the document, and raster image metadata is no longer re-read on every scroll event.
+
+Rendered LaTeX tables in Source mode are displayed at a larger, readable width while remaining bounded by the editor viewport.
+
+\end{document}

@@ -1,0 +1,33 @@
+\documentclass[a4paper]{article}
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+\usepackage{adjustbox}
+\usepackage[active,tightpage]{preview}
+\PreviewBorder=4pt
+\title{Automatic iPad Bridge Half-Open Recovery}
+\date{2026-09-19}
+\author{Mohammad Rahmani}
+\begin{document}
+\maketitle
+\begin{preview}
+\section{Bug fix}
+The reverse Ubuntu-to-iPad TCP transport now enables aggressive TCP keepalive and
+a bounded Linux user timeout so half-open sockets are discarded promptly. Explicit
+image-open requests are no longer considered delivered immediately after writing
+to a socket. Delivery is confirmed only after the connection survives the health
+window; otherwise the durable request remains pending and is resent automatically
+after the next reverse connection is established.
+\end{preview}
+\end{document}

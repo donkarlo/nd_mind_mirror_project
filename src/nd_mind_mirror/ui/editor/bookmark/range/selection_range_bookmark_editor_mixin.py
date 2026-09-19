@@ -22,15 +22,12 @@ class SelectionRangeBookmarkEditorMixin(RangeBookmarkEditorMixin):
         self._install_selection_highlighter()
 
     def toggle_bookmark_at_cursor(self) -> None:
-        """Compatibility entry point: a cursor without selection does nothing."""
         self.toggle_bookmark_selection()
 
     def range_bookmark_menu_context(self) -> dict[str, object]:
-        """Toggle only the exact selected range; overlap is not equivalence."""
         selection = self._active_canonical_selection()
         if selection is None:
             return self._none_state()
-
         start, end = selection
         existing = self._range_bookmark_tracker.collection.for_exact_range(
             start,
@@ -49,16 +46,13 @@ class SelectionRangeBookmarkEditorMixin(RangeBookmarkEditorMixin):
         }
 
     def range_bookmark_context_at(self, click_position: int) -> dict[str, object]:
-        """Context menus expose bookmark actions only inside the active selection."""
         selection = self._active_canonical_selection()
         if selection is None:
             return self._none_state()
-
         start, end = selection
         point = int(click_position)
         if not (start <= point <= end):
             return self._none_state()
-
         existing = self._range_bookmark_tracker.collection.for_exact_range(
             start,
             end,
@@ -83,24 +77,8 @@ class SelectionRangeBookmarkEditorMixin(RangeBookmarkEditorMixin):
         return resolver.resolve(self)
 
     def _install_selection_highlighter(self) -> None:
-        """Replace the approximate Visual projector with exact-text presentation."""
-        previous = self._range_bookmark_highlighter
-        signals = (
-            self.cursorPositionChanged,
-            self._visual_editor.cursorPositionChanged,
-            self.active_view_changed,
-        )
-        for signal in signals:
-            try:
-                signal.disconnect(previous.refresh)
-            except (RuntimeError, TypeError):
-                pass
-
         self._range_bookmark_highlighter = SelectionRangeBookmarkHighlighter(self)
-        for signal in signals:
-            signal.connect(self._range_bookmark_highlighter.refresh)
-
-        self._range_bookmark_highlighter.refresh()
+        self._refresh_active_range_bookmarks()
 
     @staticmethod
     def _none_state() -> dict[str, object]:

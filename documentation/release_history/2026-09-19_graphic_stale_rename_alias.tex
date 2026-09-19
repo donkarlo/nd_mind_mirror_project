@@ -1,0 +1,68 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+\usepackage{adjustbox}
+\usepackage[active,tightpage]{preview}
+
+\PreviewBorder=4pt
+
+\usetikzlibrary{graphs,graphdrawing,arrows.meta,positioning,calc,fit,shapes.geometric}
+\usegdlibrary{layered}
+
+% for external graphviz
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/external_graphviz.tex}
+
+% for tags
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/part/control_sequence/kind/semtag/semtag.tex}
+
+% for links
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/seehere.tex}
+
+% for nested lists and sections
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/deep_structure.tex}
+
+\title{Stale graphic rename alias recovery}
+\date{2026-09-19}
+\author{Mohammad Rahmani}
+
+\begin{document}
+   \maketitle
+
+   \begin{preview}
+      \section{Problem}
+      A stale durable graphic rename request could survive after a managed image had
+      returned to its original filename. On the next bridge startup, the old rename
+      was treated as authoritative and the current \texttt{.ndgraphic} open request
+      was rewritten to a destination that no longer existed. The resulting
+      \texttt{/open-graphic} request failed with HTTP 500, so the reverse iPad
+      transport never received a valid pending image request.
+
+      \section{Fix}
+      \begin{itemize}
+         \item A live workspace path now takes precedence over a historical alias in the graphic path registry.
+         \item Durable or HTTP rename events are applied only when the old path is absent and the new path exists, matching a completed filesystem rename.
+         \item Stale rename events are recorded as handled but do not remap the active sidecar or rewrite the durable open request.
+         \item Regression coverage verifies both recreated old paths and stale startup rename state.
+      \end{itemize}
+
+      \section{Repository hygiene}
+      The correction extends the existing path-aware bridge and alias registry. No
+      alternate transport, runtime patch, or duplicate image workflow was added.
+   \end{preview}
+
+   \bibliographystyle{plainnat}
+   \bibliography{/home/donkarlo/Dropbox/repo/nd_shared_research/bibliography/bibliography.bib}
+\end{document}

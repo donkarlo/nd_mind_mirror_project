@@ -1,0 +1,32 @@
+\documentclass[a4paper]{article}
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+\usepackage{adjustbox}
+\usepackage[active,tightpage]{preview}
+\PreviewBorder=4pt
+\title{SeeHereFooter Reference Maintenance}
+\date{2026-09-19}
+\author{Mohammad Rahmani}
+\begin{document}
+\maketitle
+\begin{preview}
+\section{Bug fix}
+Workspace path maintenance now recognizes \texttt{\textbackslash seeherefooter\{...\}}
+as a local file reference. Renaming or moving the referenced target preserves the
+command and rewrites only its path argument. Deleting the referenced target removes
+the complete \texttt{\textbackslash seeherefooter} command through the same
+reference-maintenance pipeline used by other LaTeX references.
+\end{preview}
+\end{document}

@@ -1,68 +1,45 @@
-"""Revision-aware bridge behavior that suppresses delayed filesystem echoes."""
+"""Reliable explicit-open delivery layered over the existing revision-aware bridge."""
 
 from __future__ import annotations
 
 import asyncio
 import json
 from pathlib import Path
-import time
 from typing import Any
 
-from .server_compat import PreservingGraphicBridgeServer
+from nd_mind_mirror.graphic.bridge.revision_aware_server_base import (
+    RevisionAwareGraphicBridgeServer as RevisionAwareGraphicBridgeServerBase,
+)
+from nd_mind_mirror.graphic.bridge.server_compat import (
+    PreservingGraphicBridgeServer,
+)
+from nd_mind_mirror.graphic.bridge.reverse_tcp_connection_health_policy import (
+    ReverseTcpConnectionHealthPolicy,
+)
 
 
-class RevisionAwareGraphicBridgeServer(PreservingGraphicBridgeServer):
-    """Keep iPad saves stable and deliver every explicit desktop open request exactly once."""
+class RevisionAwareGraphicBridgeServer(RevisionAwareGraphicBridgeServerBase):
+    """Recover automatically from half-open iPad sockets without losing open requests."""
 
-    _LOCAL_ECHO_SUPPRESSION_SECONDS = 12.0
-    _OPEN_REQUEST_POLL_SECONDS = 0.15
+    _OPEN_DELIVERY_CONFIRM_SECONDS = 5.0
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        self._explicit_open_request_task: asyncio.Task[None] | None = None
-        self._last_seen_open_request_mtime_ns = 0
-        self._last_delivered_open_request_mtime_ns = 0
-
-    async def startup(self) -> None:
-        # Existing request files are historical state, not a reason to reopen a
-        # document when the iPad app starts. Only changes after this startup are
-        # considered explicit user requests.
-        initial_mtime = self._open_request_mtime_ns()
-        self._last_seen_open_request_mtime_ns = initial_mtime
-        self._last_delivered_open_request_mtime_ns = initial_mtime
-        await super().startup()
-        self._explicit_open_request_task = asyncio.create_task(
-            self._watch_explicit_open_requests()
-        )
+        self._reverse_connection_health = ReverseTcpConnectionHealthPolicy()
+        self._delivery_confirmation_tasks: set[asyncio.Task[None]] = set()
 
     async def shutdown(self) -> None:
-        if self._explicit_open_request_task is not None:
-            self._explicit_open_request_task.cancel()
+        """Cancel pending delivery confirmations before inherited transport shutdown."""
+        tasks = tuple(self._delivery_confirmation_tasks)
+        self._delivery_confirmation_tasks.clear()
+        for task in tasks:
+            task.cancel()
+        for task in tasks:
             try:
-                await self._explicit_open_request_task
+                await task
             except asyncio.CancelledError:
                 pass
-            self._explicit_open_request_task = None
         await super().shutdown()
-
-    async def _update_graphic(
-        self,
-        sidecar: Path,
-        payload: dict[str, Any],
-    ) -> tuple[Path, int]:
-        image_path, revision = await super()._update_graphic(sidecar, payload)
-        suppress_until = time.monotonic() + self._LOCAL_ECHO_SUPPRESSION_SECONDS
-        self._suppress_broadcast_until[sidecar.expanduser().resolve()] = suppress_until
-        if image_path:
-            self._suppress_broadcast_until[image_path.expanduser().resolve()] = suppress_until
-        return image_path, revision
-
-    async def _handle_tcp(self, writer, payload: dict[str, Any]) -> None:
-        # Never ask the server for an arbitrary previous document. Desktop open
-        # requests are tracked separately and delivered explicitly.
-        if str(payload.get("type", "")) == "request_current":
-            return
-        await super()._handle_tcp(writer, payload)
 
     async def _broadcast_open(
         self,
@@ -72,64 +49,47 @@ class RevisionAwareGraphicBridgeServer(PreservingGraphicBridgeServer):
         *,
         operation: str | None = None,
     ) -> None:
-        had_receiver = bool(self.tcp_clients or self.clients)
-        await super()._broadcast_open(
+        """Send the open without declaring success from a stale writer snapshot."""
+        await PreservingGraphicBridgeServer._broadcast_open(
+            self,
             sidecar,
             message_type,
             client_revision,
             operation=operation,
         )
-        if not had_receiver or message_type != "open_graphic":
+        if message_type != "open_graphic":
             return
+
         request = self._current_open_request()
         if request is None:
             return
         request_mtime, request_sidecar, _request_operation = request
-        if request_sidecar == sidecar.expanduser().resolve():
-            self._last_delivered_open_request_mtime_ns = max(
-                self._last_delivered_open_request_mtime_ns,
-                request_mtime,
-            )
+        if request_sidecar != sidecar.expanduser().resolve():
+            return
 
-    async def _serve_reverse_ipad(
-        self,
-        host: str,
-        reader: asyncio.StreamReader,
-        writer: asyncio.StreamWriter,
-        greeting: dict[str, Any],
-    ) -> None:
-        """Connect transport and deliver only a still-pending explicit open request."""
-        version = str(greeting.get("version", "unknown"))
-        self._log_event(
-            f"Reverse iPad listener discovered at {host}:{self.ipad_listener_port} "
-            f"version={version}; waiting for an explicit Edit image in iPad request"
+        live_writers = tuple(
+            writer
+            for writer in self.tcp_clients
+            if not writer.is_closing()
         )
-        self.tcp_clients.add(writer)
-        try:
-            await self._send_tcp(writer, {"type": "hello", "version": self.app.version})
-            await self._deliver_pending_open_request(writer)
-            while True:
-                payload = await self._read_tcp_json(reader)
-                await self._handle_tcp(writer, payload)
-        except (asyncio.IncompleteReadError, ConnectionError, BrokenPipeError) as exc:
-            self._log_event(
-                f"Reverse iPad connection closed {host}:{self.ipad_listener_port}: {type(exc).__name__}"
+        if live_writers:
+            self._schedule_delivery_confirmation(
+                request_mtime,
+                request_sidecar,
+                live_writers,
             )
-        except (OSError, ValueError, KeyError, json.JSONDecodeError) as exc:
-            self._log_event(
-                f"Reverse iPad connection error {host}:{self.ipad_listener_port}: "
-                f"{type(exc).__name__}: {exc}"
+            return
+
+        # Browser/WebSocket compatibility has no reverse-TCP liveness channel.
+        if self.clients:
+            self._mark_open_request_delivered(
+                request_mtime,
+                request_sidecar,
+                transport="WebSocket",
             )
-        finally:
-            self.tcp_clients.discard(writer)
-            writer.close()
-            try:
-                await writer.wait_closed()
-            except Exception:
-                pass
 
     async def _watch_explicit_open_requests(self) -> None:
-        """Deliver repeated same-path desktop open requests that the base watcher deduplicates."""
+        """Send each new durable request once; reconnect handles an unconfirmed send."""
         while True:
             try:
                 request = self._current_open_request()
@@ -137,8 +97,6 @@ class RevisionAwareGraphicBridgeServer(PreservingGraphicBridgeServer):
                     request_mtime, sidecar, operation = request
                     if request_mtime > self._last_seen_open_request_mtime_ns:
                         self._last_seen_open_request_mtime_ns = request_mtime
-                        # Give the normal workspace watcher a chance to deliver a
-                        # new-path request. If it did, _broadcast_open records it.
                         await asyncio.sleep(self._OPEN_REQUEST_POLL_SECONDS)
                         if request_mtime > self._last_delivered_open_request_mtime_ns:
                             self.current_sidecar = sidecar
@@ -150,7 +108,8 @@ class RevisionAwareGraphicBridgeServer(PreservingGraphicBridgeServer):
                                     operation=operation,
                                 )
                                 self._log_event(
-                                    f"Delivered explicit iPad open request path={sidecar} "
+                                    "Sent explicit iPad open request; "
+                                    f"awaiting connection-health confirmation path={sidecar} "
                                     f"operation={operation}"
                                 )
                             else:
@@ -168,12 +127,14 @@ class RevisionAwareGraphicBridgeServer(PreservingGraphicBridgeServer):
                 await asyncio.sleep(0.5)
 
     async def _deliver_pending_open_request(self, writer) -> None:
+        """Resend the newest unconfirmed request after a reverse reconnect."""
         request = self._current_open_request()
         if request is None:
             return
         request_mtime, sidecar, operation = request
         if request_mtime <= self._last_delivered_open_request_mtime_ns:
             return
+
         self.current_sidecar = sidecar
         self.current_operation = operation
         await self._send_open_tcp(
@@ -186,23 +147,114 @@ class RevisionAwareGraphicBridgeServer(PreservingGraphicBridgeServer):
             self._last_seen_open_request_mtime_ns,
             request_mtime,
         )
-        self._last_delivered_open_request_mtime_ns = request_mtime
+        self._schedule_delivery_confirmation(
+            request_mtime,
+            sidecar,
+            (writer,),
+        )
         self._log_event(
-            f"Delivered pending explicit iPad open request path={sidecar} operation={operation}"
+            "Resent pending explicit iPad open request after reconnect "
+            f"path={sidecar} operation={operation}"
         )
 
-    def _current_open_request(self) -> tuple[int, Path, str] | None:
+    async def _serve_reverse_ipad(
+        self,
+        host: str,
+        reader: asyncio.StreamReader,
+        writer: asyncio.StreamWriter,
+        greeting: dict[str, Any],
+    ) -> None:
+        """Use aggressive TCP liveness and keep pending requests recoverable."""
+        version = str(greeting.get("version", "unknown"))
+        keepalive = self._reverse_connection_health.configure(writer)
+        self._log_event(
+            f"Reverse iPad listener discovered at {host}:{self.ipad_listener_port} "
+            f"version={version}; keepalive={'enabled' if keepalive else 'unavailable'}"
+        )
+        self.tcp_clients.add(writer)
         try:
-            stat = self.request_path.stat()
-            payload = json.loads(self.request_path.read_text(encoding="utf-8"))
-            sidecar = self._resolve_sidecar(str(payload.get("path", "")))
-            operation = self._normalize_operation(payload.get("operation", "update"))
-            return stat.st_mtime_ns, sidecar.expanduser().resolve(), operation
-        except (OSError, ValueError, TypeError, json.JSONDecodeError):
-            return None
+            await self._send_tcp(writer, {"type": "hello", "version": self.app.version})
+            await self._deliver_pending_open_request(writer)
+            while True:
+                payload = await self._read_tcp_json(reader)
+                await self._handle_tcp(writer, payload)
+        except (asyncio.IncompleteReadError, ConnectionError, BrokenPipeError) as exc:
+            self._log_event(
+                f"Reverse iPad connection closed {host}:{self.ipad_listener_port}: "
+                f"{type(exc).__name__}"
+            )
+        except (OSError, ValueError, KeyError, json.JSONDecodeError) as exc:
+            self._log_event(
+                f"Reverse iPad connection error {host}:{self.ipad_listener_port}: "
+                f"{type(exc).__name__}: {exc}"
+            )
+        finally:
+            self.tcp_clients.discard(writer)
+            writer.close()
+            try:
+                await writer.wait_closed()
+            except Exception:
+                pass
 
-    def _open_request_mtime_ns(self) -> int:
-        try:
-            return self.request_path.stat().st_mtime_ns
-        except OSError:
-            return 0
+    def _schedule_delivery_confirmation(
+        self,
+        request_mtime: int,
+        sidecar: Path,
+        writers: tuple[asyncio.StreamWriter, ...],
+    ) -> None:
+        """Confirm only after the reverse connection survives the keepalive window."""
+        task = asyncio.create_task(
+            self._confirm_delivery_after_health_window(
+                int(request_mtime),
+                sidecar.expanduser().resolve(),
+                writers,
+            )
+        )
+        self._delivery_confirmation_tasks.add(task)
+        task.add_done_callback(self._delivery_confirmation_tasks.discard)
+
+    async def _confirm_delivery_after_health_window(
+        self,
+        request_mtime: int,
+        sidecar: Path,
+        writers: tuple[asyncio.StreamWriter, ...],
+    ) -> None:
+        await asyncio.sleep(self._OPEN_DELIVERY_CONFIRM_SECONDS)
+
+        request = self._current_open_request()
+        if request is None:
+            return
+        current_mtime, current_sidecar, _operation = request
+        if current_mtime != request_mtime or current_sidecar != sidecar:
+            return
+
+        if not any(
+            writer in self.tcp_clients and not writer.is_closing()
+            for writer in writers
+        ):
+            self._log_event(
+                "Open request remains pending because reverse iPad connection "
+                f"did not survive health window path={sidecar}"
+            )
+            return
+
+        self._mark_open_request_delivered(
+            request_mtime,
+            sidecar,
+            transport="reverse TCP",
+        )
+
+    def _mark_open_request_delivered(
+        self,
+        request_mtime: int,
+        sidecar: Path,
+        *,
+        transport: str,
+    ) -> None:
+        self._last_delivered_open_request_mtime_ns = max(
+            self._last_delivered_open_request_mtime_ns,
+            int(request_mtime),
+        )
+        self._log_event(
+            f"Confirmed iPad open delivery via {transport} path={sidecar}"
+        )

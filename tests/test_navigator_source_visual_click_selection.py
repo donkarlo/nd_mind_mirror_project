@@ -11,12 +11,12 @@ STRICT_CONTROLLER_PATH = (
 STRICT_CONTROLLER = STRICT_CONTROLLER_PATH.read_text(encoding="utf-8")
 
 
-def test_every_source_visual_click_forces_centered_navigator_reveal() -> None:
-    """Clicks must reveal even when the same document row is already selected."""
+def test_every_source_visual_click_uses_event_driven_centered_reveal() -> None:
+    """Clicks must reveal even when QFileSystemModel has not loaded ancestors yet."""
     assert "QEvent.Type.MouseButtonPress" in STRICT_CONTROLLER
     assert "watched in {self._source_viewport, self._visual_viewport}" in STRICT_CONTROLLER
-    assert "select_path(target, force_reveal=True)" in STRICT_CONTROLLER
-    assert "QAbstractItemView.ScrollHint.PositionAtCenter" in STRICT_CONTROLLER
+    assert "NavigatorPathRevealController(" in STRICT_CONTROLLER
+    assert "self._path_reveal_controller.reveal(path)" in STRICT_CONTROLLER
     assert "_center_index_horizontally(index)" in STRICT_CONTROLLER
 
 

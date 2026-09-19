@@ -11,9 +11,36 @@ from nd_mind_mirror.ui.editor.bookmark.range.range_bookmark_highlighter import (
 
 
 class SelectionRangeBookmarkHighlighter(RangeBookmarkHighlighter):
-    """Prefer the bookmarked text itself over approximate line/column projection."""
+    """Paint only the bookmarked text, never an approximate paragraph range."""
 
     _SEARCH_MARGIN_CHARS = 4096
+
+    def _apply_source(self, source: str, bookmarks) -> None:
+        editor = self._editor
+        selections = self._without_own(editor)
+
+        window_start = 0
+        visible_text = str(source)
+        if bool(getattr(editor, "source_is_windowed", False)):
+            window_start = max(int(getattr(editor, "source_window_start", 0)), 0)
+            visible_provider = getattr(editor, "visible_source_text", None)
+            if callable(visible_provider):
+                visible_text = str(visible_provider())
+
+        for item in bookmarks:
+            exact = self._exact_source_range(
+                visible_text,
+                str(item.text),
+                int(item.start_char),
+                int(item.end_char),
+                window_start,
+            )
+            if exact is None:
+                continue
+            selections.append(self._selection(editor, exact[0], exact[1]))
+
+        editor.setExtraSelections(selections)
+        editor.viewport().update()
 
     def _apply_visual(self, visual, source: str, bookmarks) -> None:
         selections = self._without_own(visual)
@@ -65,6 +92,39 @@ class SelectionRangeBookmarkHighlighter(RangeBookmarkHighlighter):
 
         visual.setExtraSelections(selections)
         visual.viewport().update()
+
+    def _exact_source_range(
+        self,
+        visible_text: str,
+        bookmarked_text: str,
+        canonical_start: int,
+        canonical_end: int,
+        window_start: int,
+    ) -> tuple[int, int] | None:
+        if not bookmarked_text:
+            return None
+
+        window_end = int(window_start) + len(visible_text)
+        if canonical_end <= window_start or canonical_start >= window_end:
+            return None
+
+        rough_start = max(int(canonical_start) - int(window_start), 0)
+        rough_end = min(
+            max(int(canonical_end) - int(window_start), rough_start),
+            len(visible_text),
+        )
+
+        if visible_text[rough_start:rough_end] == bookmarked_text:
+            return rough_start, rough_end
+
+        # A stale/broad stored range must never paint the whole paragraph. Find
+        # the exact selected text near that range; if it is absent, paint none.
+        return self._nearest_occurrence(
+            visible_text,
+            bookmarked_text,
+            rough_start,
+            rough_end,
+        )
 
     def _exact_visual_range(
         self,

@@ -44,9 +44,15 @@ class GraphicPathAliasRegistry:
             )
 
     def resolve(self, path: str | Path) -> Path:
-        """Return the newest known path, following file/folder rename chains."""
+        """Return the newest known path, preferring a live filesystem identity."""
         current = self._workspace_path(path)
         for _ in range(self._MAX_REMAP_STEPS):
+            # Aliases describe historical names. If that historical name has
+            # since been recreated, the live filesystem object is authoritative
+            # and must not be redirected through an older rename event.
+            if current.exists():
+                return current
+
             mapping = self._best_mapping(current)
             if mapping is None:
                 return current

@@ -1,0 +1,19 @@
+\documentclass[a4paper]{article}
+
+\title{Source Ctrl+Tab View Anchor Fix}
+\date{2026-09-19}
+\author{Mohammad Rahmani}
+
+\begin{document}
+\maketitle
+
+\section{Bug fix}
+
+Switching away from a Source tab with \texttt{Ctrl+Tab} could move the tab's
+viewport when Source graphic preview margins were removed during controller
+detach.  The graphic preview controller now captures the top-visible source
+anchor before changing document geometry and restores it both immediately and
+after Qt completes the geometry update.  Returning to the tab therefore keeps
+the same visible source position.
+
+\end{document}
