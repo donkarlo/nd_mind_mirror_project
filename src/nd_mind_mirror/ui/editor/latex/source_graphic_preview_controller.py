@@ -17,9 +17,10 @@ from nd_mind_mirror.ui.editor.latex.source_preview_geometry_index import (
 
 
 class SourceGraphicPreviewController(SourceGraphicPreviewControllerCore):
-    """Keep Source image scrolling on cached document-space geometry."""
+    """Keep Source image work dormant outside Source and scroll from settled geometry."""
 
     _SCROLL_REFRESH_MS = 0
+    _GEOMETRY_SETTLE_MS = 16
 
     def __init__(self, editor_panel, parent=None) -> None:
         """Initialize cached geometry and coalesced Source scrolling."""
@@ -33,6 +34,12 @@ class SourceGraphicPreviewController(SourceGraphicPreviewControllerCore):
         self._scroll_refresh_timer.setInterval(self._SCROLL_REFRESH_MS)
         self._scroll_refresh_timer.timeout.connect(self.refresh_positions)
 
+        self._geometry_settle_timer = QTimer(self)
+        self._geometry_settle_timer.setSingleShot(True)
+        self._geometry_settle_timer.setInterval(self._GEOMETRY_SETTLE_MS)
+        self._geometry_settle_timer.timeout.connect(self._settle_layout_geometry)
+        self._sync_polling_state()
+
     def eventFilter(self, watched, event) -> bool:
         """Keep deleted Qt wrappers from escaping through the preview event filter."""
         try:
@@ -41,8 +48,21 @@ class SourceGraphicPreviewController(SourceGraphicPreviewControllerCore):
             self._reset_deleted_editor()
             return False
 
+    def schedule_layout_refresh(self) -> None:
+        """Queue Source layout work only while Source is the active edit mode."""
+        if not self._source_is_active():
+            try:
+                self._refresh_timer.stop()
+            except RuntimeError:
+                pass
+            self._sync_polling_state()
+            self._hide_unused(0)
+            return
+        self._sync_polling_state()
+        super().schedule_layout_refresh()
+
     def refresh_positions(self) -> None:
-        """Move visible images using cached geometry only."""
+        """Place figure previews from live Source geometry after ``\\end{figure}``."""
         if self._rebuilding_layout:
             return
 
@@ -51,9 +71,11 @@ class SourceGraphicPreviewController(SourceGraphicPreviewControllerCore):
             self.schedule_layout_refresh()
             return
         if editor is None or editor.edit_mode != "source":
+            self._sync_polling_state()
             self._hide_unused(0)
             return
 
+        self._sync_polling_state()
         try:
             viewport = editor.viewport()
             if viewport.width() != self._layout_viewport_width:
@@ -62,22 +84,23 @@ class SourceGraphicPreviewController(SourceGraphicPreviewControllerCore):
             if not self._layout:
                 self._hide_unused(0)
                 return
-            if not self._geometry_ready:
-                self._hide_unused(0)
-                return
 
-            vertical = int(editor.verticalScrollBar().value())
+            document = editor.document()
             horizontal = int(editor.horizontalScrollBar().value())
             viewport_height = int(viewport.height())
             used = 0
 
-            for index in self._geometry_index.candidate_indices(
-                vertical,
-                viewport_height,
-            ):
-                item = self._layout[index]
+            for item in self._layout:
+                block = document.findBlock(int(item["end_position"]))
+                if not block.isValid():
+                    continue
+                end_rect = editor.cursorRect(QTextCursor(block))
                 image_height = int(item["height"])
-                y = int(item["document_y"]) - vertical
+                y = (
+                    int(end_rect.bottom())
+                    + self._IMAGE_GAP_PX
+                    + int(item["offset_after_end"])
+                )
                 if y > viewport_height or y + image_height < 0:
                     continue
 
@@ -97,15 +120,18 @@ class SourceGraphicPreviewController(SourceGraphicPreviewControllerCore):
             self._reset_deleted_editor()
 
     def _rebuild_layout(self) -> None:
-        """Rebuild shared layout, then cache all expensive QTextDocument geometry once."""
+        """Rebuild shared layout and defer geometry reads until Qt layout settles."""
         editor = self._editor_panel.current_editor()
         if editor is None:
             self._detach_editor()
             self._hide_unused(0)
             return
+        if editor.edit_mode != "source":
+            self._sync_polling_state()
+            self._hide_unused(0)
+            return
 
-        self._geometry_ready = False
-        self._geometry_index.clear()
+        self._invalidate_geometry()
         scope_factory = getattr(editor, "_visible_plain_text_scope", None)
         scope = scope_factory() if callable(scope_factory) else nullcontext()
         self._rebuilding_layout = True
@@ -118,8 +144,28 @@ class SourceGraphicPreviewController(SourceGraphicPreviewControllerCore):
         finally:
             self._rebuilding_layout = False
 
+        self._schedule_geometry_settle()
+
+    def _schedule_geometry_settle(self) -> None:
+        """Wait one frame after Source margins/anchors change before reading geometry."""
+        if not self._geometry_settle_timer.isActive():
+            self._geometry_settle_timer.start()
+
+    def _settle_layout_geometry(self) -> None:
+        """Cache layout geometry only for the still-active Source editor."""
+        editor = self._editor_panel.current_editor()
+        if editor is None or editor is not self._active_editor or editor.edit_mode != "source":
+            return
+        try:
+            if editor.viewport().width() != self._layout_viewport_width:
+                self.schedule_layout_refresh()
+                return
+        except RuntimeError:
+            self._reset_deleted_editor()
+            return
         self._cache_layout_geometry(editor)
-        self.refresh_positions()
+        if self._geometry_ready:
+            self.refresh_positions()
 
     def _cache_layout_geometry(self, editor) -> None:
         """Convert block-relative preview positions to stable document-space pixels."""
@@ -134,14 +180,13 @@ class SourceGraphicPreviewController(SourceGraphicPreviewControllerCore):
                     continue
                 end_rect = editor.cursorRect(QTextCursor(block))
                 document_y = (
-                    int(end_rect.top())
+                    int(end_rect.bottom())
                     + vertical
-                    - int(item["distance_from_end"])
+                    + self._IMAGE_GAP_PX
+                    + int(item["offset_after_end"])
                 )
                 item["document_y"] = document_y
-                geometry.append(
-                    (index, document_y, int(item["height"]))
-                )
+                geometry.append((index, document_y, int(item["height"])))
 
             self._geometry_index.rebuild(geometry)
             self._geometry_ready = True
@@ -151,6 +196,8 @@ class SourceGraphicPreviewController(SourceGraphicPreviewControllerCore):
 
     def _on_scroll_value_changed(self, _value: int) -> None:
         """Coalesce scrollbar signals without querying document geometry."""
+        if not self._source_is_active():
+            return
         try:
             if not self._scroll_refresh_timer.isActive():
                 self._scroll_refresh_timer.start()
@@ -158,12 +205,13 @@ class SourceGraphicPreviewController(SourceGraphicPreviewControllerCore):
             self._reset_deleted_editor()
 
     def _poll_images(self) -> None:
-        """Poll raster signatures without repositioning overlays while idle."""
+        """Poll raster signatures only while Source is visible."""
+        if not self._source_is_active():
+            self._sync_polling_state()
+            return
         editor = self._editor_panel.current_editor()
         if editor is not self._active_editor:
             self.schedule_layout_refresh()
-            return
-        if editor is None or editor.edit_mode != "source":
             return
         try:
             if editor.viewport().width() != self._layout_viewport_width:
@@ -181,11 +229,43 @@ class SourceGraphicPreviewController(SourceGraphicPreviewControllerCore):
         except RuntimeError:
             self._reset_deleted_editor()
 
+    def _source_is_active(self) -> bool:
+        """Return whether the current editor is the Source view handled by this controller."""
+        editor = self._editor_panel.current_editor()
+        return bool(editor is not None and getattr(editor, "edit_mode", None) == "source")
+
+    def _sync_polling_state(self) -> None:
+        """Stop image polling completely outside Source instead of waking an idle timer."""
+        timer = getattr(self, "_image_poll_timer", None)
+        if timer is None:
+            return
+        try:
+            if self._source_is_active():
+                if not timer.isActive():
+                    timer.start()
+            elif timer.isActive():
+                timer.stop()
+        except RuntimeError:
+            pass
+
+    def _invalidate_geometry(self) -> None:
+        """Drop cached geometry after any Source layout rebuild."""
+        self._geometry_index.clear()
+        self._geometry_ready = False
+        timer = getattr(self, "_geometry_settle_timer", None)
+        if timer is not None:
+            try:
+                timer.stop()
+            except RuntimeError:
+                pass
+
     def _detach_editor(self) -> None:
         """Detach preview geometry without moving the inactive tab's visible source anchor."""
         try:
             if hasattr(self, "_scroll_refresh_timer"):
                 self._scroll_refresh_timer.stop()
+            if hasattr(self, "_geometry_settle_timer"):
+                self._geometry_settle_timer.stop()
         except RuntimeError:
             pass
 
@@ -245,8 +325,11 @@ class SourceGraphicPreviewController(SourceGraphicPreviewControllerCore):
         try:
             if hasattr(self, "_scroll_refresh_timer"):
                 self._scroll_refresh_timer.stop()
+            if hasattr(self, "_geometry_settle_timer"):
+                self._geometry_settle_timer.stop()
         except RuntimeError:
             pass
+        self._sync_polling_state()
         if clear_widgets:
             self._clear_widgets()
         else:

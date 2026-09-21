@@ -1,4 +1,4 @@
-"""Persian typography, bookmark/caret overlays, and three-way selection sync."""
+"""Persian typography, visual caret composition, and three-way selection sync."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -12,24 +12,23 @@ from PySide6.QtGui import (
     QColor,
     QFontDatabase,
     QPainter,
-    QPalette,
     QPen,
     QSyntaxHighlighter,
     QTextCharFormat,
     QTextCursor,
 )
 from PySide6.QtQuick import QQuickItem
-from PySide6.QtWidgets import QApplication, QWidget
+from PySide6.QtWidgets import QWidget
 
 from nd_mind_mirror.core.settings.yaml.yaml_settings import YamlSettings
+from nd_mind_mirror.ui.editor.cursor.cursor_appearance_controller import (
+    CursorAppearanceController,
+)
 from nd_mind_mirror.ui.editor.latex.latex_editor import LatexEditor
 from nd_mind_mirror.ui.highlighter.latex.latex_syntax_highlighter import (
     LatexSyntaxHighlighter,
 )
 from nd_mind_mirror.ui.preview.latex.latex_preview import LatexPreview
-from nd_mind_mirror.ui.window.main.persistent_caret_overlay import (
-    PersistentCaretOverlay,
-)
 from nd_mind_mirror.ui.window.main.workspace_interaction_controller import (
     WorkspaceInteractionController,
 )
@@ -110,6 +109,7 @@ class VisualPersianFontController:
         self._parent = parent
         self._font_family = self.DEFAULT_FONT_FAMILY
         self._highlighters: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
+        self._caret_controllers: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
         editor_panel.current_document_changed.connect(self._on_editor_changed)
         editor_panel.current_view_changed.connect(self._on_editor_changed)
         self.reload()
@@ -146,6 +146,16 @@ class VisualPersianFontController:
                 source_highlighter.rehighlight()
             except RuntimeError:
                 pass
+
+        controller = self._caret_controllers.get(visual)
+        if controller is None:
+            controller = CursorAppearanceController(visual)
+            self._caret_controllers[visual] = controller
+        controller.apply(
+            color=self._app_settings.editor_cursor_color,
+            size_percent=self._app_settings.editor_cursor_size_percent,
+            thickness=self._app_settings.editor_cursor_thickness,
+        )
 
     @classmethod
     def _resolve_installed_family(cls, requested: str) -> str:
@@ -408,25 +418,11 @@ def _apply_editor_preferences(editor: LatexEditor, settings) -> None:
             source_highlighter.rehighlight()
         except RuntimeError:
             pass
-    cursor_width = max(int(settings.editor_cursor_width), 1)
-    editor.setCursorWidth(cursor_width)
-    visual = getattr(editor, "_visual_editor", None)
-    if visual is not None:
-        visual.setCursorWidth(cursor_width)
-
-
-def _cursor_flash_interval(editor) -> int:
-    owner = editor if isinstance(editor, LatexEditor) else editor.parentWidget()
-    settings = getattr(owner, "_app_settings", None)
-    if settings is None:
-        return 325
-    try:
-        flash_time = int(
-            settings._get("editor", "cursor_flash_time_ms", default=650)
-        )
-    except (AttributeError, TypeError, ValueError):
-        flash_time = 650
-    return max(flash_time // 2, 150)
+    editor.apply_cursor_preferences(
+        color=settings.editor_cursor_color,
+        size_percent=settings.editor_cursor_size_percent,
+        thickness=settings.editor_cursor_thickness,
+    )
 
 
 def _normalize_with_map(text: str) -> tuple[str, list[int]]:
@@ -661,57 +657,6 @@ def _install() -> None:
     LatexEditor.__init__ = editor_init
     LatexEditor.apply_settings = editor_apply_settings
     LatexEditor.active_preview_highlight_text = explicit_selection_preview_text
-
-    original_caret_init = PersistentCaretOverlay.__init__
-    original_caret_paint = PersistentCaretOverlay.paintEvent
-
-    def persistent_caret_init(overlay, editor) -> None:
-        original_caret_init(overlay, editor)
-        overlay._nd_blink_on = True
-        timer = QTimer(overlay)
-        timer.setTimerType(Qt.TimerType.CoarseTimer)
-        timer.setInterval(_cursor_flash_interval(editor))
-
-        def toggle() -> None:
-            if editor.isVisible():
-                overlay._nd_blink_on = not overlay._nd_blink_on
-                overlay.update()
-
-        timer.timeout.connect(toggle)
-        timer.start()
-        overlay._nd_blink_timer = timer
-
-    def persistent_caret_paint(overlay, event) -> None:
-        editor = overlay._editor
-        if editor.hasFocus() and QApplication.activeWindow() is editor.window():
-            original_caret_paint(overlay, event)
-            return
-        del event
-        if not getattr(overlay, "_nd_blink_on", True) or not editor.isVisible():
-            return
-        cursor_rect = editor.cursorRect(editor.textCursor())
-        x = cursor_rect.left() - overlay.geometry().left()
-        if x < -2 or x > overlay.width() + 2:
-            return
-        if cursor_rect.bottom() < 0 or cursor_rect.top() > overlay.height():
-            return
-        top = max(cursor_rect.top(), 0)
-        height = max(cursor_rect.height(), editor.fontMetrics().height(), 2)
-        bottom = min(top + height, max(overlay.height() - 1, 0))
-        if bottom <= top:
-            return
-        color = editor.palette().color(QPalette.ColorRole.Text)
-        color.setAlpha(235)
-        pen = QPen(color)
-        pen.setWidth(max(int(editor.cursorWidth()), 1))
-        painter = QPainter(overlay)
-        painter.setPen(pen)
-        draw_x = max(0, min(int(x), max(overlay.width() - 1, 0)))
-        painter.drawLine(draw_x, top, draw_x, bottom)
-        painter.end()
-
-    PersistentCaretOverlay.__init__ = persistent_caret_init
-    PersistentCaretOverlay.paintEvent = persistent_caret_paint
 
     original_workspace_init = WorkspaceInteractionController.__init__
 

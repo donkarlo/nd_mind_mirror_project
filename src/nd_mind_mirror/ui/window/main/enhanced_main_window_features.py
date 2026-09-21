@@ -15,7 +15,9 @@ from nd_mind_mirror.ui.window.main.autosave.document_autosave_controller import 
 from nd_mind_mirror.ui.window.main.main_window import MainWindow
 from nd_mind_mirror.ui.window.main.latex_insertion_controller import LatexInsertionController
 from nd_mind_mirror.ui.window.main.navigator_context_controller import NavigatorContextController
-from nd_mind_mirror.ui.window.main.pinned_tab_controller import PinnedTabController
+from nd_mind_mirror.ui.window.main.stable_pinned_tab_controller import (
+    StablePinnedTabController,
+)
 from nd_mind_mirror.ui.window.main.preview_auto_fit_controller import PreviewAutoFitController
 from nd_mind_mirror.ui.window.main.preview_render_policy_controller import (
     PreviewRenderPolicyController,
@@ -88,7 +90,7 @@ class EnhancedMainWindow(MainWindow):
             self._structure_panel._label,
             self._structure_panel,
         )
-        self._pinned_tab_controller = PinnedTabController(
+        self._pinned_tab_controller = StablePinnedTabController(
             self._editor_panel,
             self._session_settings,
             lambda path: self._open_path(str(path), select=False),

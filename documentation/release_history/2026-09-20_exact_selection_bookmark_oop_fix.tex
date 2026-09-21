@@ -1,0 +1,40 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+
+\title{}
+\date{}
+\author{Mohammad Rahmani}
+
+\begin{document}
+   \maketitle
+
+   \section*{Exact selection-only bookmark regression fix}
+
+   Selection bookmarks are now exact by definition in both Source and Visual
+   editing. The Visual resolver no longer accepts an approximate structural
+   range when selected text cannot be mapped back to canonical source. The
+   bookmark highlighter likewise never paints an approximate paragraph as a
+   fallback.
+
+   Exact occurrence matching is isolated in
+   \texttt{ExactSelectionRangeMatcher} and shared by the resolver and
+   highlighter. Regression tests cover both large and small approximate
+   paragraph ranges so a short selection cannot silently expand again.
+
+   \bibliographystyle{plainnat}
+   \bibliography{/home/donkarlo/Dropbox/repo/nd_shared_research/bibliography/bibliography.bib}
+\end{document}

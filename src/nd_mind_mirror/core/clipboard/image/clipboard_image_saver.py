@@ -5,6 +5,9 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QImage, QPainter, QPixmap
 from PySide6.QtWidgets import QApplication
 
+from nd_mind_mirror.core.clipboard.file_clipboard_mime_data_controller import (
+    FileClipboardMimeDataController,
+)
 from nd_mind_mirror.core.clipboard.file_system_clipboard_controller import (
     FileSystemClipboardController,
 )
@@ -20,6 +23,17 @@ class ClipboardImageSaver:
             FileSystemClipboardController.install_once(
                 QApplication.instance()
             )
+        )
+
+    def latex_reference_paths(
+        self,
+        mime_data: QMimeData,
+        tex_path: str | Path,
+    ) -> list[Path]:
+        """Return all original local image references carried by the MIME data."""
+        return self._reference_resolver.latex_reference_paths(
+            mime_data,
+            tex_path,
         )
 
     def save(
@@ -55,12 +69,15 @@ class ClipboardImageSaver:
         base_name: str = "img",
         extension: str = ".jpg",
     ) -> Path | None:
-        """Save one clipboard image using a collision-safe conventional name."""
+        """Save one real pixel clipboard image, never a copied local file URL."""
         controller = self._file_system_clipboard_controller
         if controller is not None and controller.has_active_copy:
             return None
 
-        image = self._extract_image(mime_data)
+        if FileClipboardMimeDataController.local_paths(mime_data):
+            return None
+
+        image = self._extract_embedded_image(mime_data)
         if image is None or image.isNull():
             return None
 
@@ -81,8 +98,6 @@ class ClipboardImageSaver:
         output_image = image
         image_format = "PNG"
         if normalized_extension in {".jpg", ".jpeg"}:
-            # JPEG has no alpha channel. Composite transparent clipboard
-            # pixels onto white so screenshots/diagrams do not turn black.
             flattened = QImage(
                 image.size(),
                 QImage.Format.Format_RGB32,
@@ -136,6 +151,7 @@ class ClipboardImageSaver:
         self,
         mime_data: QMimeData,
     ) -> QImage | None:
+        """Return image pixels without raising on ordinary text MIME data."""
         embedded = self._extract_embedded_image(mime_data)
         if embedded is not None:
             return embedded

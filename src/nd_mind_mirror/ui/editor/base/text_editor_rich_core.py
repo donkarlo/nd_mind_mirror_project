@@ -683,34 +683,9 @@ class TextEditor(QTextEdit):
 
         super().wheelEvent(event)
 
-    def focusOutEvent(self, event) -> None:
-        super().focusOutEvent(event)
-        # QTextEdit hides its native caret as soon as focus leaves the editor.
-        # Keep a non-blinking passive caret visible at the last editing
-        # position so the user never loses the source anchor while working in
-        # another panel or application.
-        self.viewport().update()
-
-    def focusInEvent(self, event) -> None:
-        super().focusInEvent(event)
-        self.viewport().update()
-
     def paintEvent(self, event) -> None:
         super().paintEvent(event)
         self._paint_indent_guides()
-
-        if not self.hasFocus():
-            cursor = self.textCursor()
-            if not cursor.hasSelection():
-                rect = self.cursorRect(cursor)
-                caret_painter = QPainter(self.viewport())
-                caret_painter.setPen(self.palette().text().color())
-                x = rect.left()
-                caret_painter.drawLine(x, rect.top(), x, rect.bottom())
-                # Explicitly end this painter before the wrap-marker painter
-                # below is created. Two active QPainters on the same viewport
-                # can make Qt render a black widget or abort on some drivers.
-                caret_painter.end()
 
         if (
             not self._soft_wrap
@@ -880,3 +855,4 @@ class TextEditor(QTextEdit):
             selections.append(selection)
 
         self.setExtraSelections(selections)
+

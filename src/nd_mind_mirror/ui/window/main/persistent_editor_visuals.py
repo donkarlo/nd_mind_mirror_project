@@ -10,16 +10,13 @@ from nd_mind_mirror.ui.editor.yaml.yaml_editor import YamlEditor
 from nd_mind_mirror.ui.window.main.logical_line_number_overlay import (
     LogicalLineNumberOverlay,
 )
-from nd_mind_mirror.ui.window.main.persistent_caret_overlay import (
-    PersistentCaretOverlay,
-)
 from nd_mind_mirror.ui.window.main.source_tab_indentation_controller import (
     SourceTabIndentationController,
 )
 
 
 class PersistentEditorVisuals:
-    """Attach persistent carets, line numbers, and shared Source presentation.
+    """Attach line numbers and shared Source presentation.
 
     Bookmark ownership intentionally does not live here.  Range bookmarks are
     implemented by RangeBookmarkEditorMixin for both regular and virtualized
@@ -103,11 +100,11 @@ class PersistentEditorVisuals:
 
     @staticmethod
     def _attach_latex_features(editor: LatexEditor) -> None:
-        """Attach carets and Source line numbers without touching bookmarks."""
-        editor._nd_source_persistent_caret = PersistentCaretOverlay(editor)
-        editor._nd_visual_persistent_caret = PersistentCaretOverlay(
-            editor._visual_editor
-        )
+        """Attach line numbers and shared Source presentation only.
+
+        Caret ownership lives in CursorAppearanceController for both Source and
+        Visual, so startup visuals do not install a second caret renderer.
+        """
         PersistentEditorVisuals._attach_source_line_numbers(editor)
         PersistentEditorVisuals._hide_legacy_bookmark_gutters(editor)
         PersistentEditorVisuals._apply_content_padding(editor)
@@ -118,3 +115,4 @@ class PersistentEditorVisuals:
         if getattr(editor, "_nd_logical_line_numbers", None) is not None:
             return
         editor._nd_logical_line_numbers = LogicalLineNumberOverlay(editor)
+

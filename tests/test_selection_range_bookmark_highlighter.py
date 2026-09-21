@@ -1,11 +1,25 @@
+from nd_mind_mirror.ui.editor.bookmark.range.exact_selection_range_matcher import (
+    ExactSelectionRangeMatcher,
+)
 from nd_mind_mirror.ui.editor.bookmark.range.selection_range_bookmark_highlighter import (
     SelectionRangeBookmarkHighlighter,
 )
 
 
-def test_selection_highlighter_finds_exact_bookmarked_text_near_projection():
+class _Visual:
+    def _mapping_display_text(self, text: str) -> str:
+        return text
+
+
+def _highlighter():
     highlighter = object.__new__(SelectionRangeBookmarkHighlighter)
-    assert highlighter._nearest_occurrence(
+    highlighter._matcher = ExactSelectionRangeMatcher()
+    return highlighter
+
+
+def test_selection_highlighter_finds_exact_bookmarked_text_near_projection():
+    matcher = ExactSelectionRangeMatcher()
+    assert matcher.nearest_occurrence(
         "alpha beta gamma",
         "beta",
         0,
@@ -14,8 +28,8 @@ def test_selection_highlighter_finds_exact_bookmarked_text_near_projection():
 
 
 def test_selection_highlighter_does_not_invent_a_block_range():
-    highlighter = object.__new__(SelectionRangeBookmarkHighlighter)
-    assert highlighter._nearest_occurrence(
+    matcher = ExactSelectionRangeMatcher()
+    assert matcher.nearest_occurrence(
         "alpha gamma",
         "beta",
         0,
@@ -24,7 +38,7 @@ def test_selection_highlighter_does_not_invent_a_block_range():
 
 
 def test_source_highlight_uses_exact_text_not_broad_paragraph_range():
-    highlighter = object.__new__(SelectionRangeBookmarkHighlighter)
+    highlighter = _highlighter()
     phrase = "die normal Schlafstunde "
     paragraph = (
         "Matt der mögte nicht seit Kinderheit zu viel reden "
@@ -43,7 +57,7 @@ def test_source_highlight_uses_exact_text_not_broad_paragraph_range():
 
 
 def test_source_highlight_respects_window_offset_for_exact_bookmark():
-    highlighter = object.__new__(SelectionRangeBookmarkHighlighter)
+    highlighter = _highlighter()
     phrase = "selected text"
     visible = "prefix " + phrase + " suffix"
     window_start = 500
@@ -56,3 +70,15 @@ def test_source_highlight_respects_window_offset_for_exact_bookmark():
         canonical_start + len(phrase),
         window_start,
     ) == (visible.index(phrase), visible.index(phrase) + len(phrase))
+
+
+def test_visual_highlight_never_falls_back_to_approximate_paragraph():
+    highlighter = _highlighter()
+    visual_text = "alpha gamma"
+    assert highlighter._exact_visual_range(
+        _Visual(),
+        visual_text,
+        "beta",
+        0,
+        len(visual_text),
+    ) is None

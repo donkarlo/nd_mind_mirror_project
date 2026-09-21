@@ -60,19 +60,26 @@ class CursorAppearanceController(QObject):
         self._refresh()
 
     def eventFilter(self, watched, event) -> bool:
+        """Keep the configured caret alive while a visible editor loses focus."""
         event_type = event.type()
         if watched is self._editor:
-            if event_type == QEvent.Type.FocusIn:
-                self._restart_blink()
-            elif event_type == QEvent.Type.FocusOut:
-                self._blink_timer.stop()
+            if event_type in {
+                QEvent.Type.FocusIn,
+                QEvent.Type.FocusOut,
+            }:
                 self._blink_visible = True
+                self._restart_blink()
                 self._refresh()
+            elif event_type == QEvent.Type.Show:
+                self._blink_visible = True
+                self._restart_blink()
+                QTimer.singleShot(0, self._refresh)
+            elif event_type == QEvent.Type.Hide:
+                self._blink_timer.stop()
+                self._overlay.hide()
             elif event_type in {
                 QEvent.Type.FontChange,
                 QEvent.Type.LayoutRequest,
-                QEvent.Type.Show,
-                QEvent.Type.Hide,
             }:
                 QTimer.singleShot(0, self._refresh)
         elif watched is self._editor.viewport() and event_type in {
@@ -95,7 +102,7 @@ class CursorAppearanceController(QObject):
 
     def _restart_blink(self) -> None:
         self._blink_timer.stop()
-        if not self._editor.hasFocus():
+        if not self._editor.isVisible():
             return
         flash_time = QApplication.cursorFlashTime()
         if flash_time <= 0:
@@ -111,7 +118,6 @@ class CursorAppearanceController(QObject):
     def _refresh(self) -> None:
         if (
             not self._editor.isVisible()
-            or not self._editor.hasFocus()
             or self._editor.textCursor().hasSelection()
         ):
             self._overlay.hide()
@@ -135,3 +141,4 @@ class CursorAppearanceController(QObject):
         )
         self._overlay.raise_()
         self._overlay.show()
+

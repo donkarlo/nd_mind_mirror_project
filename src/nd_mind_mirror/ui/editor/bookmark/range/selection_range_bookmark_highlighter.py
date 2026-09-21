@@ -5,15 +5,20 @@ from __future__ import annotations
 from nd_mind_mirror.core.bookmark.range.range_bookmark_position_mapper import (
     RangeBookmarkPositionMapper,
 )
+from nd_mind_mirror.ui.editor.bookmark.range.exact_selection_range_matcher import (
+    ExactSelectionRangeMatcher,
+)
 from nd_mind_mirror.ui.editor.bookmark.range.range_bookmark_highlighter import (
     RangeBookmarkHighlighter,
 )
 
 
 class SelectionRangeBookmarkHighlighter(RangeBookmarkHighlighter):
-    """Paint only the bookmarked text, never an approximate paragraph range."""
+    """Paint only exact bookmarked text, never an approximate structural range."""
 
-    _SEARCH_MARGIN_CHARS = 4096
+    def __init__(self, editor) -> None:
+        super().__init__(editor)
+        self._matcher = ExactSelectionRangeMatcher()
 
     def _apply_source(self, source: str, bookmarks) -> None:
         editor = self._editor
@@ -79,13 +84,10 @@ class SelectionRangeBookmarkHighlighter(RangeBookmarkHighlighter):
                 approximate_start,
                 approximate_end,
             )
-            if exact is not None:
-                start, end = exact
-            else:
-                start, end = sorted(
-                    (int(approximate_start), int(approximate_end))
-                )
+            if exact is None:
+                continue
 
+            start, end = exact
             if end <= start:
                 continue
             selections.append(self._selection(visual, start, end))
@@ -117,9 +119,7 @@ class SelectionRangeBookmarkHighlighter(RangeBookmarkHighlighter):
         if visible_text[rough_start:rough_end] == bookmarked_text:
             return rough_start, rough_end
 
-        # A stale/broad stored range must never paint the whole paragraph. Find
-        # the exact selected text near that range; if it is absent, paint none.
-        return self._nearest_occurrence(
+        return self._matcher.nearest_occurrence(
             visible_text,
             bookmarked_text,
             rough_start,
@@ -154,7 +154,7 @@ class SelectionRangeBookmarkHighlighter(RangeBookmarkHighlighter):
             (int(approximate_start), int(approximate_end))
         )
         for candidate in candidates:
-            match = self._nearest_occurrence(
+            match = self._matcher.nearest_occurrence(
                 visual_text,
                 candidate,
                 rough_start,
@@ -162,36 +162,6 @@ class SelectionRangeBookmarkHighlighter(RangeBookmarkHighlighter):
             )
             if match is not None:
                 return match
+
+        # Never highlight the approximate source projection as a fallback.
         return None
-
-    def _nearest_occurrence(
-        self,
-        text: str,
-        needle: str,
-        rough_start: int,
-        rough_end: int,
-    ) -> tuple[int, int] | None:
-        if not needle or not needle.strip():
-            return None
-
-        left = max(0, rough_start - self._SEARCH_MARGIN_CHARS)
-        right = min(
-            len(text),
-            max(rough_start, rough_end) + self._SEARCH_MARGIN_CHARS,
-        )
-        best_start: int | None = None
-        best_score: tuple[int, int] | None = None
-
-        position = text.find(needle, left, right)
-        while position >= 0:
-            end = position + len(needle)
-            overlap_penalty = 0 if position < rough_end and rough_start < end else 1
-            score = (overlap_penalty, abs(position - rough_start))
-            if best_score is None or score < best_score:
-                best_score = score
-                best_start = position
-            position = text.find(needle, position + 1, right)
-
-        if best_start is None:
-            return None
-        return best_start, best_start + len(needle)

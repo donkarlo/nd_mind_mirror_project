@@ -1,0 +1,36 @@
+\documentclass[a4paper]{article}
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+\usepackage{adjustbox}
+\usepackage[active,tightpage]{preview}
+\PreviewBorder=4pt
+\title{Visual Caret Startup Dependency Fix}
+\date{2026-09-19}
+\author{Mohammad Rahmani}
+\begin{document}
+\maketitle
+\begin{preview}
+\section{Bug fix}
+The Visual editor no longer imports or monkey-patches the retired
+\texttt{PersistentCaretOverlay}. Visual caret rendering is now composed directly
+with the shared \texttt{CursorAppearanceController}, while Source continues to
+use the same controller through the normal editor architecture.
+
+This removes the stale startup dependency that caused
+\texttt{ModuleNotFoundError} after the legacy overlay file was removed. The
+configured caret color, height, thickness, and blinking behavior now have one
+implementation instead of a second runtime-patched caret path.
+\end{preview}
+\end{document}

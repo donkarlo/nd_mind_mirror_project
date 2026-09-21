@@ -1,0 +1,75 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+\usepackage{adjustbox}
+\usepackage[active,tightpage]{preview}
+
+\PreviewBorder=4pt
+
+\usetikzlibrary{graphs,graphdrawing,arrows.meta,positioning,calc,fit,shapes.geometric}
+\usegdlibrary{layered}
+
+% for external graphviz
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/external_graphviz.tex}
+
+% for tags
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/part/control_sequence/kind/semtag/semtag.tex}
+
+% for links
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/seehere.tex}
+
+% for nested lists and sections
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/deep_structure.tex}
+
+\title{Source/Visual/Preview Work Isolation and Source Preview Geometry Fix}
+\date{2026-09-20}
+\author{Mohammad Rahmani}
+
+\begin{document}
+   \maketitle
+
+   \begin{preview}
+      \section{Bug fix}
+      Hidden editor projections no longer perform presentation work for the active
+      mode. Source cursor movement does not synchronize the hidden Visual cursor,
+      Visual cursor movement does not synchronize the hidden Source cursor, and
+      Visual edits update the canonical Source incrementally while Source syntax
+      highlighting, logical line-number updates, and bookmark relocation are
+      suspended. These Source-only services resume only after an explicit switch
+      back to Source.
+
+      Source formula, table, image, and TikZ preview controllers now gate their
+      timers and polling by the active Source mode. An in-flight Source formula
+      LuaLaTeX process is cooperatively cancelled when Source becomes hidden.
+      TikZ bridge updates refresh
+      only the currently visible Source or Visual projection. Closing the PDF
+      Preview also prevents structural-input validation, dependency polling, and
+      processing of late renderer dependency signals.
+
+      Formula/table and image overlays now wait for Qt to settle QTextBlock margin
+      changes and scroll-anchor restoration before caching document-space geometry.
+      This prevents valid rendered formulas from receiving reserved white space
+      while their overlay widget is positioned from stale geometry.
+
+      The previous startup performance hook that replaced Source/Visual methods at
+      runtime was removed from this path. Mode isolation and preview behavior are
+      now owned by explicit editor/controller classes rather than a runtime
+      replacement of those methods.
+   \end{preview}
+
+   \bibliographystyle{plainnat}
+   \bibliography{/home/donkarlo/Dropbox/repo/nd_shared_research/bibliography/bibliography.bib}
+\end{document}

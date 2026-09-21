@@ -34,6 +34,9 @@ from nd_mind_mirror.ui.window.main.workspace.reference_maintenance_controller im
 from nd_mind_mirror.ui.window.main.graphic_open_session_path_controller import (
     GraphicOpenSessionPathController,
 )
+from nd_mind_mirror.ui.window.main.main_panel_layout_controller import (
+    MainPanelLayoutController,
+)
 from nd_mind_mirror.ui.window.main.workspace.managed_graphic_filesystem_operation_controller import (
     ManagedGraphicWorkspaceFilesystemOperationController,
 )
@@ -53,6 +56,10 @@ class EnhancedMainWindow(FeatureEnhancedMainWindow):
     def __init__(self, parent=None) -> None:
         """Initialize enhanced features, Navigator clipboard, workers, and active-file navigation."""
         super().__init__(parent)
+        self._main_panel_layout_controller = MainPanelLayoutController(
+            self._splitter,
+            self,
+        )
         self._latex_diagnostic_builder = LatexDiagnosticBuilder(
             default_path=self._app_settings.search_default_path,
             template_path=self._app_settings.preview_latex_template_path,
@@ -258,3 +265,4 @@ class EnhancedMainWindow(FeatureEnhancedMainWindow):
         SessionStringListSanitizer(settings).normalize_many(
             self._SESSION_STRING_LIST_KEYS
         )
+

@@ -103,15 +103,9 @@ def _handle_unhandled_exception(exc_type, exc_value, exc_traceback) -> None:
 sys.excepthook = _handle_unhandled_exception
 atexit.register(lambda: _append_startup_log("Python process exiting normally"))
 
-# The application layer owns the one iPad package refresh. Do not rebuild the
-# same ZIP a second time in the launcher.
+# The application owns canonical performance behavior directly. Startup no
+# longer installs runtime method replacements or monkey patches.
 from nd_mind_mirror.app.safe_mind_mirror_application import SafeMindMirrorApplication
-from nd_mind_mirror.ui.window.main.safe_large_document_performance_controller import (
-    SafeLargeDocumentPerformanceController,
-)
-
-# Keep performance optimizations, but never virtualize the canonical Source text.
-SafeLargeDocumentPerformanceController.install_startup_hook()
 
 _append_startup_log("SafeMindMirrorApplication imported")
 exit_code = SafeMindMirrorApplication.run(sys.argv)

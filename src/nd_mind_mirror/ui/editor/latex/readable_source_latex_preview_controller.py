@@ -1,4 +1,4 @@
-"""Readable Source LaTeX previews with geometry-cached scrolling."""
+"""Readable Source LaTeX previews with settled geometry-cached scrolling."""
 
 from __future__ import annotations
 
@@ -21,9 +21,10 @@ class ReadableSourceLatexPreviewController(SourceLatexPreviewController):
     """Keep readable Source previews while removing QTextDocument work from scrolling."""
 
     _SCROLL_REFRESH_MS = 0
+    _GEOMETRY_SETTLE_MS = 16
 
     def __init__(self, editor_panel, parent=None) -> None:
-        """Initialize the readable controller and its document-space geometry cache."""
+        """Initialize cached geometry and defer geometry reads until layout has settled."""
         self._geometry_index = SourcePreviewGeometryIndex()
         self._geometry_ready = False
         self._caching_geometry = False
@@ -33,6 +34,11 @@ class ReadableSourceLatexPreviewController(SourceLatexPreviewController):
         self._scroll_refresh_timer.setSingleShot(True)
         self._scroll_refresh_timer.setInterval(self._SCROLL_REFRESH_MS)
         self._scroll_refresh_timer.timeout.connect(self.refresh_positions)
+
+        self._geometry_settle_timer = QTimer(self)
+        self._geometry_settle_timer.setSingleShot(True)
+        self._geometry_settle_timer.setInterval(self._GEOMETRY_SETTLE_MS)
+        self._geometry_settle_timer.timeout.connect(self._settle_layout_geometry)
 
     @staticmethod
     def _logical_size(
@@ -53,8 +59,13 @@ class ReadableSourceLatexPreviewController(SourceLatexPreviewController):
             available=available,
         )
 
+    def _commit_request(self, request: dict[str, object]) -> None:
+        """Invalidate pixel geometry before Source margins are changed by a new layout."""
+        self._invalidate_geometry()
+        super()._commit_request(request)
+
     def refresh_positions(self) -> None:
-        """Position visible formula/table overlays from cached pixel geometry."""
+        """Position visible formula/table overlays only from settled cached geometry."""
         editor = self._current_live_editor()
         if editor is not self._active_editor:
             self.schedule_refresh()
@@ -76,10 +87,9 @@ class ReadableSourceLatexPreviewController(SourceLatexPreviewController):
             return
 
         if not self._geometry_ready:
-            self._cache_layout_geometry(editor)
-            if not self._geometry_ready:
-                self._hide_unused(0)
-                return
+            self._schedule_geometry_settle()
+            self._hide_unused(0)
+            return
 
         vertical = int(editor.verticalScrollBar().value())
         horizontal = int(editor.horizontalScrollBar().value())
@@ -100,7 +110,6 @@ class ReadableSourceLatexPreviewController(SourceLatexPreviewController):
             width = int(item["width"])
             if bool(item["inline"]):
                 x = int(item["document_x"]) - horizontal
-                x = min(x, max(viewport_width - width - 10, 0))
             else:
                 x = max((viewport_width - width) // 2, 0)
 
@@ -114,8 +123,29 @@ class ReadableSourceLatexPreviewController(SourceLatexPreviewController):
                 used += 1
         self._hide_unused(used)
 
+    def _schedule_geometry_settle(self) -> None:
+        """Wait one frame after QTextBlock margin/scroll-anchor updates before caching."""
+        if not self._geometry_settle_timer.isActive():
+            self._geometry_settle_timer.start()
+
+    def _settle_layout_geometry(self) -> None:
+        """Cache geometry only after Qt has applied Source margins and anchor restoration."""
+        editor = self._current_live_editor()
+        if editor is None or editor is not self._active_editor or editor.edit_mode != "source":
+            return
+        viewport = self._viewport(editor)
+        if viewport is None or viewport.width() != self._layout_viewport_width:
+            self.schedule_refresh()
+            return
+        if not self._layout:
+            self._hide_unused(0)
+            return
+        self._cache_layout_geometry(editor)
+        if self._geometry_ready:
+            self.refresh_positions()
+
     def _cache_layout_geometry(self, editor) -> None:
-        """Resolve Source preview block/cursor geometry once per rebuilt layout."""
+        """Resolve Source preview block/cursor geometry once per settled rebuilt layout."""
         if self._caching_geometry:
             return
 
@@ -138,14 +168,6 @@ class ReadableSourceLatexPreviewController(SourceLatexPreviewController):
                     continue
 
                 block_rect = editor.cursorRect(QTextCursor(block))
-                document_y = (
-                    int(block_rect.bottom())
-                    + self._GAP_PX
-                    + int(item["offset_y"])
-                    + vertical
-                )
-                item["document_y"] = document_y
-
                 if bool(item["inline"]):
                     anchor = QTextCursor(document)
                     anchor.setPosition(
@@ -158,15 +180,28 @@ class ReadableSourceLatexPreviewController(SourceLatexPreviewController):
                         )
                     )
                     anchor_rect = editor.cursorRect(anchor)
+                    document_y = (
+                        int(anchor_rect.top())
+                        + (int(anchor_rect.height()) - int(item["height"])) // 2
+                        + vertical
+                    )
+                    reserved_width = int(item.get("reserved_width", 0))
                     item["document_x"] = (
-                        int(anchor_rect.right())
+                        int(anchor_rect.left())
+                        - reserved_width
                         + self._GAP_PX
                         + horizontal
                     )
+                else:
+                    document_y = (
+                        int(block_rect.bottom())
+                        + self._GAP_PX
+                        + int(item["offset_y"])
+                        + vertical
+                    )
+                item["document_y"] = document_y
 
-                geometry.append(
-                    (index, document_y, int(item["height"]))
-                )
+                geometry.append((index, document_y, int(item["height"])))
 
             self._geometry_index.rebuild(geometry)
             self._geometry_ready = True
@@ -181,11 +216,23 @@ class ReadableSourceLatexPreviewController(SourceLatexPreviewController):
         except RuntimeError:
             self._reset_dead_editor()
 
+    def _invalidate_geometry(self) -> None:
+        """Drop geometry whenever Source block margins or layout contents change."""
+        self._geometry_index.clear()
+        self._geometry_ready = False
+        if hasattr(self, "_geometry_settle_timer"):
+            try:
+                self._geometry_settle_timer.stop()
+            except RuntimeError:
+                pass
+
     def _detach_editor(self) -> None:
         """Drop geometry cached for the previous Source editor."""
         try:
             if hasattr(self, "_scroll_refresh_timer"):
                 self._scroll_refresh_timer.stop()
+            if hasattr(self, "_geometry_settle_timer"):
+                self._geometry_settle_timer.stop()
         except RuntimeError:
             pass
         self._geometry_index.clear()
@@ -194,6 +241,5 @@ class ReadableSourceLatexPreviewController(SourceLatexPreviewController):
 
     def _clear_state(self, viewport_width: int = -1) -> None:
         """Clear overlay and geometry state together."""
-        self._geometry_index.clear()
-        self._geometry_ready = False
+        self._invalidate_geometry()
         super()._clear_state(viewport_width)

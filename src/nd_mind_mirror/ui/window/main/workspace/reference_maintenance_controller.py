@@ -17,6 +17,89 @@ from nd_mind_mirror.core.workspace.path.workspace_reference_resolver import (
 )
 
 
+class EditorContentViewStatePreserver:
+    """Replace editor content without moving the user's active caret or viewport."""
+
+    @staticmethod
+    def capture(editor: object) -> dict[str, object]:
+        """Capture generic view state and stable Source locations when available."""
+        state: dict[str, object] = {
+            "view_state": None,
+            "active_source_location": None,
+            "visible_source_location": None,
+        }
+        try:
+            state["view_state"] = dict(editor.view_state())
+        except (AttributeError, RuntimeError, TypeError, ValueError):
+            pass
+
+        try:
+            line, column = editor.active_source_location()
+            state["active_source_location"] = (
+                max(int(line), 1),
+                max(int(column), 1),
+            )
+        except (AttributeError, RuntimeError, TypeError, ValueError):
+            pass
+
+        try:
+            line, column = editor.first_visible_source_position()
+            state["visible_source_location"] = (
+                max(int(line), 1),
+                max(int(column), 1),
+            )
+        except (AttributeError, RuntimeError, TypeError, ValueError):
+            pass
+        return state
+
+    @staticmethod
+    def restore(editor: object, state: dict[str, object]) -> None:
+        """Restore raw state, then re-anchor Source semantically after text-length changes."""
+        raw_state = state.get("view_state")
+        if isinstance(raw_state, dict):
+            try:
+                editor.restore_view_state(raw_state)
+            except (AttributeError, RuntimeError, TypeError, ValueError):
+                pass
+
+        # Visual mode's own view-state implementation already restores source
+        # locations. Source mode needs explicit semantic anchors as set_content()
+        # can reset a large editor's materialized window to the file beginning.
+        if not isinstance(raw_state, dict):
+            return
+        if str(raw_state.get("edit_mode", "source")).strip().lower() == "visual":
+            return
+
+        navigate = getattr(editor, "go_to_source_location", None)
+        if not callable(navigate):
+            return
+
+        visible = state.get("visible_source_location")
+        if isinstance(visible, tuple) and len(visible) == 2:
+            try:
+                navigate(visible[0], visible[1], align_top=True)
+            except (RuntimeError, TypeError, ValueError):
+                pass
+
+        active = state.get("active_source_location")
+        if isinstance(active, tuple) and len(active) == 2:
+            try:
+                navigate(active[0], active[1], align_top=False)
+            except (RuntimeError, TypeError, ValueError):
+                pass
+
+    @classmethod
+    def replace_content(cls, editor: object, content: str) -> bool:
+        """Synchronize new content while preserving the editor's current view."""
+        state = cls.capture(editor)
+        try:
+            editor.set_content(content)
+        except (AttributeError, RuntimeError):
+            return False
+        cls.restore(editor, state)
+        return True
+
+
 class WorkspaceReferenceMaintenanceController(QObject):
     """Preserve synchronous preflight while running repository maintenance in a child process."""
 
@@ -269,10 +352,7 @@ class WorkspaceReferenceMaintenanceController(QObject):
             path.write_text(content, encoding="utf-8")
         except OSError:
             return
-        try:
-            editor.set_content(content)
-        except (AttributeError, RuntimeError):
-            pass
+        EditorContentViewStatePreserver.replace_content(editor, content)
         try:
             self._window._remember_file_signature(path)
         except (AttributeError, RuntimeError, OSError):

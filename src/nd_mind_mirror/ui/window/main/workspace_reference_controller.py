@@ -23,6 +23,9 @@ from nd_mind_mirror.ui.panel.file_system.file_system_panel import FileSystemPane
 from nd_mind_mirror.ui.window.main.workspace.reference_delete_dialog import (
     ReferenceDeleteDialog,
 )
+from nd_mind_mirror.ui.window.main.workspace.reference_maintenance_controller import (
+    EditorContentViewStatePreserver,
+)
 
 
 class WorkspaceReferenceController:
@@ -444,10 +447,7 @@ class WorkspaceReferenceController:
             except OSError:
                 continue
             if editor is not None:
-                try:
-                    editor.set_content(updated)
-                except (AttributeError, RuntimeError):
-                    pass
+                EditorContentViewStatePreserver.replace_content(editor, updated)
         search = getattr(window, "_search_window", None)
         if search is not None:
             try:

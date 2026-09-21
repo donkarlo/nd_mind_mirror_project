@@ -104,10 +104,11 @@ class EnhancedMainWindow(BaseEnhancedMainWindow):
             self._refresh_tikz_idle_projections
         )
 
-        QTimer.singleShot(
-            0,
-            lambda: self._refresh_current_preview(immediate=True),
-        )
+        if self._preview_enabled:
+            QTimer.singleShot(
+                0,
+                lambda: self._refresh_current_preview(immediate=True),
+            )
 
     def _replace_document_autosave_controller(self) -> None:
         """Use deletion-safe local-cache autosave for the final window."""
@@ -120,6 +121,31 @@ class EnhancedMainWindow(BaseEnhancedMainWindow):
             on_written=self._remember_autosave_write,
             parent=self,
         )
+
+    def _set_preview_enabled(self, enabled: bool, refresh: bool = True) -> None:
+        """Use the base renderer switch and discard all Preview-only state when closed."""
+        super()._set_preview_enabled(enabled, refresh)
+        if bool(enabled):
+            return
+        self._preview_dependency_signatures = {}
+        self._pending_preview_edit_highlight = ""
+        self._last_preview_edit_highlight = ""
+        timer = getattr(self, "_tikz_pdf_compile_timer", None)
+        if timer is not None:
+            timer.stop()
+
+    def _on_renderer_dependencies_changed(self, paths: object) -> None:
+        """Ignore late renderer dependency signals after Preview has been closed."""
+        if not bool(getattr(self, "_preview_enabled", False)):
+            self._preview_dependency_signatures = {}
+            return
+        super()._on_renderer_dependencies_changed(paths)
+
+    def _sync_preview_dependency_changes(self) -> None:
+        """Do not stat or resolve Preview dependencies while Preview is closed."""
+        if not bool(getattr(self, "_preview_enabled", False)):
+            return
+        super()._sync_preview_dependency_changes()
 
     def _sync_external_file_changes(self) -> None:
         """Refresh Navigator when an open canonical file disappears externally."""
@@ -183,48 +209,53 @@ class EnhancedMainWindow(BaseEnhancedMainWindow):
         self._tikz_live_refresh_controller.submit(source_path)
 
     def _refresh_tikz_live_projections(self, paths: object) -> None:
-        """Refresh Source/Visual at a bounded rate using only the cheap fast path."""
+        """Refresh only the currently active editor projection at the live rate."""
         if not isinstance(paths, tuple):
             return
 
         editor = self._editor_panel.current_editor()
+        mode = getattr(editor, "edit_mode", None)
         visual_refresh = getattr(editor, "refresh_visual_tikz_path", None)
         for source_path in paths:
             self._reload_open_tikz_source(source_path)
-            self._source_tikz_preview_controller.notify_tikz_changed(
-                source_path,
-                allow_fallback=False,
-            )
-            if callable(visual_refresh):
+            if mode == "source":
+                self._source_tikz_preview_controller.notify_tikz_changed(
+                    source_path,
+                    allow_fallback=False,
+                )
+            elif mode == "visual" and callable(visual_refresh):
                 visual_refresh(
                     source_path,
                     allow_fallback=False,
                 )
 
     def _refresh_tikz_idle_projections(self) -> None:
-        """Permit one serialized fallback after the TikZ edit stream becomes idle."""
+        """Permit one fallback for only the active projection after TikZ edits become idle."""
         paths = tuple(sorted(self._pending_tikz_idle_paths, key=str))
         self._pending_tikz_idle_paths.clear()
         if not paths:
             return
 
         editor = self._editor_panel.current_editor()
+        mode = getattr(editor, "edit_mode", None)
         visual_refresh = getattr(editor, "refresh_visual_tikz_path", None)
         for source_path in paths:
             self._reload_open_tikz_source(source_path)
-            self._source_tikz_preview_controller.notify_tikz_changed(
-                source_path,
-                allow_fallback=True,
-            )
-            if callable(visual_refresh):
+            if mode == "source":
+                self._source_tikz_preview_controller.notify_tikz_changed(
+                    source_path,
+                    allow_fallback=True,
+                )
+            elif mode == "visual" and callable(visual_refresh):
                 visual_refresh(
                     source_path,
                     allow_fallback=True,
                 )
 
-        # Do not compete with the serialized TikZ fallback. Full-document PDF
-        # compilation is delayed again and is cancelled by any new iPad save.
-        self._tikz_pdf_compile_timer.start()
+        if self._preview_enabled:
+            # Full-document PDF compilation is Preview-only and starts only
+            # after fallback work has had quiet time.
+            self._tikz_pdf_compile_timer.start()
 
     def _compile_tikz_pdf_after_idle(self) -> None:
         """Compile the full document only after fallback work has had quiet time."""

@@ -2,10 +2,13 @@
 
 from pathlib import Path
 
-from PySide6.QtCore import QItemSelectionModel, QUrl
-from PySide6.QtGui import QDesktopServices, QKeySequence
-from PySide6.QtWidgets import QApplication, QMenu
+from PySide6.QtCore import QUrl
+from PySide6.QtGui import QDesktopServices
+from PySide6.QtWidgets import QApplication, QMenu, QMessageBox
 
+from nd_mind_mirror.core.clipboard.file_clipboard_mime_data_controller import (
+    FileClipboardMimeDataController,
+)
 from nd_mind_mirror.ui.window.main.navigator_multi_path_context_controller import (
     NavigatorMultiPathContextController,
 )
@@ -14,7 +17,7 @@ from nd_mind_mirror.ui.window.main.navigator_multi_path_context_controller impor
 class SearchAwareNavigatorMultiPathContextController(
     NavigatorMultiPathContextController
 ):
-    """Keep the canonical multi-path menu and add folder-scoped search entries."""
+    """Keep multi-path/search behavior and make file clipboard ownership explicit."""
 
     def __init__(
         self,
@@ -27,6 +30,13 @@ class SearchAwareNavigatorMultiPathContextController(
         self._file_search_callback = file_search_callback
         self._text_search_callback = text_search_callback
         super().__init__(file_system_panel, pin_callback)
+
+        self._file_clipboard_mime = FileClipboardMimeDataController(
+            QApplication.clipboard()
+        )
+        self._file_clipboard_mime.clipboard.dataChanged.connect(
+            self._on_system_clipboard_changed
+        )
 
     @classmethod
     def replace(
@@ -67,6 +77,89 @@ class SearchAwareNavigatorMultiPathContextController(
             text_search_callback=text_search_callback,
         )
 
+    def _store_selection(self, mode: str) -> None:
+        """Publish the selected files as the active OS clipboard payload."""
+        paths = self.selected_paths()
+        if not paths:
+            return
+
+        self._clipboard_paths = paths
+        self._clipboard_mode = mode
+        self._file_clipboard_mime.publish_paths(paths)
+
+        action = "Copied" if mode == "copy" else "Cut"
+        self._panel.window().statusBar().showMessage(
+            f"{action} {len(paths)} Navigator item(s).",
+            2500,
+        )
+
+    def _on_system_clipboard_changed(self) -> None:
+        """Drop stale internal sources when another application owns clipboard data."""
+        mime_data = self._file_clipboard_mime.clipboard.mimeData()
+        if FileClipboardMimeDataController.is_mind_mirror_file_payload(
+            mime_data
+        ):
+            return
+        self._clipboard_paths = []
+        self._clipboard_mode = ""
+
+    def _clipboard_sources_and_mode(self) -> tuple[list[Path], str]:
+        """Prefer live internal paths, otherwise import standard OS file URLs."""
+        internal = self._existing_clipboard_paths()
+        if internal:
+            return internal, self._clipboard_mode or "copy"
+
+        external = FileClipboardMimeDataController.local_paths(
+            self._file_clipboard_mime.clipboard.mimeData()
+        )
+        return self._top_level_paths(external), "copy"
+
+    def can_paste(self) -> bool:
+        """Accept internal Navigator sources and local files copied in other apps."""
+        sources, _mode = self._clipboard_sources_and_mode()
+        return bool(sources)
+
+    def paste_into_path(self, path: Path) -> None:
+        """Paste internal or OS file clipboard sources without image fallback."""
+        sources, mode = self._clipboard_sources_and_mode()
+        if not sources:
+            return
+
+        try:
+            destination = (
+                self._panel
+                ._target_directory(path)
+                .expanduser()
+                .resolve()
+            )
+        except OSError as exc:
+            QMessageBox.warning(
+                self._panel,
+                "Paste",
+                str(exc),
+            )
+            return
+
+        if not destination.is_dir():
+            QMessageBox.warning(
+                self._panel,
+                "Paste",
+                "The paste destination is not a folder.",
+            )
+            return
+
+        mappings = self._destination_mappings(
+            sources,
+            destination,
+        )
+        if mappings is None:
+            return
+
+        if mode == "cut":
+            self._paste_cut(mappings)
+            return
+        self._paste_copy(mappings)
+
     def show_menu(self, position) -> None:
         """Show the canonical menu plus folder-scoped file and text searches."""
         index = self._tree.indexAt(position)
@@ -82,18 +175,15 @@ class SearchAwareNavigatorMultiPathContextController(
 
         menu = QMenu(self._panel)
 
-        copy_item = menu.addAction("Copy")
-        copy_item.setShortcut(QKeySequence("Ctrl+C"))
+        copy_item = menu.addAction("Copy\tCtrl+C")
         copy_item.setEnabled(bool(selected_paths))
         copy_item.triggered.connect(self.copy_selected_path)
 
-        cut_item = menu.addAction("Cut")
-        cut_item.setShortcut(QKeySequence("Ctrl+X"))
+        cut_item = menu.addAction("Cut\tCtrl+X")
         cut_item.setEnabled(bool(selected_paths))
         cut_item.triggered.connect(self.cut_selected_paths)
 
-        paste_item = menu.addAction("Paste")
-        paste_item.setShortcut(QKeySequence("Ctrl+V"))
+        paste_item = menu.addAction("Paste\tCtrl+V")
         paste_item.setEnabled(self.can_paste())
         paste_item.triggered.connect(lambda: self.paste_into_path(path))
         menu.addSeparator()
@@ -189,4 +279,10 @@ class SearchAwareNavigatorMultiPathContextController(
         else:
             delete.triggered.connect(lambda: self._panel._delete_path(path))
 
-        menu.exec(self._tree.viewport().mapToGlobal(position))
+        try:
+            menu.exec(self._tree.viewport().mapToGlobal(position))
+        finally:
+            # Context-menu actions are intentionally ephemeral.  Registering
+            # QAction shortcuts here would create window-wide Ctrl+C/X/V
+            # owners that can steal native text editing shortcuts in Source.
+            menu.deleteLater()

@@ -1,0 +1,37 @@
+\documentclass[a4paper]{article}
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+\usepackage{adjustbox}
+\usepackage[active,tightpage]{preview}
+\PreviewBorder=4pt
+\title{Background Caret and Independent Panel Widths}
+\date{2026-09-19}
+\author{Mohammad Rahmani}
+\begin{document}
+\maketitle
+\begin{preview}
+\section{Bug fix}
+The configured Source and Visual caret now remains visible and continues using
+the configured blink interval after keyboard focus moves to another visible
+panel or application window.  The configurable caret controller is the single
+caret owner; the retired steady non-focus caret renderers are no longer
+installed.
+
+The main horizontal layout now keeps Navigator/Structure and Preview widths
+stable when the outer application window changes width.  Source/Visual is the
+elastic pane that receives the added or removed width.  Explicit splitter-handle
+drags remain available for intentional pane resizing.
+\end{preview}
+\end{document}

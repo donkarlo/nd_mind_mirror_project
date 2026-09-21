@@ -136,6 +136,20 @@ def test_visual_short_selection_without_exact_match_rejects_broad_fallback():
     assert RangeBookmarkSelectionResolver().resolve(editor) is None
 
 
+def test_visual_short_selection_without_exact_match_rejects_small_rough_fallback():
+    source = "alpha gamma delta"
+    cursor = _Cursor(1, 5, "beta")
+    visual = _Visual(
+        cursor,
+        rough_anchor=(1, 1),
+        rough_position=(1, len(source) + 1),
+        serialized="beta",
+    )
+    editor = _Editor(source, mode="visual", visual=visual)
+
+    assert RangeBookmarkSelectionResolver().resolve(editor) is None
+
+
 def test_partial_overlap_is_not_treated_as_same_bookmark():
     harness = object.__new__(_SelectionHarness)
     harness._range_bookmark_tracker = RangeBookmarkTracker("abcdef")

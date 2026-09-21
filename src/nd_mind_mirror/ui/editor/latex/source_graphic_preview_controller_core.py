@@ -110,9 +110,9 @@ class SourceGraphicPreviewController(QObject):
             if not block.isValid():
                 continue
             end_rect = editor.cursorRect(QTextCursor(block))
-            distance_from_end = int(item["distance_from_end"])
+            offset_after_end = int(item["offset_after_end"])
             image_height = int(item["height"])
-            y = int(end_rect.top()) - distance_from_end
+            y = int(end_rect.bottom()) + self._IMAGE_GAP_PX + offset_after_end
             if y > viewport_height or y + image_height < 0:
                 continue
 
@@ -195,7 +195,7 @@ class SourceGraphicPreviewController(QObject):
                         "target_width": width,
                         "outer_width": width + 6,
                         "height": height,
-                        "distance_from_end": 0,
+                        "offset_after_end": 0,
                     }
                 )
                 reserved_height += height + self._IMAGE_GAP_PX
@@ -204,9 +204,9 @@ class SourceGraphicPreviewController(QObject):
             if not figure_items:
                 continue
             end_reservations[end_position] = reserved_height
-            offset = self._IMAGE_GAP_PX
+            offset = 0
             for item in figure_items:
-                item["distance_from_end"] = reserved_height - offset
+                item["offset_after_end"] = offset
                 offset += int(item["height"]) + self._IMAGE_GAP_PX
                 layout.append(item)
 
@@ -272,10 +272,10 @@ class SourceGraphicPreviewController(QObject):
             block = document.begin()
             while block.isValid():
                 block_format = block.blockFormat()
-                if block_format.topMargin() > 0.0 and bool(
+                if block_format.bottomMargin() > 0.0 and bool(
                     block_format.property(SourceGraphicPreviewController._BLOCK_IMAGE_SPACE_PROPERTY)
                 ):
-                    block_format.setTopMargin(0.0)
+                    block_format.setBottomMargin(0.0)
                     block_format.clearProperty(SourceGraphicPreviewController._BLOCK_IMAGE_SPACE_PROPERTY)
                     cursor = QTextCursor(block)
                     cursor.setBlockFormat(block_format)
@@ -302,7 +302,7 @@ class SourceGraphicPreviewController(QObject):
                 if not block.isValid():
                     continue
                 block_format = block.blockFormat()
-                block_format.setTopMargin(float(max(int(height), 0)))
+                block_format.setBottomMargin(float(max(int(height), 0)))
                 block_format.setProperty(
                     SourceGraphicPreviewController._BLOCK_IMAGE_SPACE_PROPERTY,
                     True,

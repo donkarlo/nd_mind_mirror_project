@@ -1,0 +1,61 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+\usepackage{adjustbox}
+\usepackage[active,tightpage]{preview}
+
+\PreviewBorder=4pt
+
+\usetikzlibrary{graphs,graphdrawing,arrows.meta,positioning,calc,fit,shapes.geometric}
+\usegdlibrary{layered}
+
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/external_graphviz.tex}
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/part/control_sequence/kind/semtag/semtag.tex}
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/seehere.tex}
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/deep_structure.tex}
+
+\title{Source Text Clipboard Shortcut Ownership Fix}
+\date{2026-09-20}
+\author{Mohammad Rahmani}
+
+\begin{document}
+   \maketitle
+
+   \begin{preview}
+      \section{Bug}
+      Navigator context-menu actions registered Ctrl+C, Ctrl+X, and Ctrl+V as
+      QAction shortcuts. Because the menus were parented to the persistent file
+      panel, closed menus could leave window-level shortcut owners alive. This
+      could make native text Copy, Cut, and Paste in Source unreliable or
+      ambiguous after the Navigator menu had been used.
+
+      \section{Fix}
+      The final search-aware Navigator menu now displays the keyboard hints as
+      labels only; it no longer registers QAction shortcuts. Navigator keyboard
+      Copy/Cut/Paste remains owned exclusively by the dedicated tree event
+      filter while Source keeps Qt's native text clipboard handling. The
+      temporary context menu is also explicitly deleted after it closes so its
+      actions cannot survive as hidden shortcut owners.
+
+      \section{Regression coverage}
+      A regression check verifies that the Navigator menu contains visible
+      Ctrl+C/Ctrl+X/Ctrl+V hints without calling QAction.setShortcut and that
+      the temporary menu is destroyed after use.
+   \end{preview}
+
+   \bibliographystyle{plainnat}
+   \bibliography{/home/donkarlo/Dropbox/repo/nd_shared_research/bibliography/bibliography.bib}
+\end{document}

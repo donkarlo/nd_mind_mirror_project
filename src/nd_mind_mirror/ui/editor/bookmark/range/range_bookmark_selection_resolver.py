@@ -5,16 +5,19 @@ from __future__ import annotations
 from nd_mind_mirror.core.bookmark.range.range_bookmark_position_mapper import (
     RangeBookmarkPositionMapper,
 )
+from nd_mind_mirror.ui.editor.bookmark.range.exact_selection_range_matcher import (
+    ExactSelectionRangeMatcher,
+)
 
 
 class RangeBookmarkSelectionResolver:
-    """Map an explicit Source/Visual text selection to one canonical range."""
+    """Map an explicit Source/Visual text selection to one exact canonical range."""
 
-    _SEARCH_MARGIN_CHARS = 4096
-    _MAX_ROUGH_EXPANSION_CHARS = 96
+    def __init__(self) -> None:
+        self._matcher = ExactSelectionRangeMatcher()
 
     def resolve(self, editor) -> tuple[int, int] | None:
-        """Return the selected canonical half-open range, never a line/block range."""
+        """Return only the explicitly selected canonical half-open range."""
         if str(getattr(editor, "_edit_mode", "source")) == "visual":
             return self._resolve_visual(editor)
         return self._resolve_source(editor)
@@ -54,7 +57,7 @@ class RangeBookmarkSelectionResolver:
         candidates = self._selection_candidates(visual, cursor, selected_visual)
 
         for candidate in candidates:
-            match = self._nearest_occurrence(
+            match = self._matcher.nearest_occurrence(
                 source,
                 candidate,
                 rough_start,
@@ -63,19 +66,9 @@ class RangeBookmarkSelectionResolver:
             if match is not None:
                 return match
 
-        rough = self._clamp_range(rough_start, rough_end, len(source))
-        if rough is None:
-            return None
-
-        if self._rough_range_is_safe(
-            rough,
-            selected_visual,
-            candidates,
-        ):
-            return rough
-
-        # A short Visual selection must never silently become a paragraph,
-        # section, or other broad structural bookmark.
+        # Selection-only bookmarks are exact by definition. If Visual cannot
+        # map the selected text back to canonical source, reject the bookmark
+        # rather than expanding it to a line, paragraph, or structural block.
         return None
 
     @staticmethod
@@ -102,62 +95,6 @@ class RangeBookmarkSelectionResolver:
             if value and value not in unique:
                 unique.append(value)
         return tuple(unique)
-
-    def _nearest_occurrence(
-        self,
-        source: str,
-        needle: str,
-        rough_start: int,
-        rough_end: int,
-    ) -> tuple[int, int] | None:
-        if not needle or not needle.strip():
-            return None
-
-        left = max(0, int(rough_start) - self._SEARCH_MARGIN_CHARS)
-        right = min(
-            len(source),
-            max(int(rough_end), int(rough_start)) + self._SEARCH_MARGIN_CHARS,
-        )
-        if right <= left:
-            return None
-
-        best_start: int | None = None
-        best_score: tuple[int, int] | None = None
-        position = source.find(needle, left, right)
-        while position >= 0:
-            end = position + len(needle)
-            overlap_penalty = 0 if position < rough_end and rough_start < end else 1
-            score = (overlap_penalty, abs(position - rough_start))
-            if best_score is None or score < best_score:
-                best_score = score
-                best_start = position
-            position = source.find(needle, position + 1, right)
-
-        if best_start is None:
-            return None
-        return best_start, best_start + len(needle)
-
-    def _rough_range_is_safe(
-        self,
-        rough: tuple[int, int],
-        selected_visual: str,
-        candidates: tuple[str, ...],
-    ) -> bool:
-        start, end = rough
-        rough_length = end - start
-        expected = max(
-            [len(selected_visual)] + [len(value) for value in candidates] + [1]
-        )
-
-        # Multi-block selections are allowed to be naturally larger because
-        # Visual block separators and canonical newlines are not one-to-one.
-        if "\n" in selected_visual:
-            return rough_length <= max(expected * 4, expected + 256)
-
-        return rough_length <= max(
-            expected * 4,
-            self._MAX_ROUGH_EXPANSION_CHARS,
-        )
 
     @staticmethod
     def _clamp_range(

@@ -6,24 +6,38 @@ from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+from threading import Event
+from time import monotonic, sleep
 
 from PySide6.QtCore import QSize
 from PySide6.QtGui import QImage
 from PySide6.QtPdf import QPdfDocument
 
 
+class SourcePreviewRenderCancelled(RuntimeError):
+    """Raised when Source preview work is cancelled because Source is no longer active."""
+
+
 class SourceLatexPreviewRenderer:
     """Render arbitrary supported snippets to tight in-memory images."""
 
-    def __init__(self, *, raster_scale: float = 2.6, max_dimension: int = 2800) -> None:
-        """Initialize rendering limits and the in-memory snippet cache."""
+    def __init__(
+        self,
+        *,
+        raster_scale: float = 2.6,
+        max_dimension: int = 2800,
+        cancel_event: Event | None = None,
+    ) -> None:
+        """Initialize rendering limits, cache, and the optional cooperative cancellation flag."""
         self._raster_scale = max(float(raster_scale), 1.0)
         self._max_dimension = max(int(max_dimension), 400)
         self._cache: dict[str, QImage] = {}
         self._failed: set[str] = set()
+        self._cancel_event = cancel_event
 
     def render_many(self, snippets: list[str]) -> dict[str, QImage]:
         """Render uncached snippets and return valid cached images by snippet."""
+        self._raise_if_cancelled()
         ordered: list[str] = []
         seen: set[str] = set()
         for snippet in snippets:
@@ -37,11 +51,16 @@ class SourceLatexPreviewRenderer:
         if ordered:
             try:
                 self._cache.update(self._render_batch(ordered))
+            except SourcePreviewRenderCancelled:
+                raise
             except Exception:
                 # One unsupported snippet must not hide every other preview.
                 for raw in ordered:
+                    self._raise_if_cancelled()
                     try:
                         self._cache.update(self._render_batch([raw]))
+                    except SourcePreviewRenderCancelled:
+                        raise
                     except Exception:
                         self._failed.add(raw)
 
@@ -52,7 +71,8 @@ class SourceLatexPreviewRenderer:
         }
 
     def _render_batch(self, snippets: list[str]) -> dict[str, QImage]:
-        """Compile one batch of snippets and rasterize each tight PDF page."""
+        """Compile one batch and stop LuaLaTeX immediately when Source work is cancelled."""
+        self._raise_if_cancelled()
         lualatex = shutil.which("lualatex")
         if not lualatex:
             raise RuntimeError("lualatex was not found on PATH")
@@ -62,7 +82,7 @@ class SourceLatexPreviewRenderer:
             tex_path = directory / "previews.tex"
             pdf_path = directory / "previews.pdf"
             tex_path.write_text(self._document(snippets), encoding="utf-8")
-            process = subprocess.run(
+            process = subprocess.Popen(
                 [
                     lualatex,
                     "-interaction=nonstopmode",
@@ -74,12 +94,12 @@ class SourceLatexPreviewRenderer:
                 text=True,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
-                timeout=30,
-                check=False,
             )
+            output = self._wait_for_process(process, timeout_seconds=30.0)
             if process.returncode != 0 or not pdf_path.is_file():
-                raise RuntimeError(self._tail(process.stdout or ""))
+                raise RuntimeError(self._tail(output))
 
+            self._raise_if_cancelled()
             document = QPdfDocument()
             load_error = document.load(str(pdf_path))
             if load_error != QPdfDocument.Error.None_:
@@ -92,6 +112,7 @@ class SourceLatexPreviewRenderer:
 
             result: dict[str, QImage] = {}
             for page_index, raw in enumerate(snippets):
+                self._raise_if_cancelled()
                 point_size = document.pagePointSize(page_index)
                 width = max(int(round(point_size.width() * self._raster_scale)), 1)
                 height = max(int(round(point_size.height() * self._raster_scale)), 1)
@@ -102,10 +123,52 @@ class SourceLatexPreviewRenderer:
                     height = max(int(round(height * factor)), 1)
                 image = document.render(page_index, QSize(width, height))
                 if image.isNull():
-                    raise RuntimeError(f"QtPdf returned an empty Source preview image for page {page_index + 1}")
+                    raise RuntimeError(
+                        "QtPdf returned an empty Source preview image for page "
+                        f"{page_index + 1}"
+                    )
                 result[raw] = QImage(image)
             document.close()
             return result
+
+    def _wait_for_process(
+        self,
+        process: subprocess.Popen,
+        *,
+        timeout_seconds: float,
+    ) -> str:
+        """Wait in short intervals so a mode switch can terminate LuaLaTeX promptly."""
+        deadline = monotonic() + max(float(timeout_seconds), 0.1)
+        while process.poll() is None:
+            if self._is_cancelled():
+                self._terminate_process(process)
+                raise SourcePreviewRenderCancelled("Source preview render cancelled")
+            if monotonic() >= deadline:
+                self._terminate_process(process)
+                raise RuntimeError("Source LaTeX preview compilation timed out")
+            sleep(0.04)
+        output, _stderr = process.communicate()
+        self._raise_if_cancelled()
+        return output or ""
+
+    @staticmethod
+    def _terminate_process(process: subprocess.Popen) -> None:
+        """Terminate then kill a stuck preview compiler without leaving a child process."""
+        if process.poll() is not None:
+            return
+        process.terminate()
+        try:
+            process.wait(timeout=0.4)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=0.4)
+
+    def _is_cancelled(self) -> bool:
+        return bool(self._cancel_event is not None and self._cancel_event.is_set())
+
+    def _raise_if_cancelled(self) -> None:
+        if self._is_cancelled():
+            raise SourcePreviewRenderCancelled("Source preview render cancelled")
 
     @staticmethod
     def _document(snippets: list[str]) -> str:
