@@ -1,0 +1,46 @@
+\documentclass[a4paper]{article}
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+\usepackage{adjustbox}
+\usepackage[active,tightpage]{preview}
+\PreviewBorder=4pt
+\usetikzlibrary{graphs,graphdrawing,arrows.meta,positioning,calc,fit,shapes.geometric}
+\usegdlibrary{layered}
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/external_graphviz.tex}
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/part/control_sequence/kind/semtag/semtag.tex}
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/seehere.tex}
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/deep_structure.tex}
+\title{Transient Tab Hover and Exact Selection Bookmark Fix}
+\date{2026-09-21}
+\author{Mohammad Rahmani}
+\begin{document}
+\maketitle
+\begin{preview}
+\section{Tab hover}
+Pinned/Open proxy tabs now track one transient hover index.  The hovered tab is
+painted light purple and the index is cleared on mouse leave, so hover can no
+longer leave a tab permanently blue.
+\section{Selection bookmarks}
+Visual bookmark resolution now tries the literal user-selected text before the
+Visual structural serializer.  A serializer that returns a complete LaTeX
+paragraph or section can therefore no longer widen a bookmark made from only a
+few highlighted words.  Structural serialization remains only an exact
+fallback for transformed Visual text.  When a short exact selection lies inside
+a stale broad bookmark created by an older build, adding the exact bookmark now
+replaces that containing broad range so the section-sized highlight disappears.
+\end{preview}
+\bibliographystyle{plainnat}
+\bibliography{/home/donkarlo/Dropbox/repo/nd_shared_research/bibliography/bibliography.bib}
+\end{document}

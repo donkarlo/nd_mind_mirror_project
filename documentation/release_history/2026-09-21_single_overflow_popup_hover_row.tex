@@ -1,0 +1,52 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+\usepackage{adjustbox}
+\usepackage[active,tightpage]{preview}
+
+\PreviewBorder=4pt
+
+\usetikzlibrary{graphs,graphdrawing,arrows.meta,positioning,calc,fit,shapes.geometric}
+\usegdlibrary{layered}
+
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/external_graphviz.tex}
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/part/control_sequence/kind/semtag/semtag.tex}
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/seehere.tex}
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/deep_structure.tex}
+
+\title{Single Overflow Popup Hover Row}
+\date{2026-09-21}
+\author{Mohammad Rahmani}
+
+\begin{document}
+   \maketitle
+
+   \begin{preview}
+      \section{Bug}
+      The overflow list stylesheet colored both hover and selected item states.
+      The native popup could keep multiple rows in a selected state, causing
+      every visible option to receive the purple background.
+
+      \section{Fix}
+      Persistent selected rows are now visually transparent. Only the native
+      hover state receives the light-purple background. Text color is left
+      entirely untouched. QMenu popups still keep exactly the action under the
+      pointer active and clear it when the pointer leaves.
+   \end{preview}
+
+   \bibliographystyle{plainnat}
+   \bibliography{/home/donkarlo/Dropbox/repo/nd_shared_research/bibliography/bibliography.bib}
+\end{document}

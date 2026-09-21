@@ -1,0 +1,53 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+\usepackage{adjustbox}
+\usepackage[active,tightpage]{preview}
+
+\PreviewBorder=4pt
+
+\usetikzlibrary{graphs,graphdrawing,arrows.meta,positioning,calc,fit,shapes.geometric}
+\usegdlibrary{layered}
+
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/external_graphviz.tex}
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/part/control_sequence/kind/semtag/semtag.tex}
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/seehere.tex}
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/deep_structure.tex}
+
+\title{Tab Overflow Popup Hover Fix}
+\date{2026-09-21}
+\author{Mohammad Rahmani}
+
+\begin{document}
+   \maketitle
+
+   \begin{preview}
+      \section{Bug}
+      The blue rectangle shown in the Pinned/Open overflow popup was not the
+      QTabBar tab-hover paint.  It was the native popup's active item, which
+      Qt keeps active after the pointer leaves that item.
+
+      \section{Fix}
+      The proxy tab bar now owns a popup-hover controller for its native
+      overflow arrow buttons.  The controller styles the native menu/list
+      hover in light purple and explicitly clears the popup active/current
+      item on Leave, HoverLeave, hide, and window deactivation.  The existing
+      native overflow mechanism and arrows remain unchanged.
+   \end{preview}
+
+   \bibliographystyle{plainnat}
+   \bibliography{/home/donkarlo/Dropbox/repo/nd_shared_research/bibliography/bibliography.bib}
+\end{document}

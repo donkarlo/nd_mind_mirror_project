@@ -73,7 +73,22 @@ class RangeBookmarkSelectionResolver:
 
     @staticmethod
     def _selection_candidates(visual, cursor, selected_visual: str) -> tuple[str, ...]:
+        """Prefer the literal visible selection before any structural serializer.
+
+        Visual serializers are allowed to return a complete LaTeX block for a
+        selection.  That is useful for editing, but a bookmark must never widen
+        a few selected words into a paragraph/section.  The literal selected
+        text therefore wins whenever it exists in canonical source; serialized
+        LaTeX is only a final exact fallback for selections whose visible text
+        is transformed by Visual rendering.
+        """
         values: list[str] = []
+
+        if selected_visual.strip():
+            values.append(selected_visual)
+            collapsed = selected_visual.replace("\n", " ")
+            if collapsed != selected_visual:
+                values.append(collapsed)
 
         serializer = getattr(visual, "_selected_latex_source", None)
         if callable(serializer):
@@ -82,13 +97,14 @@ class RangeBookmarkSelectionResolver:
             except (AttributeError, RuntimeError, TypeError, ValueError):
                 serialized = ""
             if serialized.strip():
-                values.append(serialized)
-
-        if selected_visual.strip():
-            values.append(selected_visual)
-            collapsed = selected_visual.replace("\n", " ")
-            if collapsed != selected_visual:
-                values.append(collapsed)
+                selected_length = len(selected_visual.strip())
+                serialized_length = len(serialized.strip())
+                maximum_serialized_length = max(
+                    selected_length * 3,
+                    selected_length + 24,
+                )
+                if selected_length == 0 or serialized_length <= maximum_serialized_length:
+                    values.append(serialized)
 
         unique: list[str] = []
         for value in values:

@@ -69,6 +69,39 @@ class SelectionRangeBookmarkEditorMixin(RangeBookmarkEditorMixin):
             "bookmark_id": "",
         }
 
+    def execute_range_bookmark_state(self, state: dict[str, object]) -> None:
+        """Apply only the exact current selection and retire stale broad containers.
+
+        Older builds could persist a paragraph/section-sized range for a short
+        Visual selection.  When the user explicitly bookmarks a smaller exact
+        selection inside such a stale range, replace the containing stale range
+        so the visible bookmark becomes exactly what is highlighted now.
+        """
+        action = str(state.get("action", "none"))
+        changed = False
+        collection = self._range_bookmark_tracker.collection
+
+        if action == "remove":
+            changed = collection.remove(str(state.get("bookmark_id", "")))
+        elif action == "add":
+            selection = self._active_canonical_selection()
+            if selection is not None:
+                start, end = selection
+                stale_ids = [
+                    item.id
+                    for item in collection.items
+                    if item.start_char <= start
+                    and end <= item.end_char
+                    and (item.start_char, item.end_char) != (start, end)
+                ]
+                for bookmark_id in stale_ids:
+                    changed = collection.remove(bookmark_id) or changed
+                added = collection.add(start, end, self.toPlainText())
+                changed = added is not None or changed
+
+        if changed:
+            self._range_bookmark_model_changed()
+
     def _active_canonical_selection(self) -> tuple[int, int] | None:
         resolver = getattr(self, "_range_bookmark_selection_resolver", None)
         if resolver is None:

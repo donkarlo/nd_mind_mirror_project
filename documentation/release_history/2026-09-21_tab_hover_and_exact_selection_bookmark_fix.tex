@@ -1,0 +1,20 @@
+\documentclass[a4paper]{article}
+\usepackage[active,tightpage]{preview}
+\PreviewBorder=4pt
+\title{Tab Hover and Exact Selection Bookmark Fix}
+\date{2026-09-21}
+\author{Mohammad Rahmani}
+\begin{document}
+\maketitle
+\begin{preview}
+\section{Tab hover}
+Pinned/Open proxy tabs now own an explicit transient hover index. Only the tab
+under the pointer receives a light-purple background, and leaving the row clears
+that transient state immediately so the original selected/normal colors return.
+\section{Bookmarks}
+The public LaTeX editor now composes the selection-only range bookmark mixin
+itself. Bookmark creation therefore requires an explicit text selection and the
+stored/highlighted range is exactly that half-open character range rather than a
+line, paragraph, or section.
+\end{preview}
+\end{document}

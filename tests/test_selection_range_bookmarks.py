@@ -122,6 +122,20 @@ def test_visual_short_selection_does_not_expand_to_rough_paragraph():
     assert RangeBookmarkSelectionResolver().resolve(editor) == (6, 10)
 
 
+def test_visual_literal_selection_wins_over_broad_structural_serializer():
+    source = "alpha beta gamma delta"
+    cursor = _Cursor(6, 10, "beta")
+    visual = _Visual(
+        cursor,
+        rough_anchor=(1, 1),
+        rough_position=(1, len(source) + 1),
+        serialized=source,
+    )
+    editor = _Editor(source, mode="visual", visual=visual)
+
+    assert RangeBookmarkSelectionResolver().resolve(editor) == (6, 10)
+
+
 def test_visual_short_selection_without_exact_match_rejects_broad_fallback():
     source = "a" * 300
     cursor = _Cursor(1, 5, "beta")

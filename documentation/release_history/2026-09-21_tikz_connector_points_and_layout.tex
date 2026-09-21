@@ -1,0 +1,59 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+\usepackage{adjustbox}
+\usepackage[active,tightpage]{preview}
+
+\PreviewBorder=4pt
+
+\usetikzlibrary{graphs,graphdrawing,arrows.meta,positioning,calc,fit,shapes.geometric}
+\usegdlibrary{layered}
+
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/external_graphviz.tex}
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/part/control_sequence/kind/semtag/semtag.tex}
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/seehere.tex}
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/deep_structure.tex}
+
+\title{TikZ Pencil Connectors, Connection Points, and Layout Directions}
+\date{2026-09-21}
+\author{Mohammad Rahmani}
+
+\begin{document}
+   \maketitle
+
+   \begin{preview}
+      \section{Connection-point workflow}
+      Rectangle and ellipse nodes expose four perimeter connection points by
+      default.  Additional points are added from the node long-press menu and
+      are distributed at equal perimeter distance.  Their counts are persisted
+      in compile-safe TikZ comments.
+
+      \section{Apple Pencil connector workflow}
+      A Pencil stroke starting at a connection point can begin while Select is
+      active.  Mind Mirror reactivates the most recently chosen connector kind
+      and previews that connector.  Releasing over a connection point on
+      another node creates the edge.  Releasing on blank canvas opens a choice
+      to create and connect to a rectangle, create and connect to an ellipse,
+      or discard the connector.
+
+      \section{Automatic layout}
+      The TikZ options menu now exposes Top to Bottom, Bottom to Top, Left to
+      Right, Right to Left, Right Tree, and Left Tree layouts.
+   \end{preview}
+
+   \bibliographystyle{plainnat}
+   \bibliography{/home/donkarlo/Dropbox/repo/nd_shared_research/bibliography/bibliography.bib}
+\end{document}

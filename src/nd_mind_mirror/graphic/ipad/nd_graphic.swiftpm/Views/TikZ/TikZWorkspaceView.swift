@@ -6,6 +6,9 @@ struct TikZWorkspaceView: View {
     @ObservedObject var router: GraphicEditorSessionRouter
 
     @State private var activeTool: TikZCanvasTool = .select
+    @State private var lastConnectorTool: TikZCanvasTool = .straightConnector
+    @State private var pendingConnectorDrop: TikZPendingConnectorDrop?
+
     @State private var selectedNodeName: String?
     @State private var selectedEdgeID: String?
     @State private var editingNodeName: String?
@@ -25,69 +28,50 @@ struct TikZWorkspaceView: View {
     @State private var lastStyleMode: TikZStyleToolbarView.Mode = .node
 
     private let layoutService = TikZAutoLayoutService()
+    private let nodeNameAllocator = TikZNodeNameAllocator()
 
     private var graph: TikZGraph {
         TikZGraphParser.parse(router.tikzSource)
     }
 
+    private var connectionPointCounts: [String: Int] {
+        TikZConnectionPointMetadata.counts(
+            in: router.tikzSource,
+            nodeNames: graph.nodes.map(\.name)
+        )
+    }
+
     private var selectedNode: TikZNode? {
-        guard let selectedNodeName else {
-            return nil
-        }
-        return graph.nodes.first {
-            $0.name == selectedNodeName
-        }
+        guard let selectedNodeName else { return nil }
+        return graph.nodes.first { $0.name == selectedNodeName }
     }
 
     private var selectedEdge: TikZEdge? {
-        guard let selectedEdgeID else {
-            return nil
-        }
-        return graph.edges.first {
-            $0.id == selectedEdgeID
-        }
+        guard let selectedEdgeID else { return nil }
+        return graph.edges.first { $0.id == selectedEdgeID }
     }
 
     private var compactPath: String {
-        guard
-            let path = router.tikzPath,
-            !path.isEmpty
-        else {
+        guard let path = router.tikzPath, !path.isEmpty else {
             return "TikZ"
         }
-
-        return path
-            .split(separator: "/")
-            .suffix(2)
-            .joined(separator: "/")
+        return path.split(separator: "/").suffix(2).joined(separator: "/")
     }
 
     private var styleMode: TikZStyleToolbarView.Mode {
-        if selectedNode != nil {
-            return .node
-        }
-        if selectedEdge != nil {
-            return .edge
-        }
-        if activeTool == .rectangle || activeTool == .ellipse {
-            return .node
-        }
-        if activeTool.connectorKind != nil {
-            return .edge
-        }
+        if selectedNode != nil { return .node }
+        if selectedEdge != nil { return .edge }
+        if activeTool == .rectangle || activeTool == .ellipse { return .node }
+        if activeTool.connectorKind != nil { return .edge }
         return lastStyleMode
     }
 
     private var nodeStyleBinding: Binding<TikZNodeStyle> {
         Binding(
-            get: {
-                nodeStyle
-            },
+            get: { nodeStyle },
             set: { style in
                 nodeStyle = style
-                guard let node = selectedNode else {
-                    return
-                }
+                guard let node = selectedNode else { return }
                 router.updateTikZSource(
                     TikZSourceEditor.updateNodeStyle(
                         named: node.name,
@@ -101,14 +85,10 @@ struct TikZWorkspaceView: View {
 
     private var edgeStyleBinding: Binding<TikZEdgeStyle> {
         Binding(
-            get: {
-                edgeStyle
-            },
+            get: { edgeStyle },
             set: { style in
                 edgeStyle = style
-                guard let edge = selectedEdge else {
-                    return
-                }
+                guard let edge = selectedEdge else { return }
                 router.updateTikZSource(
                     TikZSourceEditor.updateEdgeStyle(
                         edgeID: edge.id,
@@ -116,6 +96,17 @@ struct TikZWorkspaceView: View {
                         in: router.tikzSource
                     )
                 )
+            }
+        )
+    }
+
+    private var pendingConnectorDialogPresented: Binding<Bool> {
+        Binding(
+            get: { pendingConnectorDrop != nil },
+            set: { presented in
+                if !presented {
+                    pendingConnectorDrop = nil
+                }
             }
         )
     }
@@ -136,6 +127,8 @@ struct TikZWorkspaceView: View {
                 previewImage: router.tikzPreviewImage,
                 logicalCanvasSize: logicalCanvasSize,
                 activeTool: activeTool,
+                preferredConnectorTool: lastConnectorTool,
+                connectionPointCounts: connectionPointCounts,
                 draftNodeStyle: nodeStyle,
                 draftEdgeStyle: edgeStyle,
                 selectedNodeName: selectedNodeName,
@@ -156,6 +149,7 @@ struct TikZWorkspaceView: View {
                 onNodeDuplicate: duplicateNode,
                 onNodeBringToFront: bringNodeToFront,
                 onNodeSendToBack: sendNodeToBack,
+                onNodeAddConnectionPoint: addConnectionPoint,
                 onEdgeDelete: deleteEdge,
                 onEdgeBringToFront: bringEdgeToFront,
                 onEdgeSendToBack: sendEdgeToBack,
@@ -164,7 +158,8 @@ struct TikZWorkspaceView: View {
                 onEdgeBendRemove: removeBendPoint,
                 onEdgeAddBendPoint: addBendPoint,
                 onLabelCommit: finishLabelEditing,
-                onConnectorCreate: createConnector,
+                onConnectorAutoActivated: activateLastConnectorTool,
+                onConnectorDrop: handleConnectorDrop,
                 onShapeCreate: createShape
             )
 
@@ -183,15 +178,32 @@ struct TikZWorkspaceView: View {
                 }
             )
         }
+        .confirmationDialog(
+            "Connector endpoint",
+            isPresented: pendingConnectorDialogPresented,
+            titleVisibility: .visible
+        ) {
+            Button("Connect to Rectangle") {
+                connectPendingDrop(to: .rectangle)
+            }
+            Button("Connect to Ellipse") {
+                connectPendingDrop(to: .ellipse)
+            }
+            Button("Delete Connector", role: .destructive) {
+                pendingConnectorDrop = nil
+            }
+        } message: {
+            Text(
+                "The Pencil was lifted on empty canvas. Choose a new target shape or discard the connector."
+            )
+        }
         .onAppear {
             normalizeSourceDependencies()
             syncCanvasSizeFromSource()
         }
         .onChange(of: router.tikzPath) { _, _ in
-            clearSelection(
-                resetTool: true,
-                commitLabel: false
-            )
+            pendingConnectorDrop = nil
+            clearSelection(resetTool: true, commitLabel: false)
             normalizeSourceDependencies()
             syncCanvasSizeFromSource()
         }
@@ -199,10 +211,8 @@ struct TikZWorkspaceView: View {
 
     private var header: some View {
         HStack(spacing: 8) {
-            Image(
-                systemName: "point.3.connected.trianglepath.dotted"
-            )
-            .foregroundStyle(Color.accentColor)
+            Image(systemName: "point.3.connected.trianglepath.dotted")
+                .foregroundStyle(Color.accentColor)
 
             Text(compactPath)
                 .font(.subheadline.bold())
@@ -212,56 +222,38 @@ struct TikZWorkspaceView: View {
             Spacer()
 
             Menu {
-                Button(
-                    action: openCanvasSizeEditor
-                ) {
-                    Label(
-                        "Canvas size…",
-                        systemImage: "aspectratio"
-                    )
+                Button(action: openCanvasSizeEditor) {
+                    Label("Canvas size…", systemImage: "aspectratio")
                 }
 
-                Button(
-                    action: autoLayout
-                ) {
-                    Label(
-                        "Auto layout",
-                        systemImage: "square.grid.3x3"
-                    )
+                Menu {
+                    ForEach(TikZAutoLayoutDirection.allCases) { direction in
+                        Button(direction.title) {
+                            autoLayout(direction)
+                        }
+                    }
+                } label: {
+                    Label("Auto layout", systemImage: "square.grid.3x3")
                 }
                 .disabled(graph.nodes.isEmpty)
 
-                Button(
-                    action: openSource
-                ) {
+                Button(action: openSource) {
                     Label(
                         "Source",
                         systemImage: "chevron.left.forwardslash.chevron.right"
                     )
                 }
             } label: {
-                Image(
-                    systemName: "gearshape.fill"
-                )
-                .frame(
-                    width: 30,
-                    height: 30
-                )
+                Image(systemName: "gearshape.fill")
+                    .frame(width: 30, height: 30)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("TikZ options")
 
-            Button(
-                action: router.closeTikZ
-            ) {
-                Image(
-                    systemName: "xmark.circle.fill"
-                )
-                .font(.title3)
-                .frame(
-                    width: 30,
-                    height: 30
-                )
+            Button(action: router.closeTikZ) {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.title3)
+                    .frame(width: 30, height: 30)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Close TikZ editor")
@@ -278,31 +270,26 @@ struct TikZWorkspaceView: View {
                 systemImage: "rectangle",
                 tool: .rectangle
             )
-
             toolButton(
                 title: "Ellipse",
                 systemImage: "circle",
                 tool: .ellipse
             )
-
             toolButton(
                 title: "Straight",
                 systemImage: "arrow.right",
                 tool: .straightConnector
             )
-
             toolButton(
                 title: "Curve",
                 systemImage: "scribble.variable",
                 tool: .curveConnector
             )
-
             toolButton(
                 title: "Polyline",
                 systemImage: "point.3.connected.trianglepath.dotted",
                 tool: .polylineConnector
             )
-
             Spacer()
         }
         .padding(.horizontal, 8)
@@ -322,58 +309,35 @@ struct TikZWorkspaceView: View {
             Text(
                 "\(Int(logicalCanvasSize.width)) × \(Int(logicalCanvasSize.height))"
             )
-            .font(
-                .caption2
-                    .monospacedDigit()
-            )
+            .font(.caption2.monospacedDigit())
             .foregroundStyle(.secondary)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 4)
-        .background(
-            Color(
-                uiColor: .tertiarySystemBackground
-            )
-        )
+        .background(Color(uiColor: .tertiarySystemBackground))
     }
 
     private var sourceSheet: some View {
         NavigationStack {
-            TextEditor(
-                text: $sourceDraft
-            )
-            .font(
-                .system(
-                    .body,
-                    design: .monospaced
-                )
-            )
-            .padding(8)
-            .navigationTitle(compactPath)
-            .toolbar {
-                ToolbarItem(
-                    placement: .cancellationAction
-                ) {
-                    Button("Cancel") {
-                        showSource = false
+            TextEditor(text: $sourceDraft)
+                .font(.system(.body, design: .monospaced))
+                .padding(8)
+                .navigationTitle(compactPath)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel") {
+                            showSource = false
+                        }
+                    }
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Apply") {
+                            router.updateTikZSource(sourceDraft)
+                            logicalCanvasSize =
+                                TikZCanvasMetadata.size(in: sourceDraft)
+                            showSource = false
+                        }
                     }
                 }
-
-                ToolbarItem(
-                    placement: .confirmationAction
-                ) {
-                    Button("Apply") {
-                        router.updateTikZSource(
-                            sourceDraft
-                        )
-                        logicalCanvasSize =
-                            TikZCanvasMetadata.size(
-                                in: sourceDraft
-                            )
-                        showSource = false
-                    }
-                }
-            }
         }
     }
 
@@ -385,37 +349,32 @@ struct TikZWorkspaceView: View {
         Button {
             chooseTool(tool)
         } label: {
-            Label(
-                title,
-                systemImage: systemImage
-            )
+            Label(title, systemImage: systemImage)
         }
         .buttonStyle(.bordered)
-        .tint(
-            activeTool == tool
-                ? Color.accentColor
-                : Color.secondary
-        )
+        .tint(activeTool == tool ? Color.accentColor : Color.secondary)
     }
 
-    private func chooseTool(
-        _ tool: TikZCanvasTool
-    ) {
+    private func chooseTool(_ tool: TikZCanvasTool) {
         commitInlineLabelIfNeeded()
-        activeTool =
-            activeTool == tool
-                ? .select
-                : tool
+        if tool.connectorKind != nil {
+            lastConnectorTool = tool
+        }
+        activeTool = activeTool == tool ? .select : tool
         updateLastStyleMode(for: activeTool)
-        clearSelection(
-            resetTool: false,
-            commitLabel: false
-        )
+        clearSelection(resetTool: false, commitLabel: false)
     }
 
-    private func selectNode(
-        _ node: TikZNode
-    ) {
+    private func activateLastConnectorTool() {
+        if lastConnectorTool.connectorKind == nil {
+            lastConnectorTool = .straightConnector
+        }
+        activeTool = lastConnectorTool
+        lastStyleMode = .edge
+        clearSelection(resetTool: false, commitLabel: false)
+    }
+
+    private func selectNode(_ node: TikZNode) {
         commitInlineLabelIfNeeded()
         activeTool = .select
         lastStyleMode = .node
@@ -427,16 +386,12 @@ struct TikZWorkspaceView: View {
         editingEdgeID = nil
     }
 
-    private func editNodeLabel(
-        _ node: TikZNode
-    ) {
+    private func editNodeLabel(_ node: TikZNode) {
         selectNode(node)
         editingNodeName = node.name
     }
 
-    private func selectEdge(
-        _ edge: TikZEdge
-    ) {
+    private func selectEdge(_ edge: TikZEdge) {
         commitInlineLabelIfNeeded()
         activeTool = .select
         lastStyleMode = .edge
@@ -448,17 +403,12 @@ struct TikZWorkspaceView: View {
         editingEdgeID = nil
     }
 
-    private func editEdgeLabel(
-        _ edge: TikZEdge
-    ) {
+    private func editEdgeLabel(_ edge: TikZEdge) {
         selectEdge(edge)
         editingEdgeID = edge.id
     }
 
-    private func moveNode(
-        _ node: TikZNode,
-        to point: CGPoint
-    ) {
+    private func moveNode(_ node: TikZNode, to point: CGPoint) {
         router.updateTikZSource(
             TikZSourceEditor.moveNode(
                 named: node.name,
@@ -483,24 +433,21 @@ struct TikZWorkspaceView: View {
         )
     }
 
-    private func deleteNode(
-        _ node: TikZNode
-    ) {
+    private func deleteNode(_ node: TikZNode) {
+        let withoutNode = TikZSourceEditor.deleteNode(
+            named: node.name,
+            in: router.tikzSource
+        )
         router.updateTikZSource(
-            TikZSourceEditor.deleteNode(
-                named: node.name,
-                in: router.tikzSource
+            TikZConnectionPointMetadata.removing(
+                nodeName: node.name,
+                from: withoutNode
             )
         )
-        clearSelection(
-            resetTool: false,
-            commitLabel: false
-        )
+        clearSelection(resetTool: false, commitLabel: false)
     }
 
-    private func duplicateNode(
-        _ node: TikZNode
-    ) {
+    private func duplicateNode(_ node: TikZNode) {
         commitInlineLabelIfNeeded()
         router.updateTikZSource(
             TikZSourceEditor.duplicateNode(
@@ -508,15 +455,26 @@ struct TikZWorkspaceView: View {
                 in: router.tikzSource
             )
         )
-        clearSelection(
-            resetTool: false,
-            commitLabel: false
-        )
+        clearSelection(resetTool: false, commitLabel: false)
     }
 
-    private func bringNodeToFront(
-        _ node: TikZNode
-    ) {
+    private func addConnectionPoint(_ node: TikZNode) {
+        let current = TikZConnectionPointMetadata.count(
+            for: node.name,
+            in: router.tikzSource
+        )
+        router.updateTikZSource(
+            TikZConnectionPointMetadata.updating(
+                nodeName: node.name,
+                count: current + 1,
+                in: router.tikzSource
+            )
+        )
+        selectedNodeName = node.name
+        selectedEdgeID = nil
+    }
+
+    private func bringNodeToFront(_ node: TikZNode) {
         commitInlineLabelIfNeeded()
         router.updateTikZSource(
             TikZSourceEditor.bringNodeToFront(
@@ -527,9 +485,7 @@ struct TikZWorkspaceView: View {
         selectedNodeName = node.name
     }
 
-    private func sendNodeToBack(
-        _ node: TikZNode
-    ) {
+    private func sendNodeToBack(_ node: TikZNode) {
         commitInlineLabelIfNeeded()
         router.updateTikZSource(
             TikZSourceEditor.sendNodeToBack(
@@ -540,24 +496,17 @@ struct TikZWorkspaceView: View {
         selectedNodeName = node.name
     }
 
-    private func deleteEdge(
-        _ edge: TikZEdge
-    ) {
+    private func deleteEdge(_ edge: TikZEdge) {
         router.updateTikZSource(
             TikZSourceEditor.deleteEdge(
                 edgeID: edge.id,
                 in: router.tikzSource
             )
         )
-        clearSelection(
-            resetTool: false,
-            commitLabel: false
-        )
+        clearSelection(resetTool: false, commitLabel: false)
     }
 
-    private func bringEdgeToFront(
-        _ edge: TikZEdge
-    ) {
+    private func bringEdgeToFront(_ edge: TikZEdge) {
         commitInlineLabelIfNeeded()
         router.updateTikZSource(
             TikZSourceEditor.bringEdgeToFront(
@@ -565,15 +514,10 @@ struct TikZWorkspaceView: View {
                 in: router.tikzSource
             )
         )
-        clearSelection(
-            resetTool: false,
-            commitLabel: false
-        )
+        clearSelection(resetTool: false, commitLabel: false)
     }
 
-    private func sendEdgeToBack(
-        _ edge: TikZEdge
-    ) {
+    private func sendEdgeToBack(_ edge: TikZEdge) {
         commitInlineLabelIfNeeded()
         router.updateTikZSource(
             TikZSourceEditor.sendEdgeToBack(
@@ -581,9 +525,21 @@ struct TikZWorkspaceView: View {
                 in: router.tikzSource
             )
         )
-        clearSelection(
-            resetTool: false,
-            commitLabel: false
+        clearSelection(resetTool: false, commitLabel: false)
+    }
+
+    private func handleConnectorDrop(
+        sourceNode: TikZNode,
+        targetNode: TikZNode?,
+        point: CGPoint
+    ) {
+        if let targetNode {
+            createConnector(from: sourceNode, to: targetNode)
+            return
+        }
+        pendingConnectorDrop = TikZPendingConnectorDrop(
+            sourceNodeName: sourceNode.name,
+            point: point
         )
     }
 
@@ -591,21 +547,70 @@ struct TikZWorkspaceView: View {
         from sourceNode: TikZNode,
         to targetNode: TikZNode
     ) {
-        let kind = activeTool.connectorKind ?? .straight
+        let kind = activeTool.connectorKind
+            ?? lastConnectorTool.connectorKind
+            ?? .straight
         let geometry = TikZConnectorGeometry.initial(
             kind: kind,
             source: sourceNode.position,
             target: targetNode.position
         )
-        let updated = TikZSourceEditor.addEdge(
+        router.updateTikZSource(
+            TikZSourceEditor.addEdge(
+                from: sourceNode.name,
+                to: targetNode.name,
+                label: "",
+                style: edgeStyle,
+                geometry: geometry,
+                in: router.tikzSource
+            )
+        )
+        lastStyleMode = .edge
+    }
+
+    private func connectPendingDrop(to shape: TikZNodeShape) {
+        guard
+            let request = pendingConnectorDrop,
+            let sourceNode = graph.nodes.first(
+                where: { $0.name == request.sourceNodeName }
+            )
+        else {
+            pendingConnectorDrop = nil
+            return
+        }
+
+        let targetName = nodeNameAllocator.nextName(in: router.tikzSource)
+        let targetSize = shape == .ellipse
+            ? CGSize(width: 2.0, height: 1.2)
+            : CGSize(width: 2.2, height: 1.2)
+        let kind = activeTool.connectorKind
+            ?? lastConnectorTool.connectorKind
+            ?? .straight
+
+        let withNode = TikZSourceEditor.addNode(
+            shape: shape,
+            center: request.point,
+            size: targetSize,
+            style: nodeStyle,
+            label: "",
+            to: router.tikzSource
+        )
+        let geometry = TikZConnectorGeometry.initial(
+            kind: kind,
+            source: sourceNode.position,
+            target: request.point
+        )
+        let withEdge = TikZSourceEditor.addEdge(
             from: sourceNode.name,
-            to: targetNode.name,
+            to: targetName,
             label: "",
             style: edgeStyle,
             geometry: geometry,
-            in: router.tikzSource
+            in: withNode
         )
-        router.updateTikZSource(updated)
+
+        router.updateTikZSource(withEdge)
+        pendingConnectorDrop = nil
         lastStyleMode = .edge
     }
 
@@ -615,14 +620,8 @@ struct TikZWorkspaceView: View {
         to point: CGPoint
     ) {
         var geometry = edge.geometry
-        geometry.setCurveControl(
-            index: index,
-            point: point
-        )
-        updateEdgeGeometry(
-            edge,
-            geometry: geometry
-        )
+        geometry.setCurveControl(index: index, point: point)
+        updateEdgeGeometry(edge, geometry: geometry)
     }
 
     private func moveBendPoint(
@@ -631,14 +630,8 @@ struct TikZWorkspaceView: View {
         to point: CGPoint
     ) {
         var geometry = edge.geometry
-        geometry.setBendPoint(
-            index: index,
-            point: point
-        )
-        updateEdgeGeometry(
-            edge,
-            geometry: geometry
-        )
+        geometry.setBendPoint(index: index, point: point)
+        updateEdgeGeometry(edge, geometry: geometry)
     }
 
     private func addBendPoint(
@@ -647,31 +640,15 @@ struct TikZWorkspaceView: View {
         at point: CGPoint
     ) {
         var geometry = edge.geometry
-        guard geometry.kind == .polyline else {
-            return
-        }
-        geometry.insertBendPoint(
-            point,
-            at: segmentIndex
-        )
-        updateEdgeGeometry(
-            edge,
-            geometry: geometry
-        )
+        guard geometry.kind == .polyline else { return }
+        geometry.insertBendPoint(point, at: segmentIndex)
+        updateEdgeGeometry(edge, geometry: geometry)
     }
 
-    private func removeBendPoint(
-        _ edge: TikZEdge,
-        index: Int
-    ) {
+    private func removeBendPoint(_ edge: TikZEdge, index: Int) {
         var geometry = edge.geometry
-        geometry.removeBendPoint(
-            index: index
-        )
-        updateEdgeGeometry(
-            edge,
-            geometry: geometry
-        )
+        geometry.removeBendPoint(index: index)
+        updateEdgeGeometry(edge, geometry: geometry)
     }
 
     private func updateEdgeGeometry(
@@ -750,33 +727,15 @@ struct TikZWorkspaceView: View {
     }
 
     private func openCanvasSizeEditor() {
-        canvasWidthText =
-            String(
-                Int(
-                    logicalCanvasSize
-                        .width
-                        .rounded()
-                )
-            )
-        canvasHeightText =
-            String(
-                Int(
-                    logicalCanvasSize
-                        .height
-                        .rounded()
-                )
-            )
+        canvasWidthText = String(Int(logicalCanvasSize.width.rounded()))
+        canvasHeightText = String(Int(logicalCanvasSize.height.rounded()))
         showCanvasEditor = true
     }
 
     private func applyCanvasSize() {
         guard
-            let width = Double(
-                canvasWidthText
-            ),
-            let height = Double(
-                canvasHeightText
-            )
+            let width = Double(canvasWidthText),
+            let height = Double(canvasHeightText)
         else {
             return
         }
@@ -797,39 +756,30 @@ struct TikZWorkspaceView: View {
 
     private func normalizeSourceDependencies() {
         let normalized =
-            TikZSourceDependencyManager
-                .ensuringRequiredLibraries(
-                    in: router.tikzSource
-                )
-        guard normalized != router.tikzSource else {
-            return
-        }
+            TikZSourceDependencyManager.ensuringRequiredLibraries(
+                in: router.tikzSource
+            )
+        guard normalized != router.tikzSource else { return }
         router.updateTikZSource(normalized)
     }
 
     private func syncCanvasSizeFromSource() {
-        logicalCanvasSize =
-            TikZCanvasMetadata.size(
-                in: router.tikzSource
-            )
+        logicalCanvasSize = TikZCanvasMetadata.size(in: router.tikzSource)
     }
 
-    private func autoLayout() {
+    private func autoLayout(_ direction: TikZAutoLayoutDirection) {
         commitInlineLabelIfNeeded()
-        let positions =
-            layoutService.positions(
-                for: graph
-            )
+        let positions = layoutService.positions(
+            for: graph,
+            direction: direction
+        )
         router.updateTikZSource(
             TikZSourceEditor.applyPositions(
                 positions,
                 to: router.tikzSource
             )
         )
-        clearSelection(
-            resetTool: true,
-            commitLabel: false
-        )
+        clearSelection(resetTool: true, commitLabel: false)
     }
 
     private func clearSelection(
@@ -849,9 +799,7 @@ struct TikZWorkspaceView: View {
         }
     }
 
-    private func updateLastStyleMode(
-        for tool: TikZCanvasTool
-    ) {
+    private func updateLastStyleMode(for tool: TikZCanvasTool) {
         if tool.connectorKind != nil {
             lastStyleMode = .edge
         } else if tool == .rectangle || tool == .ellipse {

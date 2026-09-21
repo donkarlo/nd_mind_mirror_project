@@ -1,0 +1,53 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+\usepackage{adjustbox}
+\usepackage[active,tightpage]{preview}
+
+\PreviewBorder=4pt
+
+\usetikzlibrary{graphs,graphdrawing,arrows.meta,positioning,calc,fit,shapes.geometric}
+\usegdlibrary{layered}
+
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/external_graphviz.tex}
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/part/control_sequence/kind/semtag/semtag.tex}
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/seehere.tex}
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/deep_structure.tex}
+
+\title{Transient Proxy Tab Hover Fix}
+\date{2026-09-21}
+\author{Mohammad Rahmani}
+
+\begin{document}
+   \maketitle
+
+   \begin{preview}
+      \section{Bug}
+      Moving the pointer over a visible Pinned/Open proxy tab could leave that
+      tab painted with the native selected blue state after the pointer left.
+
+      \section{Fix}
+      Pure mouse movement is now owned entirely by the hover presenter and is
+      not delegated to QTabBar. Native current-on-drag behavior is explicitly
+      disabled. While a tab is hovered, native selected/focus painting is
+      suppressed and the tab receives only the requested light-purple
+      background. Leaving the row clears the transient hover index so the tab
+      immediately returns to its normal prior state.
+   \end{preview}
+
+   \bibliographystyle{plainnat}
+   \bibliography{/home/donkarlo/Dropbox/repo/nd_shared_research/bibliography/bibliography.bib}
+\end{document}

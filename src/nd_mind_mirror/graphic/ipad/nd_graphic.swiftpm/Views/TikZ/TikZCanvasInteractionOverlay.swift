@@ -7,6 +7,8 @@ struct TikZCanvasInteractionOverlay: UIViewRepresentable {
     let graph: TikZGraph
     let canvasSize: CGSize
     let activeTool: TikZCanvasTool
+    let preferredConnectorTool: TikZCanvasTool
+    let connectionPointCounts: [String: Int]
 
     let onNodeSingleTap: (String) -> Void
     let onNodeDoubleTap: (String) -> Void
@@ -14,8 +16,9 @@ struct TikZCanvasInteractionOverlay: UIViewRepresentable {
     let onEdgeDoubleTap: (String) -> Void
     let onClearSelection: () -> Void
 
+    let onConnectorAutoActivated: () -> Void
     let onConnectorDragChanged: (String, CGPoint) -> Void
-    let onConnectorDragEnded: (String, String?) -> Void
+    let onConnectorDragEnded: (String, String?, CGPoint) -> Void
     let onShapeDragChanged: (CGPoint, CGPoint) -> Void
     let onShapeDragEnded: (TikZNodeShape, CGPoint, CGPoint) -> Void
 
@@ -23,6 +26,7 @@ struct TikZCanvasInteractionOverlay: UIViewRepresentable {
     let onNodeDuplicate: (String) -> Void
     let onNodeBringToFront: (String) -> Void
     let onNodeSendToBack: (String) -> Void
+    let onNodeAddConnectionPoint: (String) -> Void
     let onNodeDelete: (String) -> Void
 
     let onEdgeEditLabel: (String) -> Void
@@ -43,19 +47,19 @@ struct TikZCanvasInteractionOverlay: UIViewRepresentable {
         return view
     }
 
-    func updateUIView(
-        _ uiView: UIView,
-        context: Context
-    ) {
+    func updateUIView(_ uiView: UIView, context: Context) {
         context.coordinator.update(
             graph: graph,
             canvasSize: canvasSize,
             activeTool: activeTool,
+            preferredConnectorTool: preferredConnectorTool,
+            connectionPointCounts: connectionPointCounts,
             onNodeSingleTap: onNodeSingleTap,
             onNodeDoubleTap: onNodeDoubleTap,
             onEdgeSingleTap: onEdgeSingleTap,
             onEdgeDoubleTap: onEdgeDoubleTap,
             onClearSelection: onClearSelection,
+            onConnectorAutoActivated: onConnectorAutoActivated,
             onConnectorDragChanged: onConnectorDragChanged,
             onConnectorDragEnded: onConnectorDragEnded,
             onShapeDragChanged: onShapeDragChanged,
@@ -64,6 +68,7 @@ struct TikZCanvasInteractionOverlay: UIViewRepresentable {
             onNodeDuplicate: onNodeDuplicate,
             onNodeBringToFront: onNodeBringToFront,
             onNodeSendToBack: onNodeSendToBack,
+            onNodeAddConnectionPoint: onNodeAddConnectionPoint,
             onNodeDelete: onNodeDelete,
             onEdgeEditLabel: onEdgeEditLabel,
             onEdgeAddBendPoint: onEdgeAddBendPoint,

@@ -24,6 +24,7 @@ def test_long_press_menu_is_owned_by_central_interaction_controller() -> None:
     assert "UIContextMenuInteraction" in coordinator
     assert 'title: "Edit label"' in coordinator
     assert 'title: "Duplicate"' in coordinator
+    assert 'title: "Add connection point"' in coordinator
     assert 'title: "Bring to Front"' in coordinator
     assert 'title: "Send to Back"' in coordinator
     assert 'title: "Delete"' in coordinator
@@ -58,14 +59,17 @@ def test_deleting_node_also_removes_connected_simple_edges() -> None:
     assert "deleteEdge(" in source
 
 
-def test_pencil_connector_uses_explicit_connector_tool() -> None:
+def test_pencil_connector_can_start_implicitly_with_last_connector_tool() -> None:
     workspace = _read(
         "src/nd_mind_mirror/graphic/ipad/nd_graphic.swiftpm/Views/TikZ/TikZWorkspaceView.swift"
     )
     coordinator = _read(
         "src/nd_mind_mirror/graphic/ipad/nd_graphic.swiftpm/Views/TikZ/TikZCanvasInteractionCoordinator.swift"
     )
-    assert 'title: "Connector"' in workspace
-    assert "tool: .connector" in workspace
-    assert "activeTool == .connector" in coordinator
+    assert 'tool: .straightConnector' in workspace
+    assert 'tool: .curveConnector' in workspace
+    assert 'tool: .polylineConnector' in workspace
+    assert "lastConnectorTool" in workspace
+    assert "activeTool.connectorKind != nil || activeTool == .select" in coordinator
+    assert "onConnectorAutoActivated?()" in coordinator
     assert "UITouch.TouchType.pencil.rawValue" in coordinator
