@@ -1,0 +1,56 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+\usepackage{adjustbox}
+\usepackage[active,tightpage]{preview}
+
+\PreviewBorder=4pt
+
+\usetikzlibrary{graphs,graphdrawing,arrows.meta,positioning,calc,fit,shapes.geometric}
+\usegdlibrary{layered}
+
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/external_graphviz.tex}
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/part/control_sequence/kind/semtag/semtag.tex}
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/seehere.tex}
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/deep_structure.tex}
+
+\title{Replace Native Tab Overflow Popup}
+\date{2026-09-22}
+\author{Mohammad Rahmani}
+
+\begin{document}
+   \maketitle
+
+   \begin{preview}
+      \section{Cause}
+      The desktop-native QTabBar overflow popup keeps platform selection state
+      independently of pointer hover. Repeated attempts to restyle that
+      transient internal widget could therefore leave stale backgrounds or
+      selected white text.
+
+      \section{Fix}
+      Native QTabBar overflow controls are disabled. Each Pinned/Open row now
+      owns one explicit triangle button and a small Qt.Popup containing one
+      dedicated row widget per tab. Each row owns its hover directly:
+      \texttt{enterEvent} sets a light-purple background and black text, while
+      \texttt{leaveEvent} restores a transparent/default background and keeps
+      text black. There is no selected, current, active-action, delegate or
+      platform hover state involved.
+   \end{preview}
+
+   \bibliographystyle{plainnat}
+   \bibliography{/home/donkarlo/Dropbox/repo/nd_shared_research/bibliography/bibliography.bib}
+\end{document}

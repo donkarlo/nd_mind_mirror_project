@@ -1,4 +1,4 @@
-"""Proxy tab bar with deterministic transient hover presentation."""
+"""Proxy tab bar with deterministic transient tab hover."""
 
 from __future__ import annotations
 
@@ -6,13 +6,9 @@ from PySide6.QtCore import QEvent, Qt
 from PySide6.QtGui import QColor, QMouseEvent
 from PySide6.QtWidgets import QStyle, QStyleOptionTab, QStylePainter, QTabBar
 
-from nd_mind_mirror.ui.switcher.tab_overflow_popup_hover_controller import (
-    TabOverflowPopupHoverController,
-)
-
 
 class HoverProxyTabBar(QTabBar):
-    """Paint tab hover as light purple and own transient overflow-popup hover."""
+    """Paint tab hover as light purple without changing label text color."""
 
     _HOVER_COLOR = QColor("#eadfff")
 
@@ -23,13 +19,8 @@ class HoverProxyTabBar(QTabBar):
         self.setMouseTracking(True)
         self.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
         self.setChangeCurrentOnDrag(False)
-        self._overflow_popup_hover = TabOverflowPopupHoverController(
-            self,
-            self,
-        )
 
     def set_selection_visible(self, visible: bool) -> None:
-        """Control whether this proxy row paints the real active tab."""
         value = bool(visible)
         if value == self._selection_visible:
             return
@@ -37,7 +28,6 @@ class HoverProxyTabBar(QTabBar):
         self.update()
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
-        """Track pure tab hover locally; delegate only actual drags to QTabBar."""
         index = self.tabAt(event.position().toPoint())
         if index != self._hovered_index:
             self._hovered_index = index
@@ -50,14 +40,12 @@ class HoverProxyTabBar(QTabBar):
         super().mouseMoveEvent(event)
 
     def leaveEvent(self, event: QEvent) -> None:
-        """Remove tab hover immediately and restore its pre-hover presentation."""
         if self._hovered_index != -1:
             self._hovered_index = -1
             self.update()
         super().leaveEvent(event)
 
     def paintEvent(self, event) -> None:
-        """Use purple only while hovered; never let native hover paint blue."""
         del event
         painter = QStylePainter(self)
 

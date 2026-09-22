@@ -12,13 +12,14 @@ class CursorAppearanceController(QObject):
 
     def __init__(self, editor: QTextEdit) -> None:
         super().__init__(editor)
-        self._editor = editor
+        self._editor: QTextEdit | None = editor
+        self._viewport: QWidget | None = editor.viewport()
         self._color = QColor("#202124")
         self._size_percent = 100
         self._thickness = 2
         self._blink_visible = True
 
-        self._overlay = QWidget(editor.viewport())
+        self._overlay = QWidget(self._viewport)
         self._overlay.setAttribute(
             Qt.WidgetAttribute.WA_TransparentForMouseEvents,
             True,
@@ -29,11 +30,12 @@ class CursorAppearanceController(QObject):
         self._blink_timer.timeout.connect(self._toggle_blink)
 
         editor.installEventFilter(self)
-        editor.viewport().installEventFilter(self)
+        self._viewport.installEventFilter(self)
         editor.cursorPositionChanged.connect(self._on_cursor_changed)
         editor.selectionChanged.connect(self._refresh)
         editor.verticalScrollBar().valueChanged.connect(self._refresh)
         editor.horizontalScrollBar().valueChanged.connect(self._refresh)
+        editor.destroyed.connect(self._on_editor_destroyed)
 
         self._hide_native_caret()
         self._restart_blink()
@@ -47,9 +49,12 @@ class CursorAppearanceController(QObject):
         thickness: int,
     ) -> None:
         """Apply validated caret appearance without changing editor content."""
+        editor = self._editor
+        if editor is None:
+            return
         parsed_color = QColor(str(color).strip())
         if not parsed_color.isValid():
-            parsed_color = self._editor.palette().text().color()
+            parsed_color = editor.palette().text().color()
         self._color = parsed_color
         self._size_percent = max(25, min(int(size_percent), 200))
         self._thickness = max(1, min(int(thickness), 12))
@@ -60,9 +65,14 @@ class CursorAppearanceController(QObject):
         self._refresh()
 
     def eventFilter(self, watched, event) -> bool:
-        """Keep the configured caret alive while a visible editor loses focus."""
+        """Keep the configured caret alive only while its editor still exists."""
+        editor = self._editor
+        viewport = self._viewport
+        if editor is None or viewport is None:
+            return False
+
         event_type = event.type()
-        if watched is self._editor:
+        if watched is editor:
             if event_type in {
                 QEvent.Type.FocusIn,
                 QEvent.Type.FocusOut,
@@ -82,7 +92,7 @@ class CursorAppearanceController(QObject):
                 QEvent.Type.LayoutRequest,
             }:
                 QTimer.singleShot(0, self._refresh)
-        elif watched is self._editor.viewport() and event_type in {
+        elif watched is viewport and event_type in {
             QEvent.Type.Resize,
             QEvent.Type.Show,
             QEvent.Type.Hide,
@@ -91,18 +101,21 @@ class CursorAppearanceController(QObject):
         return super().eventFilter(watched, event)
 
     def _hide_native_caret(self) -> None:
-        # QTextEdit exposes native caret width only. Width zero suppresses it so
-        # color, height and thickness are controlled by one consistent overlay.
-        self._editor.setCursorWidth(0)
+        editor = self._editor
+        if editor is not None:
+            editor.setCursorWidth(0)
 
     def _on_cursor_changed(self) -> None:
+        if self._editor is None:
+            return
         self._blink_visible = True
         self._restart_blink()
         self._refresh()
 
     def _restart_blink(self) -> None:
+        editor = self._editor
         self._blink_timer.stop()
-        if not self._editor.isVisible():
+        if editor is None or not editor.isVisible():
             return
         flash_time = QApplication.cursorFlashTime()
         if flash_time <= 0:
@@ -112,13 +125,19 @@ class CursorAppearanceController(QObject):
         self._blink_timer.start()
 
     def _toggle_blink(self) -> None:
+        if self._editor is None:
+            self._blink_timer.stop()
+            return
         self._blink_visible = not self._blink_visible
         self._refresh()
 
     def _refresh(self) -> None:
+        editor = self._editor
+        if editor is None:
+            return
         if (
-            not self._editor.isVisible()
-            or self._editor.textCursor().hasSelection()
+            not editor.isVisible()
+            or editor.textCursor().hasSelection()
         ):
             self._overlay.hide()
             return
@@ -126,7 +145,7 @@ class CursorAppearanceController(QObject):
             self._overlay.hide()
             return
 
-        rect = self._editor.cursorRect(self._editor.textCursor())
+        rect = editor.cursorRect(editor.textCursor())
         native_height = max(rect.height(), 1)
         height = max(
             1,
@@ -142,3 +161,8 @@ class CursorAppearanceController(QObject):
         self._overlay.raise_()
         self._overlay.show()
 
+    def _on_editor_destroyed(self, _object=None) -> None:
+        """Stop queued caret work before Qt destroys the wrapped editor."""
+        self._blink_timer.stop()
+        self._editor = None
+        self._viewport = None

@@ -2,10 +2,14 @@ import re
 
 
 class LatexDiagnosticSeverityClassifier:
-    """Classify compiler diagnostics without promoting warning-only output to errors."""
+    """Classify compiler diagnostics without promoting summaries to errors."""
 
     _FILE_NOT_FOUND_PATTERN = re.compile(
         r"\bfile\s+[`'][^`']+[`']\s+not\s+found\b",
+        re.IGNORECASE,
+    )
+    _ERROR_SUMMARY_PATTERN = re.compile(
+        r"^\(?\s*there\s+(?:was|were)\s+\d+\s+error\s+messages?\s*\)?$",
         re.IGNORECASE,
     )
     _HARD_ERROR_MARKERS = (
@@ -21,6 +25,10 @@ class LatexDiagnosticSeverityClassifier:
         "i couldn't open database file",
         "i couldn't open style file",
         "i found no database files",
+        "i found no \\bibstyle command",
+        "i found no \\bibdata command",
+        "you're missing a field name",
+        "illegal end of database file",
         "repeated entry",
         "illegal, another \\bibstyle command",
         "illegal, another \\bibdata command",
@@ -50,9 +58,14 @@ class LatexDiagnosticSeverityClassifier:
             return "warning"
         return "info"
 
+    def is_error_summary_line(self, line: str) -> bool:
+        return bool(self._ERROR_SUMMARY_PATTERN.match(str(line).strip()))
+
     def is_error_line(self, line: str) -> bool:
         stripped = str(line).strip()
         lowered = stripped.casefold()
+        if self.is_error_summary_line(stripped):
+            return False
         if stripped.startswith("!"):
             return True
         if self._FILE_NOT_FOUND_PATTERN.search(stripped):
@@ -60,7 +73,7 @@ class LatexDiagnosticSeverityClassifier:
         if any(marker in lowered for marker in self._HARD_ERROR_MARKERS):
             return True
         # Catch otherwise-unclassified compiler errors conservatively while not
-        # confusing ordinary warning lines with failures.
+        # confusing ordinary warning lines or final summary counters with failures.
         return "error" in lowered and "warning" not in lowered
 
     def is_warning_line(self, line: str) -> bool:

@@ -14,6 +14,10 @@ class SelectionLargeLatexEditor(
     TikZTargetedVisualRefreshMixin,
     LargeLatexEditor,
 ):
-    """Large Source/Visual editor with selection-only bookmarks and tab state."""
+    """Large Source/Visual editor with bounded Source materialization."""
+
+    # Large documents must use the existing 40k Source window rather than
+    # materializing hundreds of thousands of characters into QTextEdit.
+    _DEFAULT_VIRTUALIZATION_THRESHOLD_CHARS = 120_000
 
     pass

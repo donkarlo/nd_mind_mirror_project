@@ -14,6 +14,10 @@ class LatexEditor(
 ):
     """Canonical LaTeX editor where a bookmark is exactly the selected character range."""
 
+    # Large-editor subclasses may call toPlainText() through cooperative mixin
+    # initialization before their own __init__ body runs.
+    _force_visible_plain_text = False
+
     pass
 
 

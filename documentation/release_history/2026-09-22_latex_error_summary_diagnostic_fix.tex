@@ -1,0 +1,31 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+
+\title{LaTeX error summary diagnostic fix}
+\date{2026-09-22}
+\author{Mohammad Rahmani}
+
+\begin{document}
+\maketitle
+
+\section{Fix}
+The LaTeX diagnostic pipeline no longer treats final compiler summary counters such as \texttt{(There was 1 error message)} as the actionable error itself. When a compiler or BibTeX subprocess ends with such a summary and the concrete error is not covered by an existing classifier marker, the diagnostic extractor now preserves the immediately preceding non-warning compiler context so the real error is visible.
+
+The severity classifier also recognizes additional BibTeX hard-error forms, including missing \texttt{\string\bibstyle} or \texttt{\string\bibdata} commands, missing field names, and illegal database endings.
+
+\section{Scope}
+The change is isolated to diagnostic classification and extraction. LaTeX compilation, bibliography execution, Preview generation, source mapping, and PDF publication behavior are unchanged.
+
+\end{document}

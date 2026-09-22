@@ -1,0 +1,58 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+\usepackage{adjustbox}
+\usepackage[active,tightpage]{preview}
+
+\PreviewBorder=4pt
+
+\usetikzlibrary{graphs,graphdrawing,arrows.meta,positioning,calc,fit,shapes.geometric}
+\usegdlibrary{layered}
+
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/external_graphviz.tex}
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/part/control_sequence/kind/semtag/semtag.tex}
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/seehere.tex}
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/deep_structure.tex}
+
+\title{Overflow Hover and Large Editor Stability}
+\date{2026-09-22}
+\author{Mohammad Rahmani}
+
+\begin{document}
+   \maketitle
+
+   \begin{preview}
+      \section{Overflow hover}
+      Repeated Show events could wrap the same popup item delegate again. Each
+      nested delegate retained an older hovered row, which made purple
+      backgrounds accumulate. Popup configuration is now idempotent: one view
+      owns exactly one hover delegate, the previous row is repainted on every
+      mouseout, and only the current row receives the purple background.
+
+      \section{Large files}
+      The large LaTeX editor now enters the existing bounded Source-window mode
+      at 120000 characters instead of materializing multi-hundred-kilobyte
+      documents in one QTextEdit. This applies directly to files such as
+      \texttt{evil.tex}.
+
+      \section{Editor lifetime}
+      The caret controller now stops queued work as soon as its editor is
+      destroyed, preventing event-filter access to deleted Qt objects.
+   \end{preview}
+
+   \bibliographystyle{plainnat}
+   \bibliography{/home/donkarlo/Dropbox/repo/nd_shared_research/bibliography/bibliography.bib}
+\end{document}

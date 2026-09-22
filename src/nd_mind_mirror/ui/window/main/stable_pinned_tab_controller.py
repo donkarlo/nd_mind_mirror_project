@@ -1,4 +1,4 @@
-"""Pinned/Open tab controller with deterministic transient hover behavior."""
+"""Pinned/Open tab controller without explicit overflow-arrow widgets."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from nd_mind_mirror.ui.window.main.pinned_tab_controller import PinnedTabControl
 
 
 class StablePinnedTabController(PinnedTabController):
-    """Use canonical proxy rows with non-sticky light-purple hover."""
+    """Use proxy rows without extra explicit downward-triangle buttons."""
 
     def _make_row(self, label_text: str):
         container = QWidget(self._panel)
@@ -27,10 +27,11 @@ class StablePinnedTabController(PinnedTabController):
         bar.setDocumentMode(True)
         bar.setMovable(True)
         bar.setExpanding(False)
-        bar.setUsesScrollButtons(True)
+        bar.setUsesScrollButtons(False)
         bar.setChangeCurrentOnDrag(False)
         bar.setElideMode(Qt.TextElideMode.ElideNone)
         bar.setMinimumHeight(28)
+
         tab_width = int(getattr(self._panel, "_TAB_WIDTH", 220))
         bar.setStyleSheet(
             "QTabBar::tab {"
@@ -38,5 +39,6 @@ class StablePinnedTabController(PinnedTabController):
             f"max-width: {tab_width}px;"
             "}"
         )
+
         layout.addWidget(bar, 1)
         return container, bar
