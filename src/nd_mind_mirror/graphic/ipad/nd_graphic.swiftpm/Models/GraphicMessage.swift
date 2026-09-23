@@ -41,11 +41,13 @@ struct GraphicEnvelope: Codable {
     var clientRevision: Int?
     var source: String?
     var previewPNGBase64: String?
+    var deliveryID: String?
 
     enum CodingKeys: String, CodingKey {
         case type, path, operation, message, document, source
         case pngBase64 = "png_base64"
         case clientRevision = "client_revision"
         case previewPNGBase64 = "preview_png_base64"
+        case deliveryID = "delivery_id"
     }
 }

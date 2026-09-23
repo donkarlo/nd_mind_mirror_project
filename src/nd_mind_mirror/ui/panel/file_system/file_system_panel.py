@@ -400,18 +400,9 @@ class FileSystemPanel(Panel):
         if not index.isValid():
             return
 
-        # A copied image is a one-shot paste target: the first normal click
-        # on a directory after the clipboard image changes stores it there as
-        # img.jpg / img_2.jpg / ... . Re-clicking folders with the same
-        # clipboard contents cannot create accidental duplicates.
-        source_index = self._source_index(index)
-        if source_index.isValid() and self._model.isDir(source_index):
-            directory = Path(self._model.filePath(source_index))
-            self._save_current_clipboard_image(directory, one_shot=True)
-
-        # A single click only changes the navigator selection. Opening a
-        # document is intentionally reserved for double-click so browsing
-        # the tree cannot create tabs accidentally.
+        # A normal click only changes Navigator selection. Clipboard images
+        # are written only by explicit paste actions such as Ctrl+V or the
+        # context-menu command, never as a side effect of browsing folders.
         self.state_changed.emit()
 
     def _on_clipboard_changed(self) -> None:
@@ -1092,3 +1083,4 @@ class FileSystemPanel(Panel):
             return True
         except ValueError:
             return False
+

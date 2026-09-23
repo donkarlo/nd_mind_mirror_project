@@ -33,9 +33,11 @@ final class GraphicBridgeClient: ObservableObject {
     private let pathMonitorQueue = DispatchQueue(label: "nd.graphic.network.path")
     private let diagnosticStartedAt = Date()
     private var backgroundImageCache: [String: UIImage] = [:]
+    private var shouldMaintainListener = false
+    private var applicationDidBecomeActiveObserver: NSObjectProtocol?
 
     private var advertisedVersion: String {
-        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.31.20"
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.31.53"
     }
 
     init() {
@@ -48,15 +50,29 @@ final class GraphicBridgeClient: ObservableObject {
         GraphicEditorSessionRouter.shared.attachSender { [weak self] payload in
             self?.send(payload)
         }
+
+        applicationDidBecomeActiveObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.didBecomeActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.resumeListeningAfterWake()
+            }
+        }
     }
 
     deinit {
         listener?.cancel()
         connection?.cancel()
         pathMonitor?.cancel()
+        if let applicationDidBecomeActiveObserver {
+            NotificationCenter.default.removeObserver(applicationDidBecomeActiveObserver)
+        }
     }
 
     func connect() {
+        shouldMaintainListener = true
         disconnect(keepStatus: true)
         selectedPath = nil
         document = nil
@@ -66,6 +82,17 @@ final class GraphicBridgeClient: ObservableObject {
         UserDefaults.standard.set(token, forKey: "graphic.bridge.token")
         appendDiagnostic("START LISTENER pressed port=\(listenerPort)")
         appendEnvironmentDiagnostics()
+        startListener()
+    }
+
+    private func resumeListeningAfterWake() {
+        guard shouldMaintainListener else { return }
+
+        appendDiagnostic(
+            "Application became active; rebuilding iPad listener after possible suspension"
+        )
+        disconnect(keepStatus: true)
+        status = "Resuming iPad listener after wake…"
         startListener()
     }
 
@@ -165,7 +192,8 @@ final class GraphicBridgeClient: ObservableObject {
                     self.send([
                         "type": "ipad_listener",
                         "version": self.advertisedVersion,
-                        "token": self.token
+                        "token": self.token,
+                        "capabilities": ["heartbeat_pong"]
                     ])
                 case .waiting(let error):
                     self.isConnected = false
@@ -190,6 +218,7 @@ final class GraphicBridgeClient: ObservableObject {
     }
 
     func disconnect() {
+        shouldMaintainListener = false
         selectedPath = nil
         document = nil
         drawing = PKDrawing()
@@ -391,9 +420,12 @@ final class GraphicBridgeClient: ObservableObject {
                 isConnected = true
                 status = "Connected — waiting for Mind Mirror"
                 appendDiagnostic("Ubuntu hello received; reverse connection is READY")
+            case "heartbeat_ping":
+                send(["type": "heartbeat_pong"])
             case "open_graphic":
                 GraphicEditorSessionRouter.shared.activateImageWorkspace()
                 applyRemote(message, statusPrefix: "Live")
+                acknowledgeOpen(message)
             case "graphic_saved":
                 status = "Saved — \(message.path ?? "graphic")"
             case "graphic_updated":
@@ -456,6 +488,18 @@ final class GraphicBridgeClient: ObservableObject {
         status = "\(statusPrefix) — \(message.path ?? "graphic")"
     }
 
+    private func acknowledgeOpen(_ message: GraphicEnvelope) {
+        guard let deliveryID = message.deliveryID, !deliveryID.isEmpty else { return }
+        send([
+            "type": "open_graphic_ack",
+            "path": message.path ?? "",
+            "delivery_id": deliveryID
+        ])
+        appendDiagnostic(
+            "Acknowledged open_graphic path=\(message.path ?? "graphic") delivery_id=\(deliveryID)"
+        )
+    }
+
     func requestOpen(path: String) {
         guard !path.isEmpty else { return }
         send(["type": "open_recent_graphic", "path": path])
@@ -495,7 +539,8 @@ final class GraphicBridgeClient: ObservableObject {
         case .waiting(let error): return "waiting(\(describe(error)))"
         case .ready: return "ready"
         case .failed(let error): return "failed(\(describe(error)))"
-        case .cancelled: return "cancelled"
+        case .cancelled:
+            return "cancelled"
         default: return "other"
         }
     }

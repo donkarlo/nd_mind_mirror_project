@@ -114,4 +114,5 @@ graphic:
     canvas_height: 980
   bridge_http_url: "http://127.0.0.1:8766"
   bridge_token: ""
-  auto_start_bridge: false
+  auto_start_bridge: true
+

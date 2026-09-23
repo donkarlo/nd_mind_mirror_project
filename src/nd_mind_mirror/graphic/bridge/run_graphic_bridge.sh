@@ -13,15 +13,10 @@ TOKEN="${TOKEN:-}"
 
 LOCK_ROOT="${XDG_RUNTIME_DIR:-/tmp}"
 LOCK_FILE="$LOCK_ROOT/nd_mind_mirror_graphic_bridge_${UID}.lock"
-exec 9>"$LOCK_FILE"
-if ! flock -n 9; then
-    echo "ND Graphic bridge is already being launched or is already running."
-    exit 0
-fi
 
 # A Control Panel restart means "replace the bridge for this workspace".
-# Older launchers could silently start extra fallback-port instances, so remove
-# only stale bridge processes owned by this user and bound to this workspace.
+# Discover and stop the existing workspace bridge before taking the lifetime
+# lock; an older bridge launched by this same script still owns that lock.
 STALE_PIDS=()
 while IFS= read -r pid; do
     [[ -z "$pid" ]] && continue
@@ -58,6 +53,12 @@ if ((${#STALE_PIDS[@]})); then
             kill -KILL "$pid" 2>/dev/null || true
         fi
     done
+fi
+
+exec 9>"$LOCK_FILE"
+if ! flock -w 3 9; then
+    echo "ND Graphic bridge is already being launched or is already running."
+    exit 0
 fi
 
 "$PYTHON_BIN" - "$HOST" "$PORT" "$TCP_PORT" "$IPAD_LISTEN_PORT" <<'PY'
@@ -119,3 +120,4 @@ fi
 
 PYTHONPATH="$ROOT/src${PYTHONPATH:+:$PYTHONPATH}" \
     exec "$PYTHON_BIN" -m nd_mind_mirror.graphic.bridge "${ARGS[@]}"
+

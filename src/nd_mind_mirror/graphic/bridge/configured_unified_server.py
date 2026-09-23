@@ -105,10 +105,10 @@ class ConfiguredUnifiedGraphicBridgeServer(ResponsiveUnifiedGraphicBridgeServer)
                 self._pending_tikz_render_path = None
 
     async def _reverse_connector_loop(self) -> None:
-        """Scan the LAN only while a desktop request is waiting for an iPad."""
+        """Keep one reverse iPad connection alive for the bridge lifetime."""
         while True:
             try:
-                if self.tcp_clients or not self._has_pending_editor_request():
+                if self.tcp_clients:
                     await asyncio.sleep(self._IDLE_DISCOVERY_SLEEP_SECONDS)
                     continue
 
@@ -180,20 +180,6 @@ class ConfiguredUnifiedGraphicBridgeServer(ResponsiveUnifiedGraphicBridgeServer)
                 operation=self.current_operation,
             )
 
-    def _has_pending_editor_request(self) -> bool:
-        graphic = self._current_open_request()
-        if (
-            graphic is not None
-            and graphic[0] > self._last_delivered_open_request_mtime_ns
-        ):
-            return True
-
-        tikz = self._current_tikz_request()
-        return bool(
-            tikz is not None
-            and tikz[0] > self._last_delivered_tikz_open_request_mtime_ns
-        )
-
     @staticmethod
     def _file_signature(path: Path) -> tuple[int, int] | None:
         try:
@@ -201,3 +187,4 @@ class ConfiguredUnifiedGraphicBridgeServer(ResponsiveUnifiedGraphicBridgeServer)
         except OSError:
             return None
         return int(stat.st_mtime_ns), int(stat.st_size)
+

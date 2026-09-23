@@ -1,0 +1,28 @@
+\documentclass[a4paper]{article}
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+\usepackage{adjustbox}
+\usepackage[active,tightpage]{preview}
+\PreviewBorder=4pt
+\title{iPad Application ACK Delivery Fix}
+\date{2026-09-23}
+\author{Mohammad Rahmani}
+\begin{document}
+\maketitle
+\begin{preview}
+\section{Bug fix}
+The reverse Ubuntu-to-iPad graphic transport no longer treats a TCP connection that merely remains open for five seconds as proof that an image-open request reached the iPad application. Each explicit \texttt{open\_graphic} attempt now carries a unique delivery identifier. The iPad returns \texttt{open\_graphic\_ack} only after decoding and applying that exact request. Ubuntu marks the durable request delivered only after this application-level ACK. If the ACK does not arrive before the deadline, the stale reverse connection is dropped and the still-pending request is resent after automatic rediscovery. Duplicate HTTP/watcher delivery of the same request is coalesced while its ACK is pending.
+\end{preview}
+\end{document}

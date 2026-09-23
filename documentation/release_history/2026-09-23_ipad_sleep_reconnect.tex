@@ -1,0 +1,43 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+\usepackage{adjustbox}
+\usepackage[active,tightpage]{preview}
+
+\PreviewBorder=4pt
+
+\title{Automatic iPad Reconnect After Sleep}
+\date{2026-09-23}
+\author{Mohammad Rahmani}
+
+\begin{document}
+   \maketitle
+
+   \begin{preview}
+      \section{Bug fix}
+      The reverse iPad transport now uses an application-level heartbeat instead of
+      relying only on TCP socket state.  Ubuntu periodically sends a heartbeat ping
+      and requires a pong from the running iPad application.  When iPadOS suspends
+      the app and leaves a half-open TCP socket behind, the stale writer is removed
+      so LAN discovery can reconnect to the listener after wake.
+
+      The iPad companion also remembers whether listening was intentionally enabled.
+      When the application becomes active again after sleep or background suspension,
+      it rebuilds the TCP listener while preserving the current graphic document.
+      An explicit Disconnect disables this automatic resume behavior.
+   \end{preview}
+
+\end{document}
