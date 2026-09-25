@@ -34,10 +34,17 @@ final class GraphicBridgeClient: ObservableObject {
     private let diagnosticStartedAt = Date()
     private var backgroundImageCache: [String: UIImage] = [:]
     private var shouldMaintainListener = false
+    private var applicationIsActive = true
+    private var listenerRecoveryTask: Task<Void, Never>?
+    private var applicationWillResignActiveObserver: NSObjectProtocol?
     private var applicationDidBecomeActiveObserver: NSObjectProtocol?
 
+    private let manualRestartDelayNanoseconds: UInt64 = 200_000_000
+    private let wakeRestartDelayNanoseconds: UInt64 = 600_000_000
+    private let failedListenerRetryDelayNanoseconds: UInt64 = 1_000_000_000
+
     private var advertisedVersion: String {
-        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.31.53"
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.31.54"
     }
 
     init() {
@@ -49,6 +56,16 @@ final class GraphicBridgeClient: ObservableObject {
         startPathMonitor()
         GraphicEditorSessionRouter.shared.attachSender { [weak self] payload in
             self?.send(payload)
+        }
+
+        applicationWillResignActiveObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.willResignActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.prepareForApplicationSuspension()
+            }
         }
 
         applicationDidBecomeActiveObserver = NotificationCenter.default.addObserver(
@@ -63,9 +80,13 @@ final class GraphicBridgeClient: ObservableObject {
     }
 
     deinit {
+        listenerRecoveryTask?.cancel()
         listener?.cancel()
         connection?.cancel()
         pathMonitor?.cancel()
+        if let applicationWillResignActiveObserver {
+            NotificationCenter.default.removeObserver(applicationWillResignActiveObserver)
+        }
         if let applicationDidBecomeActiveObserver {
             NotificationCenter.default.removeObserver(applicationDidBecomeActiveObserver)
         }
@@ -73,7 +94,7 @@ final class GraphicBridgeClient: ObservableObject {
 
     func connect() {
         shouldMaintainListener = true
-        disconnect(keepStatus: true)
+        applicationIsActive = true
         selectedPath = nil
         document = nil
         drawing = PKDrawing()
@@ -82,18 +103,80 @@ final class GraphicBridgeClient: ObservableObject {
         UserDefaults.standard.set(token, forKey: "graphic.bridge.token")
         appendDiagnostic("START LISTENER pressed port=\(listenerPort)")
         appendEnvironmentDiagnostics()
-        startListener()
+        scheduleListenerRecovery(
+            reason: "manual start",
+            delayNanoseconds: manualRestartDelayNanoseconds,
+            resetTransport: true
+        )
+    }
+
+    private func prepareForApplicationSuspension() {
+        guard shouldMaintainListener else { return }
+
+        applicationIsActive = false
+        cancelListenerRecovery()
+        appendDiagnostic(
+            "Application leaving active state; closing listener before suspension so Ubuntu can reconnect cleanly"
+        )
+        stopTransport(keepStatus: true)
+        status = "Paused while iPad sleeps — reconnects automatically on wake"
     }
 
     private func resumeListeningAfterWake() {
         guard shouldMaintainListener else { return }
 
+        applicationIsActive = true
         appendDiagnostic(
-            "Application became active; rebuilding iPad listener after possible suspension"
+            "Application became active; scheduling fresh listener after Network.framework/Wi-Fi wake"
         )
-        disconnect(keepStatus: true)
-        status = "Resuming iPad listener after wake…"
-        startListener()
+        scheduleListenerRecovery(
+            reason: "application wake",
+            delayNanoseconds: wakeRestartDelayNanoseconds,
+            resetTransport: true
+        )
+    }
+
+    private func scheduleListenerRecovery(
+        reason: String,
+        delayNanoseconds: UInt64,
+        resetTransport: Bool
+    ) {
+        guard shouldMaintainListener, applicationIsActive else { return }
+
+        cancelListenerRecovery()
+        if resetTransport {
+            stopTransport(keepStatus: true)
+        }
+
+        status = "Recovering iPad listener…"
+        appendDiagnostic(
+            "Scheduling listener recovery reason=\(reason) delay_ms=\(delayNanoseconds / 1_000_000)"
+        )
+
+        listenerRecoveryTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            if delayNanoseconds > 0 {
+                do {
+                    try await Task.sleep(nanoseconds: delayNanoseconds)
+                } catch {
+                    return
+                }
+            }
+
+            guard !Task.isCancelled,
+                  self.shouldMaintainListener,
+                  self.applicationIsActive else {
+                return
+            }
+
+            self.listenerRecoveryTask = nil
+            self.startListener()
+        }
+    }
+
+    private func cancelListenerRecovery() {
+        listenerRecoveryTask?.cancel()
+        listenerRecoveryTask = nil
     }
 
     func runDiagnostics() {
@@ -119,6 +202,14 @@ final class GraphicBridgeClient: ObservableObject {
     }
 
     private func startListener() {
+        guard shouldMaintainListener, applicationIsActive else {
+            appendDiagnostic("Listener start skipped because app is inactive or listening was disabled")
+            return
+        }
+        guard listener == nil else {
+            appendDiagnostic("Listener start skipped because a listener already exists")
+            return
+        }
         guard let port = NWEndpoint.Port(rawValue: listenerPort) else {
             status = "Invalid listener port"
             appendDiagnostic(status)
@@ -141,13 +232,26 @@ final class GraphicBridgeClient: ObservableObject {
                         self.status = "Preparing iPad listener…"
                     case .waiting(let error):
                         self.status = "Listener waiting: \(Self.describe(error))"
+                        self.scheduleListenerRecovery(
+                            reason: "listener waiting: \(Self.describe(error))",
+                            delayNanoseconds: self.failedListenerRetryDelayNanoseconds,
+                            resetTransport: true
+                        )
                     case .ready:
+                        self.cancelListenerRecovery()
                         self.status = "Listening on iPad port \(self.listenerPort) — waiting for Ubuntu"
                     case .failed(let error):
                         self.status = "Listener failed: \(Self.describe(error))"
                         self.listener = nil
+                        self.scheduleListenerRecovery(
+                            reason: "listener failed: \(Self.describe(error))",
+                            delayNanoseconds: self.failedListenerRetryDelayNanoseconds,
+                            resetTransport: false
+                        )
                     case .cancelled:
-                        if !self.isConnected {
+                        if !self.isConnected && self.shouldMaintainListener && self.applicationIsActive {
+                            self.status = "Listener restarting…"
+                        } else if !self.isConnected {
                             self.status = "Listener stopped"
                         }
                     default:
@@ -163,8 +267,14 @@ final class GraphicBridgeClient: ObservableObject {
             }
             newListener.start(queue: networkQueue)
         } catch {
+            listener = nil
             status = "Could not start iPad listener: \(error.localizedDescription)"
             appendDiagnostic(status)
+            scheduleListenerRecovery(
+                reason: "listener creation failed: \(error.localizedDescription)",
+                delayNanoseconds: failedListenerRetryDelayNanoseconds,
+                resetTransport: false
+            )
         }
     }
 
@@ -219,15 +329,16 @@ final class GraphicBridgeClient: ObservableObject {
 
     func disconnect() {
         shouldMaintainListener = false
+        cancelListenerRecovery()
         selectedPath = nil
         document = nil
         drawing = PKDrawing()
         documentToken += 1
         GraphicEditorSessionRouter.shared.closeTikZ()
-        disconnect(keepStatus: false)
+        stopTransport(keepStatus: false)
     }
 
-    private func disconnect(keepStatus: Bool) {
+    private func stopTransport(keepStatus: Bool) {
         connection?.stateUpdateHandler = nil
         connection?.cancel()
         connection = nil
@@ -585,7 +696,20 @@ final class GraphicBridgeClient: ObservableObject {
                 reason = "none"
             }
             let line = "NWPath status=\(path.status) reason=\(reason) wifi=\(path.usesInterfaceType(.wifi)) expensive=\(path.isExpensive) constrained=\(path.isConstrained) interfaces=[\(interfaces)]"
-            Task { @MainActor [weak self] in self?.appendDiagnostic(line) }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.appendDiagnostic(line)
+                if path.status == .satisfied,
+                   self.shouldMaintainListener,
+                   self.applicationIsActive,
+                   self.listener == nil {
+                    self.scheduleListenerRecovery(
+                        reason: "network path became satisfied",
+                        delayNanoseconds: self.manualRestartDelayNanoseconds,
+                        resetTransport: false
+                    )
+                }
+            }
         }
         monitor.start(queue: pathMonitorQueue)
     }
