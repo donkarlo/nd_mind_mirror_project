@@ -11,6 +11,22 @@ IPAD_BRIDGE_CLIENT = (
     ROOT
     / "src/nd_mind_mirror/graphic/ipad/nd_graphic.swiftpm/Services/GraphicBridgeClient.swift"
 )
+IPAD_RASTER_COMPOSER = (
+    ROOT
+    / "src/nd_mind_mirror/graphic/ipad/nd_graphic.swiftpm/Services/RasterCanvasComposer.swift"
+)
+IPAD_RASTER_GEOMETRY = (
+    ROOT
+    / "src/nd_mind_mirror/graphic/ipad/nd_graphic.swiftpm/Services/RasterCanvasGeometry.swift"
+)
+IPAD_IMAGE_RENDERER = (
+    ROOT
+    / "src/nd_mind_mirror/graphic/ipad/nd_graphic.swiftpm/Utilities/GraphicImageRenderer.swift"
+)
+IPAD_CANVAS_VIEW = (
+    ROOT
+    / "src/nd_mind_mirror/graphic/ipad/nd_graphic.swiftpm/Views/PencilCanvasView.swift"
+)
 
 
 def _write_legacy_editable_graphic(tmp_path: Path) -> tuple[Path, Path]:
@@ -128,3 +144,18 @@ def test_ipad_canvas_size_save_remains_metadata_only() -> None:
     assert '"png_base64"' not in method
     assert '"background_image_base64"' not in method
     assert '"image_objects"' not in method
+
+
+def test_canvas_resize_keeps_background_and_pencil_layers_in_one_coordinate_system() -> None:
+    composer = IPAD_RASTER_COMPOSER.read_text(encoding="utf-8")
+    geometry = IPAD_RASTER_GEOMETRY.read_text(encoding="utf-8")
+    renderer = IPAD_IMAGE_RENDERER.read_text(encoding="utf-8")
+    canvas_view = IPAD_CANVAS_VIEW.read_text(encoding="utf-8")
+
+    assert "backgroundImage.draw(at: .zero)" in composer
+    assert "aspectFitRect" not in composer
+    assert "image.draw(at: .zero)" in geometry
+    assert "backgroundImage.draw(at: .zero)" in renderer
+    assert "aspectFitRect" not in renderer
+    assert "background.contentMode = .topLeft" in canvas_view
+    assert "background.clipsToBounds = true" in canvas_view

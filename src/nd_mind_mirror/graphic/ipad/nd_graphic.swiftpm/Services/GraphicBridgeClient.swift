@@ -35,8 +35,9 @@ final class GraphicBridgeClient: ObservableObject {
     private var backgroundImageCache: [String: UIImage] = [:]
     private var shouldMaintainListener = false
     private var applicationIsActive = true
+    private var applicationWasBackgrounded = false
     private var listenerRecoveryTask: Task<Void, Never>?
-    private var applicationWillResignActiveObserver: NSObjectProtocol?
+    private var applicationDidEnterBackgroundObserver: NSObjectProtocol?
     private var applicationDidBecomeActiveObserver: NSObjectProtocol?
 
     private let manualRestartDelayNanoseconds: UInt64 = 200_000_000
@@ -44,7 +45,7 @@ final class GraphicBridgeClient: ObservableObject {
     private let failedListenerRetryDelayNanoseconds: UInt64 = 1_000_000_000
 
     private var advertisedVersion: String {
-        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.31.54"
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.31.56"
     }
 
     init() {
@@ -58,8 +59,8 @@ final class GraphicBridgeClient: ObservableObject {
             self?.send(payload)
         }
 
-        applicationWillResignActiveObserver = NotificationCenter.default.addObserver(
-            forName: UIApplication.willResignActiveNotification,
+        applicationDidEnterBackgroundObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.didEnterBackgroundNotification,
             object: nil,
             queue: .main
         ) { [weak self] _ in
@@ -84,8 +85,8 @@ final class GraphicBridgeClient: ObservableObject {
         listener?.cancel()
         connection?.cancel()
         pathMonitor?.cancel()
-        if let applicationWillResignActiveObserver {
-            NotificationCenter.default.removeObserver(applicationWillResignActiveObserver)
+        if let applicationDidEnterBackgroundObserver {
+            NotificationCenter.default.removeObserver(applicationDidEnterBackgroundObserver)
         }
         if let applicationDidBecomeActiveObserver {
             NotificationCenter.default.removeObserver(applicationDidBecomeActiveObserver)
@@ -95,6 +96,7 @@ final class GraphicBridgeClient: ObservableObject {
     func connect() {
         shouldMaintainListener = true
         applicationIsActive = true
+        applicationWasBackgrounded = false
         selectedPath = nil
         document = nil
         drawing = PKDrawing()
@@ -111,23 +113,27 @@ final class GraphicBridgeClient: ObservableObject {
     }
 
     private func prepareForApplicationSuspension() {
+        applicationIsActive = false
+        applicationWasBackgrounded = true
         guard shouldMaintainListener else { return }
 
-        applicationIsActive = false
         cancelListenerRecovery()
         appendDiagnostic(
-            "Application leaving active state; closing listener before suspension so Ubuntu can reconnect cleanly"
+            "Application entered background; closing listener before suspension so Ubuntu can reconnect cleanly"
         )
         stopTransport(keepStatus: true)
         status = "Paused while iPad sleeps — reconnects automatically on wake"
     }
 
     private func resumeListeningAfterWake() {
+        applicationIsActive = true
+        guard applicationWasBackgrounded else { return }
+
+        applicationWasBackgrounded = false
         guard shouldMaintainListener else { return }
 
-        applicationIsActive = true
         appendDiagnostic(
-            "Application became active; scheduling fresh listener after Network.framework/Wi-Fi wake"
+            "Application returned from background; scheduling fresh listener after Network.framework/Wi-Fi wake"
         )
         scheduleListenerRecovery(
             reason: "application wake",
@@ -329,6 +335,7 @@ final class GraphicBridgeClient: ObservableObject {
 
     func disconnect() {
         shouldMaintainListener = false
+        applicationWasBackgrounded = false
         cancelListenerRecovery()
         selectedPath = nil
         document = nil

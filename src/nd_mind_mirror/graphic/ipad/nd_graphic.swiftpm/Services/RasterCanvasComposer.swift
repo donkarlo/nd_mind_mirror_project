@@ -10,7 +10,7 @@ final class RasterCanvasComposer {
         guard backgroundImage != nil || !legacyImageObjects.isEmpty else { return nil }
         return render(canvasSize: canvasSize) { canvasRect in
             if let backgroundImage {
-                backgroundImage.draw(in: aspectFitRect(imageSize: backgroundImage.size, canvasRect: canvasRect))
+                backgroundImage.draw(at: .zero)
             }
             for object in legacyImageObjects {
                 guard let image = object.image else { continue }
@@ -29,7 +29,7 @@ final class RasterCanvasComposer {
         guard image.size.width > 0, image.size.height > 0 else { return backgroundImage }
         return render(canvasSize: canvasSize) { canvasRect in
             if let backgroundImage {
-                backgroundImage.draw(in: aspectFitRect(imageSize: backgroundImage.size, canvasRect: canvasRect))
+                backgroundImage.draw(at: .zero)
             }
             image.draw(in: insertionFrame(imageSize: image.size, canvasRect: canvasRect))
         }
@@ -67,15 +67,4 @@ final class RasterCanvasComposer {
         return CGRect(origin: origin, size: size).intersection(canvasRect)
     }
 
-    private func aspectFitRect(imageSize: CGSize, canvasRect: CGRect) -> CGRect {
-        guard imageSize.width > 0, imageSize.height > 0 else { return canvasRect }
-        let scale = min(canvasRect.width / imageSize.width, canvasRect.height / imageSize.height)
-        let size = CGSize(width: imageSize.width * scale, height: imageSize.height * scale)
-        return CGRect(
-            x: canvasRect.midX - size.width / 2,
-            y: canvasRect.midY - size.height / 2,
-            width: size.width,
-            height: size.height
-        )
-    }
 }

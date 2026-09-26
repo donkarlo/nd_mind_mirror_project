@@ -22,7 +22,7 @@ enum GraphicImageRenderer {
             UIColor.white.setFill()
             context.fill(rect)
             if let backgroundImage {
-                backgroundImage.draw(in: aspectFitRect(imageSize: backgroundImage.size, canvas: rect))
+                backgroundImage.draw(at: .zero)
             }
             for object in imageObjects {
                 guard let bitmap = object.image else { continue }
@@ -33,15 +33,4 @@ enum GraphicImageRenderer {
         return image.pngData()
     }
 
-    private static func aspectFitRect(imageSize: CGSize, canvas: CGRect) -> CGRect {
-        guard imageSize.width > 0, imageSize.height > 0 else { return canvas }
-        let scale = min(canvas.width / imageSize.width, canvas.height / imageSize.height)
-        let size = CGSize(width: imageSize.width * scale, height: imageSize.height * scale)
-        return CGRect(
-            x: canvas.midX - size.width / 2,
-            y: canvas.midY - size.height / 2,
-            width: size.width,
-            height: size.height
-        )
-    }
 }

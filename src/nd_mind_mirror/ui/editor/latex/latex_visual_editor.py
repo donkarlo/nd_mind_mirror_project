@@ -30,6 +30,9 @@ from PySide6.QtWidgets import (
 )
 
 from nd_mind_mirror.core.completion.latex.latex_shortcut_provider import LatexShortcut
+from nd_mind_mirror.ui.editor.cursor.cursor_appearance_controller import (
+    CursorAppearanceController,
+)
 from nd_mind_mirror.ui.editor.latex.raw_latex_snippet_editor import RawLatexSnippetEditor
 
 
@@ -172,6 +175,21 @@ class LatexVisualEditor(QTextEdit):
         self._emit_timer.setInterval(110)
         self._emit_timer.timeout.connect(self._emit_serialized_source)
         self.textChanged.connect(self._schedule_source_emit)
+        self._cursor_appearance = CursorAppearanceController(self)
+
+    def apply_cursor_preferences(
+        self,
+        *,
+        color: str,
+        size_percent: int,
+        thickness: int,
+    ) -> None:
+        """Apply the shared caret appearance policy to Visual mode."""
+        self._cursor_appearance.apply(
+            color=color,
+            size_percent=size_percent,
+            thickness=thickness,
+        )
 
     def configure_source_assist(
         self,

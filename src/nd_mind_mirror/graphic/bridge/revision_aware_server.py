@@ -249,6 +249,10 @@ class RevisionAwareGraphicBridgeServer(RevisionAwareGraphicBridgeServerBase):
             f"path={sidecar} operation={operation}"
         )
 
+    async def _deliver_pending_reverse_request(self, writer) -> None:
+        """Deliver the pending request selected by the active server specialization."""
+        await self._deliver_pending_open_request(writer)
+
     async def _serve_reverse_ipad(
         self,
         host: str,
@@ -287,7 +291,7 @@ class RevisionAwareGraphicBridgeServer(RevisionAwareGraphicBridgeServerBase):
 
         try:
             await self._send_tcp(writer, {"type": "hello", "version": self.app.version})
-            await self._deliver_pending_open_request(writer)
+            await self._deliver_pending_reverse_request(writer)
             if heartbeat is not None:
                 heartbeat.start()
             while True:

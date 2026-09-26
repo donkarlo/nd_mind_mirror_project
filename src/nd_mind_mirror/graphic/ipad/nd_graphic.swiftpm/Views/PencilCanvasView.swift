@@ -59,7 +59,8 @@ struct PencilCanvasView: UIViewRepresentable {
 
         let background = UIImageView(frame: content.bounds)
         background.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        background.contentMode = .scaleAspectFit
+        background.contentMode = .topLeft
+        background.clipsToBounds = true
         background.backgroundColor = .white
         background.image = backgroundImage
         content.addSubview(background)

@@ -73,13 +73,12 @@ class CursorAppearanceController(QObject):
 
         event_type = event.type()
         if watched is editor:
-            if event_type in {
-                QEvent.Type.FocusIn,
-                QEvent.Type.FocusOut,
-            }:
+            if event_type == QEvent.Type.FocusIn:
                 self._blink_visible = True
                 self._restart_blink()
                 self._refresh()
+            elif event_type == QEvent.Type.FocusOut:
+                self._freeze_caret()
             elif event_type == QEvent.Type.Show:
                 self._blink_visible = True
                 self._restart_blink()
@@ -115,7 +114,11 @@ class CursorAppearanceController(QObject):
     def _restart_blink(self) -> None:
         editor = self._editor
         self._blink_timer.stop()
-        if editor is None or not editor.isVisible():
+        if (
+            editor is None
+            or not editor.isVisible()
+            or not editor.hasFocus()
+        ):
             return
         flash_time = QApplication.cursorFlashTime()
         if flash_time <= 0:
@@ -123,6 +126,12 @@ class CursorAppearanceController(QObject):
             return
         self._blink_timer.setInterval(max(int(flash_time) // 2, 100))
         self._blink_timer.start()
+
+    def _freeze_caret(self) -> None:
+        """Keep the caret visible and stationary while the editor lacks focus."""
+        self._blink_timer.stop()
+        self._blink_visible = True
+        self._refresh()
 
     def _toggle_blink(self) -> None:
         if self._editor is None:

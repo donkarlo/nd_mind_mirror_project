@@ -8,25 +8,50 @@ def _read(relative: str) -> str:
     return (PROJECT_ROOT / relative).read_text(encoding="utf-8")
 
 
-def test_caret_blinks_while_visible_after_focus_leaves_editor() -> None:
+def test_caret_freezes_visible_after_focus_leaves_editor() -> None:
     source = _read(
         "src/nd_mind_mirror/ui/editor/cursor/"
         "cursor_appearance_controller.py"
     )
 
+    focus_out = source.split(
+        "elif event_type == QEvent.Type.FocusOut:", 1
+    )[1].split(
+        "elif event_type == QEvent.Type.Show:", 1
+    )[0]
     restart = source.split(
         "def _restart_blink", 1
     )[1].split(
+        "def _freeze_caret", 1
+    )[0]
+    freeze = source.split(
+        "def _freeze_caret", 1
+    )[1].split(
         "def _toggle_blink", 1
     )[0]
-    refresh = source.split(
-        "def _refresh", 1
-    )[1]
 
-    assert "if not self._editor.hasFocus()" not in restart
-    assert "or not self._editor.hasFocus()" not in refresh
-    assert "QEvent.Type.FocusOut" in source
-    assert "self._restart_blink()" in source
+    assert "self._freeze_caret()" in focus_out
+    assert "or not editor.hasFocus()" in restart
+    assert "self._blink_timer.stop()" in freeze
+    assert "self._blink_visible = True" in freeze
+    assert "self._refresh()" in freeze
+
+
+def test_source_and_visual_share_cursor_appearance_controller() -> None:
+    visual = _read(
+        "src/nd_mind_mirror/ui/editor/latex/"
+        "latex_visual_editor.py"
+    )
+    latex_core = _read(
+        "src/nd_mind_mirror/ui/editor/latex/core/"
+        "latex_editor_core.py"
+    )
+
+    assert "CursorAppearanceController" in visual
+    assert "self._cursor_appearance = CursorAppearanceController(self)" in visual
+    assert "def apply_cursor_preferences(" in visual
+    assert "super().apply_cursor_preferences(" in latex_core
+    assert "visual_editor.apply_cursor_preferences(" in latex_core
 
 
 def test_legacy_nonfocus_caret_renderers_are_not_active() -> None:

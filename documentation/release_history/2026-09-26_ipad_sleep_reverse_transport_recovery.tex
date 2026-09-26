@@ -1,0 +1,33 @@
+\documentclass[a4paper]{article}
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+\usepackage{adjustbox}
+\usepackage[active,tightpage]{preview}
+\PreviewBorder=4pt
+\title{2026-09-26 iPad sleep and reverse transport recovery}
+\date{2026-09-26}
+\author{Mohammad Rahmani}
+\begin{document}
+\maketitle
+\begin{preview}
+Fixed reverse iPad reconnection after sleep by restoring the revision-aware TCP session owner for the unified image/TikZ bridge. The shared session now applies TCP keepalive and application heartbeat monitoring instead of being shadowed by a duplicate unified-server transport loop.
+
+Raster open requests are no longer marked delivered before the iPad application acknowledges the exact delivery. A lost connection therefore keeps the request pending for the next reverse connection.
+
+The iPad listener now closes only after the application actually enters the background. Transient inactive states no longer tear down a healthy listener, while a real background-to-active transition rebuilds the listener after wake.
+
+The Swift Playgrounds package was rebuilt as ND Graphic 0.31.55, build 82.
+\end{preview}
+\end{document}

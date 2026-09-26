@@ -10,22 +10,26 @@ SWIFT_CLIENT = (
 ).read_text(encoding="utf-8")
 
 
-def test_ipad_closes_reverse_transport_before_application_suspension() -> None:
-    assert "UIApplication.willResignActiveNotification" in SWIFT_CLIENT
+def test_ipad_closes_reverse_transport_only_after_entering_background() -> None:
+    assert "UIApplication.didEnterBackgroundNotification" in SWIFT_CLIENT
+    assert "UIApplication.willResignActiveNotification" not in SWIFT_CLIENT
     suspension = SWIFT_CLIENT.split(
         "private func prepareForApplicationSuspension()", 1
     )[1].split("private func resumeListeningAfterWake()", 1)[0]
     assert "applicationIsActive = false" in suspension
+    assert "applicationWasBackgrounded = true" in suspension
     assert "cancelListenerRecovery()" in suspension
     assert "stopTransport(keepStatus: true)" in suspension
     assert "shouldMaintainListener = false" not in suspension
 
 
-def test_ipad_rebinds_listener_after_wake_with_delay() -> None:
+def test_ipad_rebinds_listener_after_background_wake_with_delay() -> None:
     wake = SWIFT_CLIENT.split(
         "private func resumeListeningAfterWake()", 1
     )[1].split("private func scheduleListenerRecovery(", 1)[0]
     assert "applicationIsActive = true" in wake
+    assert "guard applicationWasBackgrounded else { return }" in wake
+    assert "applicationWasBackgrounded = false" in wake
     assert 'reason: "application wake"' in wake
     assert "wakeRestartDelayNanoseconds" in wake
 

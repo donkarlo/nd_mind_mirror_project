@@ -81,43 +81,9 @@ class UnifiedGraphicBridgeServer(PathAwareGraphicBridgeServer):
         self._log_event(f"Queued TikZ iPad open request path={path}")
         return {"ok": True, "path": path.relative_to(self.workspace).as_posix()}
 
-    async def _serve_reverse_ipad(
-        self,
-        host: str,
-        reader: asyncio.StreamReader,
-        writer: asyncio.StreamWriter,
-        greeting: dict[str, Any],
-    ) -> None:
-        """Use one reverse TCP session and route the newest explicit editor request."""
-        version = str(greeting.get("version", "unknown"))
-        self._log_event(
-            f"Reverse iPad listener discovered at {host}:{self.ipad_listener_port} "
-            f"version={version}; waiting for image or TikZ request"
-        )
-        self.tcp_clients.add(writer)
-        try:
-            await self._send_tcp(writer, {"type": "hello", "version": self.app.version})
-            await self._deliver_latest_pending_editor_request(writer)
-            while True:
-                payload = await self._read_tcp_json(reader)
-                await self._handle_tcp(writer, payload)
-        except (asyncio.IncompleteReadError, ConnectionError, BrokenPipeError) as exc:
-            self._log_event(
-                f"Reverse iPad connection closed {host}:{self.ipad_listener_port}: "
-                f"{type(exc).__name__}"
-            )
-        except (OSError, ValueError, KeyError, json.JSONDecodeError) as exc:
-            self._log_event(
-                f"Reverse iPad connection error {host}:{self.ipad_listener_port}: "
-                f"{type(exc).__name__}: {exc}"
-            )
-        finally:
-            self.tcp_clients.discard(writer)
-            writer.close()
-            try:
-                await writer.wait_closed()
-            except Exception:
-                pass
+    async def _deliver_pending_reverse_request(self, writer) -> None:
+        """Route reverse reconnect delivery through the shared healthy TCP session."""
+        await self._deliver_latest_pending_editor_request(writer)
 
     async def _handle_tcp(self, writer, payload: dict[str, Any]) -> None:
         """Route TikZ messages before falling back to the raster bridge protocol."""
@@ -238,7 +204,6 @@ class UnifiedGraphicBridgeServer(PathAwareGraphicBridgeServer):
             self._last_seen_open_request_mtime_ns,
             request_mtime,
         )
-        self._last_delivered_open_request_mtime_ns = request_mtime
 
     async def _broadcast_tikz_open(self, path: Path) -> None:
         """Open TikZ immediately on every connected native iPad transport."""

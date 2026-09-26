@@ -53,23 +53,34 @@ def test_ipad_replies_to_heartbeat_from_application_code() -> None:
     assert 'send(["type": "heartbeat_pong"])' in heartbeat_case
 
 
-def test_ipad_rebuilds_listener_when_app_becomes_active_after_sleep() -> None:
+def test_ipad_rebuilds_listener_only_after_real_background_wake() -> None:
+    assert "UIApplication.didEnterBackgroundNotification" in SWIFT_CLIENT
+    assert "UIApplication.willResignActiveNotification" not in SWIFT_CLIENT
     assert "UIApplication.didBecomeActiveNotification" in SWIFT_CLIENT
-    assert "resumeListeningAfterWake()" in SWIFT_CLIENT
+
+    suspension = SWIFT_CLIENT.split(
+        "    private func prepareForApplicationSuspension()", 1
+    )[1].split(
+        "    private func resumeListeningAfterWake()", 1
+    )[0]
+    assert "applicationWasBackgrounded = true" in suspension
+    assert "stopTransport(keepStatus: true)" in suspension
+
     resume = SWIFT_CLIENT.split(
         "    private func resumeListeningAfterWake()", 1
     )[1].split(
-        "    func runDiagnostics()", 1
+        "    private func scheduleListenerRecovery(", 1
     )[0]
+    assert "guard applicationWasBackgrounded else { return }" in resume
     assert "guard shouldMaintainListener else { return }" in resume
-    assert "disconnect(keepStatus: true)" in resume
-    assert "startListener()" in resume
+    assert 'reason: "application wake"' in resume
 
 
 def test_manual_disconnect_disables_automatic_resume() -> None:
     public_disconnect = SWIFT_CLIENT.split(
         "    func disconnect()", 1
     )[1].split(
-        "    private func disconnect(keepStatus:", 1
+        "    private func stopTransport(", 1
     )[0]
     assert "shouldMaintainListener = false" in public_disconnect
+    assert "applicationWasBackgrounded = false" in public_disconnect

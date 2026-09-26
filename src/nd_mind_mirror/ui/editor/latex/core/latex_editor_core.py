@@ -218,6 +218,27 @@ class LatexEditor(TextEditor):
             source_path
         ).expanduser().resolve()
 
+    def apply_cursor_preferences(
+        self,
+        *,
+        color: str,
+        size_percent: int,
+        thickness: int,
+    ) -> None:
+        """Keep Source and Visual caret appearance behavior identical."""
+        super().apply_cursor_preferences(
+            color=color,
+            size_percent=size_percent,
+            thickness=thickness,
+        )
+        visual_editor = getattr(self, "_visual_editor", None)
+        if visual_editor is not None:
+            visual_editor.apply_cursor_preferences(
+                color=color,
+                size_percent=size_percent,
+                thickness=thickness,
+            )
+
     def apply_settings(
         self,
         app_settings: YamlSettings,

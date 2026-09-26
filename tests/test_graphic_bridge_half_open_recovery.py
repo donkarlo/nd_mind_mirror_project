@@ -8,6 +8,10 @@ REVISION = (
     ROOT
     / "src/nd_mind_mirror/graphic/bridge/revision_aware_server.py"
 ).read_text(encoding="utf-8")
+UNIFIED = (
+    ROOT
+    / "src/nd_mind_mirror/graphic/bridge/unified_server.py"
+).read_text(encoding="utf-8")
 HEALTH = (
     ROOT
     / "src/nd_mind_mirror/graphic/bridge/reverse_tcp_connection_health_policy.py"
@@ -65,8 +69,28 @@ def test_missing_ack_drops_socket_and_leaves_request_pending_for_reconnect() -> 
 
 
 def test_reconnect_resends_unacknowledged_open_request() -> None:
+    assert "await self._deliver_pending_reverse_request(writer)" in REVISION
     assert "await self._deliver_pending_open_request(writer)" in REVISION
     assert "Resent pending explicit iPad open request after reconnect; awaiting ACK" in REVISION
+
+
+def test_unified_editor_reuses_revision_owned_reverse_session_health() -> None:
+    assert "async def _serve_reverse_ipad(" not in UNIFIED
+    assert "async def _deliver_pending_reverse_request(self, writer)" in UNIFIED
+    assert "await self._deliver_latest_pending_editor_request(writer)" in UNIFIED
+
+
+def test_unified_graphic_reconnect_waits_for_application_ack_before_marking_delivered() -> None:
+    delivery = UNIFIED.split(
+        "    async def _deliver_latest_pending_editor_request", 1
+    )[1].split(
+        "    async def _broadcast_tikz_open", 1
+    )[0]
+    graphic_branch = delivery.split(
+        "request_mtime, sidecar, operation = graphic_request", 1
+    )[1]
+    assert "await self._send_open_tcp(" in graphic_branch
+    assert "_last_delivered_open_request_mtime_ns" not in graphic_branch
 
 
 def test_duplicate_http_and_watcher_delivery_is_coalesced() -> None:
