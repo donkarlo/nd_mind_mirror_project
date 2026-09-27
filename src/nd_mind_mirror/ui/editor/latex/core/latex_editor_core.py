@@ -37,6 +37,9 @@ from nd_mind_mirror.ui.editor.latex.windowed_latex_visual_editor import (
 from nd_mind_mirror.ui.highlighter.latex.latex_syntax_highlighter import (
     LatexSyntaxHighlighter,
 )
+from nd_mind_mirror.ui.editor.spell.spell_check_controller import (
+    SpellCheckController,
+)
 
 
 class LatexEditor(TextEditor):
@@ -205,6 +208,11 @@ class LatexEditor(TextEditor):
         self.document().modificationChanged.connect(
             self.modification_changed.emit
         )
+        self._spell_check_controller = SpellCheckController(
+            self,
+            app_settings,
+            self,
+        )
 
     @property
     def source_path(self) -> Path:
@@ -214,9 +222,13 @@ class LatexEditor(TextEditor):
         self,
         source_path: str | Path,
     ) -> None:
+        old_path = self._source_path
         self._source_path = Path(
             source_path
         ).expanduser().resolve()
+        controller = getattr(self, "_spell_check_controller", None)
+        if controller is not None:
+            controller.remap_source_path(old_path, self._source_path)
 
     def apply_cursor_preferences(
         self,
@@ -507,20 +519,34 @@ class LatexEditor(TextEditor):
         self._handle_graphic_request(line, column)
 
     def _handle_graphic_request(self, line_number: int, column: int = 1) -> None:
-        source = self.toPlainText()
-        position = self._source_position_for_location((line_number, column))
+        canonical_source = getattr(self, "canonical_source", None)
+        source = (
+            str(canonical_source())
+            if callable(canonical_source)
+            else self.toPlainText()
+        )
+        location = (line_number, column)
+        position = self._source_position_for_location(location)
         existing = self._graphic_manager.find_reference(
             source,
             self._source_path,
             position,
         )
         if existing is not None:
-            self._request_ipad_open(existing.sidecar_path, operation="update")
+            self._edit_graphic_image_in_ipad(existing.image_path)
             return
 
         document = self._graphic_manager.create_for_source(self._source_path)
+        materialized_position = position
+        materializer = getattr(
+            self,
+            "_materialized_source_position_for_location",
+            None,
+        )
+        if callable(materializer):
+            materialized_position = int(materializer(location))
         cursor = QTextCursor(self.document())
-        cursor.setPosition(position)
+        cursor.setPosition(materialized_position)
         self.setTextCursor(cursor)
 
         self._insert_figure(document.tex_reference)
@@ -532,6 +558,14 @@ class LatexEditor(TextEditor):
             self._refresh_visual_projection()
             self._visual_editor.go_to_source_location(target_line, 1, align_top=False)
         self.active_cursor_changed.emit()
+
+    def _edit_graphic_image_in_ipad(self, image_path: str | Path) -> None:
+        """Open the editable sidecar for one exact raster already shown by the editor."""
+        sidecar = self._graphic_manager.ensure_for_image(
+            Path(image_path).expanduser().resolve(),
+            self._source_path,
+        )
+        self._request_ipad_open(sidecar, operation="update")
 
     def _request_ipad_open(self, sidecar_path: Path, *, operation: str) -> None:
         if self._graphic_notifier is None:

@@ -26,6 +26,15 @@ ENHANCED_WINDOW = (
     ROOT / "src/nd_mind_mirror/ui/window/main/enhanced_main_window.py"
 ).read_text(encoding="utf-8")
 LAUNCHER = (ROOT / "nd_mind_mirror_project").read_text(encoding="utf-8")
+EDITOR_RUNTIME_EXTENSIONS = (
+    ROOT / "src/nd_mind_mirror/ui/window/main/editor_runtime_extensions.py"
+).read_text(encoding="utf-8")
+RUNTIME_FIXES = (
+    ROOT / "src/nd_mind_mirror/ui/window/main/runtime_fixes.py"
+).read_text(encoding="utf-8")
+SAFE_APPLICATION = (
+    ROOT / "src/nd_mind_mirror/app/safe_mind_mirror_application.py"
+).read_text(encoding="utf-8")
 
 LOGICAL_LINE_NUMBERS = (
     ROOT / "src/nd_mind_mirror/ui/window/main/logical_line_number_overlay.py"
@@ -100,6 +109,14 @@ def test_tikz_updates_touch_only_the_active_projection() -> None:
 def test_startup_does_not_install_runtime_monkey_patches() -> None:
     assert "SafeLargeDocumentPerformanceController" not in LAUNCHER
     assert "install_startup_hook" not in LAUNCHER
+
+
+def test_startup_does_not_override_or_resurrect_range_bookmarks() -> None:
+    assert "_install_selection_bookmarks" not in EDITOR_RUNTIME_EXTENSIONS
+    assert "_install_bookmark_relocation" not in EDITOR_RUNTIME_EXTENSIONS
+    assert "_patch_bookmark_gutter" not in RUNTIME_FIXES
+    assert "_patch_bookmark_manager" not in RUNTIME_FIXES
+    assert "_recover_lost_evil_bookmark" not in SAFE_APPLICATION
 
 
 def test_hidden_source_suspends_line_numbers_and_bookmark_relocation() -> None:

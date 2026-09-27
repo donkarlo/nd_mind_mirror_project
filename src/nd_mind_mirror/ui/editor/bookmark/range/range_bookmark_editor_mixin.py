@@ -36,7 +36,9 @@ class RangeBookmarkEditorMixin:
         self._range_bookmark_suppress_document_change = True
         super().__init__(*args, **kwargs)
 
-        self._range_bookmark_tracker = RangeBookmarkTracker(self.toPlainText())
+        self._range_bookmark_tracker = RangeBookmarkTracker(
+            self._range_bookmark_source_text()
+        )
         self._range_bookmark_state_resolver = RangeBookmarkContextStateResolver()
         self._range_bookmark_highlighter = RangeBookmarkHighlighter(self)
         self._range_bookmark_source_context = RangeBookmarkSourceContextController(self)
@@ -67,8 +69,18 @@ class RangeBookmarkEditorMixin:
         # Bookmark painting follows bookmark/view changes, not each caret move.
         self.active_view_changed.connect(self._refresh_active_range_bookmarks)
 
+    def _range_bookmark_source_text(self) -> str:
+        """Return the complete canonical source used by every bookmark operation."""
+        canonical_source = getattr(self, "canonical_source", None)
+        if callable(canonical_source):
+            return str(canonical_source())
+        return self.toPlainText()
+
     def set_bookmarks(self, bookmarks: list[dict[str, object]] | None) -> None:
-        self._range_bookmark_tracker.load(bookmarks, self.toPlainText())
+        self._range_bookmark_tracker.load(
+            bookmarks,
+            self._range_bookmark_source_text(),
+        )
         self._refresh_active_range_bookmarks()
 
     def bookmarks(self) -> list[dict[str, object]]:
@@ -136,7 +148,7 @@ class RangeBookmarkEditorMixin:
                     self._range_bookmark_tracker.collection.add(
                         selection[0],
                         selection[1],
-                        self.toPlainText(),
+                        self._range_bookmark_source_text(),
                     )
                     is not None
                 )
@@ -161,7 +173,9 @@ class RangeBookmarkEditorMixin:
         if bookmark is None:
             return False
 
-        mapper = RangeBookmarkPositionMapper(self.toPlainText())
+        mapper = RangeBookmarkPositionMapper(
+            self._range_bookmark_source_text()
+        )
         anchor = mapper.location_for_offset(bookmark.start_char)
         position = mapper.location_for_offset(bookmark.end_char)
 
@@ -209,7 +223,9 @@ class RangeBookmarkEditorMixin:
             self._range_bookmark_suppress_document_change = False
 
         if tracker is not None:
-            changed = tracker.replace_source(self.toPlainText())
+            changed = tracker.replace_source(
+                self._range_bookmark_source_text()
+            )
             if changed:
                 self._range_bookmark_model_changed()
             else:
@@ -333,7 +349,7 @@ class RangeBookmarkEditorMixin:
 
     def _canonical_offset_for_location(self, location: tuple[int, int]) -> int:
         return RangeBookmarkPositionMapper(
-            self.toPlainText()
+            self._range_bookmark_source_text()
         ).offset_for_location(location)
 
     def _handle_tikz_context_request(

@@ -8,6 +8,9 @@ from PySide6.QtWidgets import QTextEdit
 from nd_mind_mirror.core.bookmark.range.range_bookmark_position_mapper import (
     RangeBookmarkPositionMapper,
 )
+from nd_mind_mirror.ui.editor.decoration.editor_decoration_properties import (
+    EditorDecorationProperties,
+)
 
 
 class RangeBookmarkHighlighter:
@@ -116,6 +119,7 @@ class RangeBookmarkHighlighter:
         selection.cursor = cursor
         selection.format.setBackground(cls._COLOR)
         selection.format.setProperty(cls._MARK_PROPERTY, True)
+        selection.format.setProperty(EditorDecorationProperties.PERSISTENT, True)
         return selection
 
     @classmethod

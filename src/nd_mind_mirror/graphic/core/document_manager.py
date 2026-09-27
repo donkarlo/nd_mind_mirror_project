@@ -41,6 +41,8 @@ class GraphicDocumentManager:
         re.MULTILINE,
     )
     _LATEX_EDITABLE_IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg"}
+    _FIGURE_BEGIN = re.compile(r"\\begin\s*\{figure\*?\}(?:\s*\[[^\]]*\])?")
+    _FIGURE_END = re.compile(r"\\end\s*\{figure\*?\}")
     _SIDECAR_VERSION = 2
 
     def __init__(
@@ -108,14 +110,10 @@ class GraphicDocumentManager:
                 break
         if chosen is None:
             for match in matches:
-                figure_start = source.rfind("\\begin{figure}", 0, match.start())
-                figure_end = source.find("\\end{figure}", match.end())
-                if figure_start < 0 or figure_end < 0:
+                figure_range = self._containing_figure_range(source, match)
+                if figure_range is None:
                     continue
-                figure_end += len("\\end{figure}")
-                nested_end = source.find("\\end{figure}", figure_start, match.start())
-                if nested_end >= 0:
-                    continue
+                figure_start, figure_end = figure_range
                 if figure_start <= position <= figure_end:
                     chosen = match
                     break
@@ -148,6 +146,37 @@ class GraphicDocumentManager:
             start=chosen.start(),
             end=chosen.end(),
         )
+
+    @classmethod
+    def _containing_figure_range(
+        cls,
+        source: str,
+        graphic_match: re.Match[str],
+    ) -> tuple[int, int] | None:
+        """Return the enclosing figure/figure* range for one includegraphics."""
+        prior_begin = None
+        for candidate in cls._FIGURE_BEGIN.finditer(source, 0, graphic_match.start()):
+            prior_begin = candidate
+        if prior_begin is None:
+            return None
+
+        prior_end = None
+        for candidate in cls._FIGURE_END.finditer(source, 0, graphic_match.start()):
+            prior_end = candidate
+        if prior_end is not None and prior_end.start() > prior_begin.start():
+            return None
+
+        following_end = cls._FIGURE_END.search(source, graphic_match.end())
+        if following_end is None:
+            return None
+        nested_begin = cls._FIGURE_BEGIN.search(
+            source,
+            prior_begin.end(),
+            graphic_match.start(),
+        )
+        if nested_begin is not None:
+            return None
+        return prior_begin.start(), following_end.end()
 
     def _next_image_path(self, directory: Path) -> Path:
         candidate = directory / "graphic.png"

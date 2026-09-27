@@ -1,0 +1,1 @@
+"""Shared editor decoration contracts."""

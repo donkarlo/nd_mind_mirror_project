@@ -5,17 +5,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QObject, QTimer, Qt
-from PySide6.QtWidgets import (
-    QAbstractItemView,
-    QDialog,
-    QDialogButtonBox,
-    QHBoxLayout,
-    QPushButton,
-    QTreeWidget,
-    QTreeWidgetItem,
-    QVBoxLayout,
-)
+from PySide6.QtCore import QTimer
 
 from nd_mind_mirror.core.clipboard.image.clipboard_image_saver import ClipboardImageSaver
 from nd_mind_mirror.core.latex.direction.latex_text_direction_resolver import (
@@ -24,181 +14,10 @@ from nd_mind_mirror.core.latex.direction.latex_text_direction_resolver import (
     TextDirection,
 )
 from nd_mind_mirror.graphic.core.document_manager import GraphicDocumentManager
-from nd_mind_mirror.ui.editor.latex.latex_editor import LatexEditor
 from nd_mind_mirror.ui.editor.latex.latex_visual_editor import LatexVisualEditor
 from nd_mind_mirror.ui.preview.latex.latex_preview import LatexPreview
 from nd_mind_mirror.ui.preview.pdf.selectable_pdf_view import SelectablePdfView
-from nd_mind_mirror.ui.window.main.enhanced_main_window import EnhancedMainWindow
-from nd_mind_mirror.ui.window.main.main_window import MainWindow
 from nd_mind_mirror.ui.window.main.preview_auto_fit_controller import PreviewAutoFitController
-from nd_mind_mirror.ui.window.main.structure_highlight_controller import StructureHighlightController
-
-
-class _BookmarkGutterPositioner(QObject):
-    """Keep the Source bookmark ribbon on top of the logical line-number gutter."""
-
-    def __init__(self, editor: LatexEditor) -> None:
-        super().__init__(editor)
-        self._editor = editor
-        self._gutter = editor._source_bookmark_gutter
-        self._gutter.setParent(editor)
-        editor.installEventFilter(self)
-        editor.viewport().installEventFilter(self)
-        editor.verticalScrollBar().valueChanged.connect(self._schedule)
-        QTimer.singleShot(0, self._position)
-
-    def eventFilter(self, watched, event) -> bool:
-        del watched
-        if event.type() in {
-            QEvent.Type.Resize,
-            QEvent.Type.Show,
-            QEvent.Type.LayoutRequest,
-        }:
-            self._schedule()
-        return False
-
-    def _schedule(self, *args) -> None:
-        del args
-        QTimer.singleShot(0, self._position)
-
-    def _position(self) -> None:
-        viewport = self._editor.viewport()
-        geometry = viewport.geometry()
-        line_numbers = getattr(self._editor, "_nd_logical_line_numbers", None)
-        x = int(line_numbers.geometry().left()) if line_numbers is not None else max(int(geometry.left()) - 18, 0)
-        self._gutter.setGeometry(x, int(geometry.top()), 18, int(geometry.height()))
-        self._gutter.show()
-        self._gutter.raise_()
-
-
-class _BookmarkManagerDialog(QDialog):
-    """Show all persisted bookmarks and allow navigation or deletion."""
-
-    def __init__(self, controller: "_BookmarkManagerController", parent=None) -> None:
-        super().__init__(parent)
-        self._controller = controller
-        self.setWindowTitle("Manage Bookmarks")
-        self.resize(760, 440)
-        self._tree = QTreeWidget(self)
-        self._tree.setColumnCount(4)
-        self._tree.setHeaderLabels(["Bookmark", "File", "Line", "Column"])
-        self._tree.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
-        self._tree.itemDoubleClicked.connect(lambda _item, _column: self._go_to())
-        self._go_button = QPushButton("Go To", self)
-        self._delete_button = QPushButton("Delete", self)
-        self._go_button.clicked.connect(self._go_to)
-        self._delete_button.clicked.connect(self._delete)
-        row = QHBoxLayout()
-        row.addWidget(self._go_button)
-        row.addWidget(self._delete_button)
-        row.addStretch(1)
-        close_buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close, self)
-        close_buttons.rejected.connect(self.reject)
-        layout = QVBoxLayout(self)
-        layout.addWidget(self._tree, 1)
-        layout.addLayout(row)
-        layout.addWidget(close_buttons)
-        self.refresh()
-
-    def refresh(self) -> None:
-        """Reload the table from the current editor-panel bookmark model."""
-        self._tree.clear()
-        for entry in self._controller.entries():
-            item = QTreeWidgetItem([
-                entry["label"], entry["filename"], str(entry["line"]), str(entry["column"])
-            ])
-            item.setData(0, Qt.ItemDataRole.UserRole, entry)
-            item.setToolTip(1, entry["path"])
-            self._tree.addTopLevelItem(item)
-        if self._tree.topLevelItemCount() > 0:
-            self._tree.setCurrentItem(self._tree.topLevelItem(0))
-        self._tree.resizeColumnToContents(0)
-        self._tree.resizeColumnToContents(1)
-
-    def _selected(self) -> dict[str, object] | None:
-        item = self._tree.currentItem()
-        if item is None:
-            return None
-        data = item.data(0, Qt.ItemDataRole.UserRole)
-        return data if isinstance(data, dict) else None
-
-    def _go_to(self) -> None:
-        entry = self._selected()
-        if entry is not None:
-            self._controller.activate(entry)
-
-    def _delete(self) -> None:
-        entry = self._selected()
-        if entry is not None:
-            self._controller.delete(entry)
-            self.refresh()
-
-
-class _BookmarkManagerController:
-    """Bridge the bookmark popup to the persisted EditorPanel bookmark model."""
-
-    def __init__(self, window: MainWindow) -> None:
-        self._window = window
-
-    def entries(self) -> list[dict[str, object]]:
-        """Return normalized bookmarks across all tracked files."""
-        result: list[dict[str, object]] = []
-        for raw_path, bookmarks in self._window._editor_panel.bookmarks().items():
-            for bookmark in bookmarks:
-                try:
-                    line = max(int(bookmark.get("line", 1)), 1)
-                    column = max(int(bookmark.get("column", 1)), 1)
-                except (TypeError, ValueError):
-                    continue
-                name = str(bookmark.get("name", "")).strip()
-                anchor = str(bookmark.get("anchor", "")).strip()
-                result.append({
-                    "path": str(raw_path),
-                    "filename": Path(str(raw_path)).name,
-                    "line": line,
-                    "column": column,
-                    "label": name or anchor[:60] or f"Line {line}",
-                })
-        result.sort(key=lambda item: (str(item["path"]).casefold(), int(item["line"])))
-        return result
-
-    def show(self) -> None:
-        """Open the modal bookmark-management popup."""
-        _BookmarkManagerDialog(self, self._window).exec()
-
-    def activate(self, entry: dict[str, object]) -> None:
-        """Navigate to one bookmark using the window's existing bookmark navigation."""
-        self._window._activate_bookmark(str(entry["path"]), int(entry["line"]), int(entry["column"]))
-
-    def delete(self, entry: dict[str, object]) -> None:
-        """Delete one bookmark, update an open editor, and persist the model."""
-        panel = self._window._editor_panel
-        raw_path = str(Path(str(entry["path"])).expanduser().resolve())
-        line = int(entry["line"])
-        column = int(entry["column"])
-        bookmarks = [dict(item) for item in panel._bookmarks_by_path.get(raw_path, [])]
-        removed = False
-        retained: list[dict[str, object]] = []
-        for bookmark in bookmarks:
-            try:
-                same = int(bookmark.get("line", -1)) == line and int(bookmark.get("column", 1)) == column
-            except (TypeError, ValueError):
-                same = False
-            if same and not removed:
-                removed = True
-                continue
-            retained.append(bookmark)
-        if not removed:
-            return
-        if retained:
-            panel._bookmarks_by_path[raw_path] = retained
-        else:
-            panel._bookmarks_by_path.pop(raw_path, None)
-        for editor, path in list(panel._paths.items()):
-            if isinstance(editor, LatexEditor) and str(path.resolve()) == raw_path:
-                editor.set_bookmarks(retained)
-        panel.bookmarks_changed.emit(panel.bookmarks())
-        self._window._refresh_bookmarks_menu()
 
 
 class LateRuntimeFixes:
@@ -215,9 +34,6 @@ class LateRuntimeFixes:
         cls._patch_fraction_projection()
         cls._patch_preview_page_status()
         cls._patch_auto_fit()
-        cls._patch_structure_selection()
-        cls._patch_bookmark_gutter()
-        cls._patch_bookmark_manager()
         cls._installed = True
 
     @staticmethod
@@ -416,70 +232,3 @@ class LateRuntimeFixes:
                 return
 
         PreviewAutoFitController._apply_fit = apply_fit
-
-    @staticmethod
-    def _patch_structure_selection() -> None:
-        """Ensure Structure never paints Qt selection in addition to the semantic active row."""
-        original_init = StructureHighlightController.__init__
-        original_apply = StructureHighlightController.apply_highlight
-
-        def apply_highlight(controller) -> None:
-            original_apply(controller)
-            tree = controller._panel._tree
-            tree.clearSelection()
-            tree.setCurrentItem(None)
-            for item in controller._panel._all_items_in_source_order():
-                item.setSelected(False)
-            tree.viewport().update()
-
-        def init(controller, structure_panel) -> None:
-            original_init(controller, structure_panel)
-            tree = structure_panel._tree
-            tree.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
-            tree.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-            tree.setStyleSheet(
-                tree.styleSheet()
-                + "\nQTreeWidget::item:selected { background: transparent; color: inherit; }"
-                + "\nQTreeWidget::item:focus { outline: none; }"
-            )
-            tree.itemClicked.connect(lambda _item, _column: QTimer.singleShot(0, controller.apply_highlight))
-            tree.currentItemChanged.connect(lambda _current, _previous: QTimer.singleShot(0, controller.apply_highlight))
-            controller.apply_highlight()
-
-        StructureHighlightController.apply_highlight = apply_highlight
-        StructureHighlightController.__init__ = init
-
-    @staticmethod
-    def _patch_bookmark_gutter() -> None:
-        """Reparent Source bookmark markers onto the line-number gutter without hiding source text."""
-        original_init = LatexEditor.__init__
-
-        def init(editor, *args, **kwargs) -> None:
-            original_init(editor, *args, **kwargs)
-            editor._nd_bookmark_gutter_positioner = _BookmarkGutterPositioner(editor)
-
-        LatexEditor.__init__ = init
-
-    @staticmethod
-    def _patch_bookmark_manager() -> None:
-        """Add a persistent Manage Bookmarks popup entry to the rebuilt Bookmarks menu."""
-        original_window_init = EnhancedMainWindow.__init__
-        original_refresh = MainWindow._refresh_bookmarks_menu
-
-        def refresh(window) -> None:
-            original_refresh(window)
-            controller = getattr(window, "_nd_bookmark_manager", None)
-            if controller is None or not hasattr(window, "_bookmarks_menu"):
-                return
-            window._bookmarks_menu.addSeparator()
-            action = window._bookmarks_menu.addAction("Manage Bookmarks…")
-            action.triggered.connect(controller.show)
-            window._nd_manage_bookmarks_action = action
-
-        def window_init(window, *args, **kwargs) -> None:
-            original_window_init(window, *args, **kwargs)
-            window._nd_bookmark_manager = _BookmarkManagerController(window)
-            window._refresh_bookmarks_menu()
-
-        MainWindow._refresh_bookmarks_menu = refresh
-        EnhancedMainWindow.__init__ = window_init

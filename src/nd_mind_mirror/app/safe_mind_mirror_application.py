@@ -3,10 +3,7 @@
 from __future__ import annotations
 
 from difflib import SequenceMatcher
-import json
 from pathlib import Path
-
-from PySide6.QtCore import QSettings
 
 from nd_mind_mirror.app.mind_mirror_application import MindMirrorApplication
 from nd_mind_mirror.core.settings.yaml.yaml_settings import YamlSettings
@@ -21,13 +18,6 @@ from nd_mind_mirror.ui.window.main.navigator_horizontal_scroll_controller import
 class SafeMindMirrorApplication(MindMirrorApplication):
     """Install non-destructive editor behavior before the main window restores its session."""
 
-    _RECOVERED_EVIL_BOOKMARK_ANCHOR = (
-        "در کودکی عاشق دختری شدم. نه صبر کن. از واژه ها دم دستی استفاده می کنم. "
-        "همینطوری می گویم عشق. انگار کلمات نقل و نبات هستند که هر طور بخواهم آن ها را "
-        "پخش کنم. بگذار حالا بنویسم توجهم را جلب کرد. نمی دانم، اما فکر می کنم این اولین "
-        "بار بود که م"
-    )
-
     def __init__(self, argv: list[str]) -> None:
         super().__init__(argv)
 
@@ -38,7 +28,6 @@ class SafeMindMirrorApplication(MindMirrorApplication):
         self.installEventFilter(self._navigator_horizontal_scroll_controller)
 
         self._recover_evil_document()
-        self._recover_lost_evil_bookmark()
 
     @staticmethod
     def _repository_root(app_settings: YamlSettings) -> Path:
@@ -96,48 +85,3 @@ class SafeMindMirrorApplication(MindMirrorApplication):
             merged_path.write_text("".join(merged_lines), encoding="utf-8")
         except OSError:
             return
-
-    @classmethod
-    def _recover_lost_evil_bookmark(cls) -> None:
-        """Restore the bookmark that disappeared when the large Source window was truncated."""
-        app_settings = YamlSettings()
-        session = QSettings(
-            str(app_settings.session_settings_path),
-            QSettings.Format.IniFormat,
-        )
-        raw = session.value("editor/bookmarks_json", "{}")
-        try:
-            bookmarks = json.loads(str(raw or "{}"))
-        except (TypeError, ValueError, json.JSONDecodeError):
-            bookmarks = {}
-        if not isinstance(bookmarks, dict):
-            bookmarks = {}
-
-        current_path, _recovered_path, _merged_path = cls._evil_paths(app_settings)
-        source_path = str(current_path.resolve())
-        items = bookmarks.get(source_path, [])
-        if not isinstance(items, list):
-            items = []
-
-        anchor = cls._RECOVERED_EVIL_BOOKMARK_ANCHOR
-        if any(
-            str(item.get("anchor", "")) == anchor
-            for item in items
-            if isinstance(item, dict)
-        ):
-            return
-
-        items.append(
-            {
-                "line": 417,
-                "column": 1,
-                "name": "",
-                "anchor": anchor,
-            }
-        )
-        bookmarks[source_path] = items
-        session.setValue(
-            "editor/bookmarks_json",
-            json.dumps(bookmarks, ensure_ascii=False, separators=(",", ":")),
-        )
-        session.sync()

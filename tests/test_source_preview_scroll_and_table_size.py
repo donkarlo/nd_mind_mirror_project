@@ -76,6 +76,21 @@ def test_narrow_table_gets_a_readable_minimum_width() -> None:
     assert width <= round(900 * 0.96)
 
 
+def test_large_display_formula_keeps_its_rendered_extent() -> None:
+    width, height = SourceLatexPreviewSizePolicy.logical_size(
+        image_width=1200,
+        image_height=420,
+        kind="math",
+        display=True,
+        line_height=20,
+        available=1000,
+    )
+
+    assert width >= 600
+    assert height >= 200
+    assert width <= round(1000 * 0.94)
+
+
 def test_graphic_scroll_hot_path_uses_cached_document_geometry() -> None:
     refresh = GRAPHIC_CONTROLLER.split(
         "    def refresh_positions", 1

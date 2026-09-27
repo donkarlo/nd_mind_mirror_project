@@ -15,6 +15,7 @@ class SourceGraphicPreviewWidget(QLabel):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self._cache_key: tuple[str, int, int, int] | None = None
+        self._image_path: Path | None = None
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         self.setStyleSheet(
@@ -33,6 +34,8 @@ class SourceGraphicPreviewWidget(QLabel):
         image_signature: tuple[int, int] | None = None,
     ) -> bool:
         """Show one cached raster while keeping scroll-time widget work minimal."""
+        image_path = Path(image_path).expanduser().resolve()
+        self._image_path = image_path
         signature = image_signature or self._read_signature(image_path)
         if signature is None:
             self.hide()
@@ -62,6 +65,11 @@ class SourceGraphicPreviewWidget(QLabel):
             self.show()
             self.raise_()
         return True
+
+    @property
+    def image_path(self) -> Path | None:
+        """Return the raster currently represented by this visible preview."""
+        return self._image_path
 
     @staticmethod
     def _read_signature(image_path: Path) -> tuple[int, int] | None:

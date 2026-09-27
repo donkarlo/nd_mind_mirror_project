@@ -17,6 +17,10 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import QApplication, QTextEdit
 
+from nd_mind_mirror.ui.editor.decoration.editor_decoration_properties import (
+    EditorDecorationProperties,
+)
+
 
 class TextEditor(QTextEdit):
     """Plain-source editor with rich visual layout only.
@@ -822,7 +826,15 @@ class TextEditor(QTextEdit):
         self._highlight_current_line()
 
     def _highlight_current_line(self) -> None:
-        selections = []
+        selections = [
+            selection
+            for selection in self.extraSelections()
+            if bool(
+                selection.format.property(
+                    EditorDecorationProperties.PERSISTENT
+                )
+            )
+        ]
 
         if not self.isReadOnly():
             selection = QTextEdit.ExtraSelection()

@@ -135,6 +135,26 @@ def test_click_anywhere_in_figure_reopens_existing_ipad_image(tmp_path: Path) ->
     assert ref.image_path == image.resolve()
 
 
+def test_click_anywhere_in_figure_star_reopens_existing_ipad_image(tmp_path: Path) -> None:
+    source_path = tmp_path / "chapter.tex"
+    image = tmp_path / "graphic.png"
+    image.write_bytes(b"png")
+    source = (
+        "before\n"
+        "\\begin{figure*}[t]\n"
+        "    \\centering\n"
+        "    \\includegraphics[width=0.9\\textwidth]{graphic.png}\n"
+        "\\end{figure*}\n"
+        "after\n"
+    )
+    manager = GraphicDocumentManager()
+
+    ref = manager.find_reference(source, source_path, source.index("centering"))
+
+    assert ref is not None
+    assert ref.image_path == image.resolve()
+
+
 def test_visual_parser_has_figure_image_projection() -> None:
     visual = Path("src/nd_mind_mirror/ui/editor/latex/latex_visual_editor.py").read_text(encoding="utf-8")
 
@@ -150,6 +170,21 @@ def test_source_insert_uses_requested_figure_template() -> None:
     assert 'f"{prefix}\\\\begin{{figure}}[H]\\n"' in latex
     assert 'f"{inner_indent}\\\\centering\\n"' in latex
     assert 'f"{inner_indent}\\\\includegraphics[width=0.9\\\\textwidth]"' in latex
+
+
+def test_source_preview_image_exposes_direct_ipad_edit_path() -> None:
+    root = Path("src/nd_mind_mirror/ui/editor/latex")
+    controller = (root / "source_graphic_preview_controller.py").read_text(
+        encoding="utf-8"
+    )
+    widget = (root / "source_graphic_preview_widget.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert "_show_preview_image_context_menu" in controller
+    assert "Edit image in iPad…" in controller
+    assert "editor._edit_graphic_image_in_ipad(image_path)" in controller
+    assert "def image_path" in widget
 
 
 def test_graphic_insert_and_update_are_sent_as_distinct_ipad_operations() -> None:

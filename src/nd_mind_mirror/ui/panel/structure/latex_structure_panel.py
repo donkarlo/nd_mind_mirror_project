@@ -42,6 +42,8 @@ class LatexStructurePanel(Panel):
     _SOURCE_END_ROLE = Qt.ItemDataRole.UserRole + 2
     _KIND_ROLE = Qt.ItemDataRole.UserRole + 3
     _LEVEL_ROLE = Qt.ItemDataRole.UserRole + 4
+    _GENERATION_ROLE = Qt.ItemDataRole.UserRole + 5
+    _TITLE_ROLE = Qt.ItemDataRole.UserRole + 6
     _LATEX_STRUCTURE_TOKENS = (
         "\\part",
         "\\chapter",
@@ -77,6 +79,7 @@ class LatexStructurePanel(Panel):
         self._highlight_brush = QBrush(QColor("#fff6bf"))
         self._clear_brush = QBrush()
         self._parse_generation = 0
+        self._applied_generation = -1
         self._latex_worker: LatexStructureParseWorker | None = None
         self._pending_async_rebuild = False
 
@@ -160,6 +163,7 @@ class LatexStructurePanel(Panel):
 
             self._parse_generation += 1
             self._structure_signature = None
+            self._begin_structure_refresh(clear_tree=path_changed)
             self._refresh_timer.stop()
             self._refresh_timer.setInterval(
                 0 if immediate or path_changed else self._LARGE_DOCUMENT_DEBOUNCE_MS
@@ -167,20 +171,24 @@ class LatexStructurePanel(Panel):
             self._refresh_timer.start()
             return
 
-        self._parse_generation += 1
         signature = self._signature_for(file_path, self._source)
         structure_changed = signature != self._structure_signature
         self._structure_signature = signature
+        if not (immediate or path_changed or structure_changed):
+            return
+
+        self._parse_generation += 1
         self._refresh_timer.setInterval(260)
         if immediate or path_changed:
             self._refresh_timer.stop()
             self._rebuild()
-        elif structure_changed:
+        else:
             self._refresh_timer.start()
 
     def clear(self) -> None:
         self._refresh_timer.stop()
         self._parse_generation += 1
+        self._applied_generation = -1
         self._pending_async_rebuild = False
         self._path = None
         self._source = ""
@@ -188,6 +196,14 @@ class LatexStructurePanel(Panel):
         self._structure_signature = None
         self._label.setText("Structure")
         self._tree.clear()
+        self._tree.setEnabled(True)
+
+    def _begin_structure_refresh(self, *, clear_tree: bool) -> None:
+        """Mark the visible tree stale while keeping existing rows navigable."""
+        self._applied_generation = -1
+        if clear_tree:
+            self._structure = []
+            self._tree.clear()
 
     @classmethod
     def _signature_for(
@@ -328,7 +344,7 @@ class LatexStructurePanel(Panel):
     ) -> None:
         if generation != self._parse_generation or not isinstance(structure, list):
             return
-        self._apply_structure(structure)
+        self._apply_structure(structure, generation=generation)
 
     def _on_async_structure_failed(
         self,
@@ -351,9 +367,20 @@ class LatexStructurePanel(Panel):
             self._pending_async_rebuild = False
             QTimer.singleShot(0, self._start_async_latex_rebuild)
 
-    def _apply_structure(self, structure: list) -> None:
-        """Replace the tree from a complete parsed structure on the GUI thread."""
+    def _apply_structure(
+        self,
+        structure: list,
+        *,
+        generation: int | None = None,
+    ) -> None:
+        """Replace the tree only from one complete current source snapshot."""
+        applied_generation = (
+            self._parse_generation if generation is None else int(generation)
+        )
+        if applied_generation != self._parse_generation:
+            return
         self._structure = list(structure)
+        self._applied_generation = applied_generation
         self._tree.setUpdatesEnabled(False)
         try:
             self._tree.clear()
@@ -376,6 +403,8 @@ class LatexStructurePanel(Panel):
                 )
                 item.setData(0, self._KIND_ROLE, str(node.kind))
                 item.setData(0, self._LEVEL_ROLE, int(node.level))
+                item.setData(0, self._GENERATION_ROLE, applied_generation)
+                item.setData(0, self._TITLE_ROLE, str(node.title))
                 item.setToolTip(0, f"Line {node.line_number}: {node.kind}")
 
                 if stack:
@@ -467,11 +496,62 @@ class LatexStructurePanel(Panel):
         column: int,
     ) -> None:
         del column
-        value = item.data(0, self._LINE_ROLE)
-        try:
-            line_number = int(value)
-        except (TypeError, ValueError):
-            return
+        line_number = self._activation_line_for_item(item)
         if line_number > 0:
             self.line_activated.emit(line_number)
         self._tree.clearSelection()
+
+    def _activation_line_for_item(self, item: QTreeWidgetItem) -> int:
+        """Resolve a clicked row against the current source instead of dropping stale clicks."""
+        try:
+            generation = int(item.data(0, self._GENERATION_ROLE))
+            line_number = int(item.data(0, self._LINE_ROLE))
+        except (TypeError, ValueError):
+            return 0
+        if (
+            generation == self._parse_generation
+            and generation == self._applied_generation
+        ):
+            return max(line_number, 0)
+
+        try:
+            source_position = int(item.data(0, self._SOURCE_POSITION_ROLE))
+        except (TypeError, ValueError):
+            source_position = -1
+        kind = str(item.data(0, self._KIND_ROLE) or "")
+        title = str(item.data(0, self._TITLE_ROLE) or "")
+        if not title:
+            text = item.text(0)
+            title = text.split(" — ", 1)[1] if " — " in text else text
+
+        structure = self._current_structure_snapshot()
+        if not structure:
+            return max(line_number, 0)
+
+        candidates = [
+            node
+            for node in structure
+            if str(node.kind) == kind and str(node.title) == title
+        ]
+        if not candidates:
+            return max(line_number, 0)
+        target = min(
+            candidates,
+            key=lambda node: abs(int(node.source_position) - source_position),
+        )
+        self._apply_structure(
+            structure,
+            generation=self._parse_generation,
+        )
+        return max(int(target.line_number), 0)
+
+    def _current_structure_snapshot(self) -> list:
+        """Parse the current source synchronously only for an explicit stale-row click."""
+        if self._path is None:
+            return []
+        suffix = self._path.suffix.lower()
+        if suffix == ".tex":
+            return self._latex_parser.parse(self._source)
+        if suffix in {".yaml", ".yml"}:
+            return self._yaml_parser.parse(self._source)
+        return []

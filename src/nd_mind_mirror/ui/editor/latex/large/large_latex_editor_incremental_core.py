@@ -91,7 +91,10 @@ class LargeLatexEditor(LatexEditor):
         return max(int(line) - 1, 0)
 
     def canonical_source(self) -> str:
-        return self.toPlainText()
+        """Return the complete canonical source independently of viewport scopes."""
+        if hasattr(self, "_source_buffer"):
+            return self._source_buffer.source
+        return super().toPlainText()
 
     def visible_source_text(self) -> str:
         return super().toPlainText()
@@ -562,10 +565,3 @@ class LargeLatexEditor(LatexEditor):
             return
         with self._visible_plain_text_scope():
             super()._insert_figure(relative_image_path)
-
-    def contextMenuEvent(self, event) -> None:
-        if not self.source_is_windowed:
-            super().contextMenuEvent(event)
-            return
-        with self._visible_plain_text_scope():
-            super().contextMenuEvent(event)

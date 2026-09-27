@@ -5,8 +5,9 @@ from __future__ import annotations
 from contextlib import nullcontext
 from pathlib import Path
 
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import QEvent, QTimer
 from PySide6.QtGui import QTextCursor
+from PySide6.QtWidgets import QMenu
 
 from nd_mind_mirror.ui.editor.latex.source_graphic_preview_controller_core import (
     SourceGraphicPreviewController as SourceGraphicPreviewControllerCore,
@@ -41,12 +42,38 @@ class SourceGraphicPreviewController(SourceGraphicPreviewControllerCore):
         self._sync_polling_state()
 
     def eventFilter(self, watched, event) -> bool:
-        """Keep deleted Qt wrappers from escaping through the preview event filter."""
+        """Handle Source preview image context clicks and tolerate deleted Qt wrappers."""
         try:
+            editor = self._active_editor
+            if (
+                editor is not None
+                and watched is editor.viewport()
+                and event.type() == QEvent.Type.ContextMenu
+                and self._show_preview_image_context_menu(editor, event)
+            ):
+                return True
             return super().eventFilter(watched, event)
         except RuntimeError:
             self._reset_deleted_editor()
             return False
+
+    def _show_preview_image_context_menu(self, editor, event) -> bool:
+        """Offer iPad editing when the user right-clicks the rendered Source image."""
+        position = event.pos()
+        for widget in self._widgets:
+            if not widget.isVisible() or not widget.geometry().contains(position):
+                continue
+            image_path = widget.image_path
+            if image_path is None:
+                return False
+            menu = QMenu(editor)
+            edit_action = menu.addAction("Edit image in iPad…")
+            chosen = menu.exec(event.globalPos())
+            if chosen == edit_action:
+                editor._edit_graphic_image_in_ipad(image_path)
+            event.accept()
+            return True
+        return False
 
     def schedule_layout_refresh(self) -> None:
         """Queue Source layout work only while Source is the active edit mode."""

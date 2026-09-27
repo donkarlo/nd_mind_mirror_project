@@ -36,6 +36,16 @@ class RangeBookmarkSourceContextController:
             menu.addSeparator()
             bookmark_action = menu.addAction(str(state["label"]))
 
+        spell_controller = getattr(editor, "_spell_check_controller", None)
+        spell_actions = []
+        if spell_controller is not None:
+            spell_actions = spell_controller.append_context_actions(
+                menu,
+                editor,
+                click_cursor.position(),
+                source_mode=True,
+            )
+
         menu.addSeparator()
         graphic_action = menu.addAction(
             "Edit image in iPad…"
@@ -49,6 +59,11 @@ class RangeBookmarkSourceContextController:
         )
 
         chosen = menu.exec(event.globalPos())
+        if (
+            spell_controller is not None
+            and spell_controller.execute_context_action(chosen, spell_actions)
+        ):
+            return
         if bookmark_action is not None and chosen == bookmark_action:
             editor.execute_range_bookmark_state(state)
             return
@@ -56,6 +71,9 @@ class RangeBookmarkSourceContextController:
             editor._handle_tikz_context_request(click_position, tikz_reference)
             return
         if chosen != graphic_action:
+            return
+        if existing is not None:
+            editor._edit_graphic_image_in_ipad(existing.image_path)
             return
 
         current = editor.textCursor()

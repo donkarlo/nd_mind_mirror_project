@@ -10,6 +10,8 @@ class SourceLatexPreviewSizePolicy:
     _TABLE_MIN_AVAILABLE_RATIO = 0.58
     _TABLE_MAX_AVAILABLE_RATIO = 0.96
     _TABLE_MIN_WIDTH_PX = 320
+    _DISPLAY_MATH_RASTER_DIVISOR = 1.90
+    _DISPLAY_MATH_MAX_AVAILABLE_RATIO = 0.94
 
     @classmethod
     def logical_size(
@@ -46,12 +48,21 @@ class SourceLatexPreviewSizePolicy:
             return target_width, max(int(round(target_width / ratio)), 1)
 
         if display:
-            target_height = max(int(round(line_height * 2.05)), 42)
-            target_width = max(int(round(target_height * ratio)), 1)
-            maximum = max(int(round(available * 0.9)), 1)
-            if target_width > maximum:
-                target_width = maximum
-                target_height = max(int(round(target_width / ratio)), 1)
+            minimum_height = max(int(round(line_height * 2.15)), 42)
+            minimum_width = max(int(round(minimum_height * ratio)), 1)
+            natural_width = max(
+                int(round(image_width / cls._DISPLAY_MATH_RASTER_DIVISOR)),
+                1,
+            )
+            maximum = max(
+                int(round(available * cls._DISPLAY_MATH_MAX_AVAILABLE_RATIO)),
+                1,
+            )
+            target_width = min(
+                max(natural_width, minimum_width),
+                maximum,
+            )
+            target_height = max(int(round(target_width / ratio)), 1)
             return target_width, target_height
 
         target_height = max(int(round(line_height * 1.12)), 18)

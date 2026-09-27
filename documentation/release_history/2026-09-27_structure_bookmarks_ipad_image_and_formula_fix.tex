@@ -1,0 +1,80 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+\usepackage{adjustbox}
+\usepackage[active,tightpage]{preview}
+
+\PreviewBorder=4pt
+
+\usetikzlibrary{graphs,graphdrawing,arrows.meta,positioning,calc,fit,shapes.geometric}
+\usegdlibrary{layered}
+
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/external_graphviz.tex}
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/part/control_sequence/kind/semtag/semtag.tex}
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/seehere.tex}
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/deep_structure.tex}
+\title{Structure, Bookmark, iPad Image, and Source Formula Fixes}
+\date{2026-09-27}
+\author{Mohammad Rahmani}
+
+\begin{document}
+   \maketitle
+
+   \begin{preview}
+      \section{Structure snapshot integrity}
+      Large-document Structure trees now disable stale rows while a new
+      complete parse is pending. Tree items carry the parse generation that
+      produced them, and activation is accepted only for the currently applied
+      source snapshot. Opening \texttt{evil.tex} therefore cannot navigate
+      from a stale or partially replaced Structure tree.
+
+      \section{Canonical range bookmarks}
+      Bookmark operations now use the complete canonical source even when the
+      large Source editor displays only a bounded window. Legacy runtime
+      bookmark method replacements and the obsolete startup recovery that
+      could recreate an old bookmark were removed, leaving the range bookmark
+      model as the sole owner of bookmark persistence and activation.
+
+      \section{iPad image editing}
+      Source preview images can be right-clicked directly to open their exact
+      raster in the iPad editor. Source and Visual context menus resolve the
+      concrete graphic reference before dispatch, and clicks anywhere inside
+      both \texttt{figure} and \texttt{figure*} environments reopen the same
+      image rather than creating a new one.
+      \section{Readable Source display mathematics}
+      Display-math preview sizing now incorporates the natural rendered raster
+      extent instead of forcing every display formula to approximately two
+      text lines in height. Large formulas remain bounded by the Source
+      viewport while retaining a readable scale.
+
+      \section{Structure click activation follow-up}
+      Visible Structure rows are no longer disabled or silently rejected while
+      a newer parse is pending. A stale clicked row is resolved synchronously
+      against the current canonical source and then navigates to the matching
+      current line. Non-structural edits also no longer advance the Structure
+      generation when no tree rebuild is required.
+
+      \section{Verification}
+      Regression coverage verifies range bookmarks, startup ownership,
+      \texttt{figure}/\texttt{figure*} graphic lookup, direct Source-preview
+      iPad editing, and large display-math sizing. The real
+      \texttt{evil.tex} Structure was also parsed and navigated as one
+      complete 102-item snapshot.
+   \end{preview}
+
+   \bibliographystyle{plainnat}
+   \bibliography{/home/donkarlo/Dropbox/repo/nd_shared_research/bibliography/bibliography.bib}
+\end{document}

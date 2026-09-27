@@ -93,6 +93,12 @@ This README describes the active functional project: desktop Python/PySide6 sour
 ### Source mode
 
 - LaTeX syntax highlighting.
+- Spell checking is disabled by default and can be enabled or disabled independently for each LaTeX file from the Source or Visual context menu.
+- Each file has exactly one spell-check language: English, German, or Persian. The default Auto mode detects that document language from prose while excluding LaTeX syntax; the context menu can lock a file to a language manually.
+- Only the selected document dictionary is used for correctness, suggestions, and custom words. Persian therefore adds no cost to English/German documents and English words cannot be accepted merely because they exist in the German dictionary.
+- Spell checking is debounced, cached, and bounded to the active Source/Visual viewport plus a small margin; when disabled, no spell-check scan runs.
+- Misspellings receive a red spell-check underline. Right-clicking a misspelled word offers ranked corrections from that file's language only and replaces the clicked word when a suggestion is chosen.
+- The spelling menu can add a word to the persistent user dictionary for the file's selected language. LaTeX commands and metadata, comments, math, references, URLs, and raw Visual blocks are excluded from normal prose checking.
 - Configurable source font, size, line height, padding, tab size, indentation guides, soft wrapping, wrap marker, and incremental source-layout debounce.
 - Logical line numbers count actual source lines rather than visual soft-wrap rows.
 - Automatic Persian RTL/LTR line handling while keeping LaTeX command/setup lines usable.

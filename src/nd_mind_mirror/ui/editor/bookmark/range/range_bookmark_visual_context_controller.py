@@ -30,8 +30,14 @@ class RangeBookmarkVisualContextController(QObject):
         state = self._editor.range_bookmark_context_at(click_position)
 
         source_position = self._editor._source_position_for_location(click_location)
+        source = self._editor._range_bookmark_source_text()
+        graphic_reference = self._editor._graphic_manager.find_reference(
+            source,
+            self._editor.source_path,
+            source_position,
+        )
         tikz_reference = self._editor._tikz_document_manager.find_reference(
-            self._editor.toPlainText(),
+            source,
             self._editor.source_path,
             source_position,
         )
@@ -43,10 +49,20 @@ class RangeBookmarkVisualContextController(QObject):
             menu.addSeparator()
             bookmark_action = menu.addAction(str(state["label"]))
 
+        spell_controller = getattr(self._editor, "_spell_check_controller", None)
+        spell_actions = []
+        if spell_controller is not None:
+            spell_actions = spell_controller.append_context_actions(
+                menu,
+                watched,
+                click_cursor.position(),
+                source_mode=False,
+            )
+
         menu.addSeparator()
         click_meta = click_cursor.block().userData()
         raw = str(getattr(click_meta, "raw", "") or "")
-        is_existing_graphic = (
+        is_existing_graphic = graphic_reference is not None or (
             str(getattr(click_meta, "kind", "") or "") == "graphic"
             or "\\includegraphics" in raw
             or click_cursor.charFormat().isImageFormat()
@@ -66,13 +82,24 @@ class RangeBookmarkVisualContextController(QObject):
         insert_action = menu.addAction("Insert raw LaTeX here…")
 
         chosen = menu.exec(event.globalPos())
+        if (
+            spell_controller is not None
+            and spell_controller.execute_context_action(chosen, spell_actions)
+        ):
+            event.accept()
+            return True
         if bookmark_action is not None and chosen == bookmark_action:
             self._editor.execute_range_bookmark_state(state)
         elif chosen == graphic_action:
-            if not watched.textCursor().hasSelection():
-                watched.setTextCursor(click_cursor)
-            line, column = watched.current_source_location()
-            watched.graphic_requested.emit(line, column)
+            if graphic_reference is not None:
+                self._editor._edit_graphic_image_in_ipad(
+                    graphic_reference.image_path
+                )
+            else:
+                if not watched.textCursor().hasSelection():
+                    watched.setTextCursor(click_cursor)
+                line, column = watched.current_source_location()
+                watched.graphic_requested.emit(line, column)
         elif chosen == tikz_action:
             self._editor._handle_tikz_context_request(
                 source_position,

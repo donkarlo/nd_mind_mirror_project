@@ -1,0 +1,64 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+\usepackage{adjustbox}
+\usepackage[active,tightpage]{preview}
+
+\PreviewBorder=4pt
+
+\usetikzlibrary{graphs,graphdrawing,arrows.meta,positioning,calc,fit,shapes.geometric}
+\usegdlibrary{layered}
+
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/external_graphviz.tex}
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/part/control_sequence/kind/semtag/semtag.tex}
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/seehere.tex}
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/deep_structure.tex}
+
+\title{Document-language Spell-check Fix}
+\date{2026-09-27}
+\author{Mohammad Rahmani}
+
+\begin{document}
+   \maketitle
+
+   \begin{preview}
+      \section{Single language per file}
+      Spell checking now resolves one language for the complete document rather
+      than accepting each word against both English and German dictionaries.
+      Auto mode detects English, German, or Persian from prose and persists a
+      manual per-file override when the user selects a language explicitly.
+
+      \section{LaTeX exclusion}
+      Language detection and spelling candidates exclude LaTeX metadata,
+      commands, comments, mathematics, references, URLs, paths, and raw Visual
+      blocks. Prose arguments such as section headings remain spell-checkable.
+
+      \section{Suggestions and custom dictionary}
+      Correctness checks, correction suggestions, and custom dictionary
+      additions now use only the file's effective language. An English file
+      containing \texttt{phonem}, for example, receives the English correction
+      \texttt{phoneme}; the German noun \texttt{Phonem} remains valid only
+      when German is the selected document language.
+
+      \section{Verification}
+      Regression tests cover LaTeX exclusion, document-language detection,
+      language-specific custom words, per-file preference persistence, and the
+      exact English \texttt{phonem} to \texttt{phoneme} suggestion path.
+   \end{preview}
+
+   \bibliographystyle{plainnat}
+   \bibliography{/home/donkarlo/Dropbox/repo/nd_shared_research/bibliography/bibliography.bib}
+\end{document}
