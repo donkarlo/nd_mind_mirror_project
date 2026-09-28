@@ -1,0 +1,74 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+\usepackage{adjustbox}
+\usepackage[active,tightpage]{preview}
+
+\PreviewBorder=4pt
+
+\usetikzlibrary{graphs,graphdrawing,arrows.meta,positioning,calc,fit,shapes.geometric}
+\usegdlibrary{layered}
+
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/external_graphviz.tex}
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/part/control_sequence/kind/semtag/semtag.tex}
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/seehere.tex}
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/deep_structure.tex}
+
+\title{Large Visual Structure Initial-load Fix}
+\date{2026-09-28}
+\author{Mohammad Rahmani}
+
+\begin{document}
+   \maketitle
+
+   \begin{preview}
+      \section{Cause}
+      Restoring a virtualized large LaTeX document directly into Visual mode
+      initialized the mode-isolation cache from the materialized Source
+      \texttt{QTextDocument}. That document contains only the roughly
+      40,000-character Source window, not the complete canonical buffer.
+      A deferred content emission could therefore send only that window to
+      Structure. For \texttt{evil.tex}, the first Source window ended near
+      line 154 and produced exactly the first seven Structure nodes through
+      the subsection at line 152.
+
+      \section{Canonical-source ownership}
+      Visual mode now obtains and emits content through the editor's canonical
+      source provider when one exists. Large editors therefore keep the full
+      canonical buffer as the sole source for Structure, saving, Preview, and
+      delayed content notifications while Source remains virtualized.
+
+      \section{Presentation-only document changes}
+      Detaching Source syntax highlighting during the Visual transition can
+      produce a same-length \texttt{QTextDocument.contentsChange} event even
+      though no text changed. Large Source synchronization now identifies that
+      presentation-only event and does not apply it to the canonical buffer.
+      This prevents a mode switch from changing source text or marking the
+      document as modified.
+
+      \section{Verification}
+      A regression test restores a source larger than the virtualization
+      threshold directly into Visual mode, verifies that the materialized
+      Source remains smaller than the canonical document, forces the deferred
+      content path, and confirms that Structure receives every section.
+      The real \texttt{evil.tex} startup path was also exercised: the
+      canonical source remained unchanged and unmodified, and the first
+      Structure parse produced 102 nodes through the final section.
+   \end{preview}
+
+   \bibliographystyle{plainnat}
+   \bibliography{/home/donkarlo/Dropbox/repo/nd_shared_research/bibliography/bibliography.bib}
+\end{document}

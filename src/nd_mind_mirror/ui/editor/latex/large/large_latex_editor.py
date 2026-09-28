@@ -156,6 +156,10 @@ class LargeLatexEditor(IncrementalLargeLatexEditor):
                 int(chars_removed) != 0
                 or int(chars_added) != 0
             )
+            and not self._visible_change_is_presentation_only(
+                chars_removed,
+                chars_added,
+            )
         )
         super()._synchronize_visible_change(
             position,

@@ -34,7 +34,7 @@ class ModeIsolatedLatexEditor(CoreLatexEditor):
         requested = "visual" if str(mode).strip().lower() == "visual" else "source"
         previous = self.edit_mode
         if requested == "visual" and previous != "visual":
-            self._visual_source_cache = super().toPlainText()
+            self._visual_source_cache = self._canonical_source_text()
         super().set_edit_mode(requested)
         if requested == previous:
             return
@@ -90,7 +90,7 @@ class ModeIsolatedLatexEditor(CoreLatexEditor):
         updated = str(source)
         current = self._visual_source_cache
         if current is None:
-            current = super().toPlainText()
+            current = self._canonical_source_text()
         if updated == current:
             return
 
@@ -121,11 +121,23 @@ class ModeIsolatedLatexEditor(CoreLatexEditor):
             self.active_cursor_changed.emit()
 
     def _flush_content(self) -> None:
-        """Emit cached Visual source instead of reading the hidden Source document."""
-        if self.edit_mode == "visual" and self._visual_source_cache is not None:
-            self.content_changed.emit(self._visual_source_cache)
+        """Emit the complete canonical source even when Source is virtualized."""
+        if self.edit_mode == "visual":
+            self.content_changed.emit(self._canonical_source_text())
             return
         super()._flush_content()
+
+    def _canonical_source_text(self) -> str:
+        """Return the complete source without bypassing a large editor's buffer."""
+        provider = getattr(self, "canonical_source", None)
+        if callable(provider):
+            try:
+                return str(provider())
+            except (AttributeError, RuntimeError):
+                pass
+        if self.edit_mode == "visual" and self._visual_source_cache is not None:
+            return str(self._visual_source_cache)
+        return str(super().toPlainText())
 
     @staticmethod
     def _common_prefix_length(left: str, right: str) -> int:

@@ -168,6 +168,11 @@ class LargeLatexEditor(LatexEditor):
             return
         if int(chars_removed) == 0 and int(chars_added) == 0:
             return
+        if self._visible_change_is_presentation_only(
+            chars_removed,
+            chars_added,
+        ):
+            return
 
         inserted = self._inserted_document_text(position, chars_added)
         self._source_buffer.apply_edit(
@@ -178,6 +183,18 @@ class LargeLatexEditor(LatexEditor):
         self._change_generation += 1
         self._canonical_modified = True
         self._visual_dirty = True
+
+    def _visible_change_is_presentation_only(
+        self,
+        chars_removed: int,
+        chars_added: int,
+    ) -> bool:
+        """Ignore format-only QTextDocument change notifications."""
+        removed = int(chars_removed)
+        added = int(chars_added)
+        if removed <= 0 or removed != added:
+            return False
+        return self.document().toPlainText() == self._source_buffer.window_text
 
     def _inserted_document_text(self, position: int, chars_added: int) -> str:
         count = max(int(chars_added), 0)
