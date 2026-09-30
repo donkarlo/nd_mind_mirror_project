@@ -25,6 +25,7 @@ final class ActiveDrawingToolController: NSObject, ObservableObject, UIGestureRe
     private weak var parentScrollView: UIScrollView?
     private weak var historyUndoGesture: UITapGestureRecognizer?
     private weak var historyController: CanvasEditHistoryController?
+    private var quickToolTapCheckpoint: CanvasEditHistoryController.Checkpoint?
     private let stateStore: ActiveDrawingToolStateStore
     private let lassoSelectionFeedbackController = LassoSelectionFeedbackController()
     private let rasterLassoInteractionController = RasterLassoInteractionController()
@@ -143,8 +144,52 @@ final class ActiveDrawingToolController: NSObject, ObservableObject, UIGestureRe
         applyImmediately()
     }
 
+    /// Captures the canvas state before the first native Pencil tap of a quick-tool gesture.
+    func beginQuickToolTapCandidate() {
+        quickToolTapCheckpoint = historyController?.makeCheckpoint()
+    }
+
+    /// Discards a failed quick-tool candidate without altering the drawing.
+    func discardQuickToolTapCandidate() {
+        quickToolTapCheckpoint = nil
+    }
+
+    /// Removes drawing/erasing side effects created by a recognized quick-tool tap.
+    @discardableResult
+    func restoreQuickToolTapCandidate() -> Bool {
+        guard let checkpoint = quickToolTapCheckpoint,
+              let historyController,
+              let snapshot = historyController.restoreCheckpoint(checkpoint),
+              let canvas else {
+            quickToolTapCheckpoint = nil
+            return false
+        }
+
+        quickToolTapCheckpoint = nil
+        rasterPreviewLayer?.removeFromSuperlayer()
+        rasterPreviewLayer = nil
+        rasterSession = nil
+        pendingRasterImage = nil
+        pendingRasterChanged = false
+        isRasterEditing = false
+
+        pendingProgrammaticDrawingData = snapshot.drawing.dataRepresentation()
+        clearNativeUndoHistory()
+        canvas.drawing = snapshot.drawing
+        backgroundView?.image = snapshot.backgroundImage
+        clearNativeUndoHistory()
+        rasterLassoInteractionController.clearSelection()
+        canvasStateCommitted?(snapshot.drawing, snapshot.backgroundImage, true)
+
+        DispatchQueue.main.async { [weak self] in
+            self?.clearNativeUndoHistory()
+        }
+        return true
+    }
+
     /// Clears transient selection and native PencilKit history before a remote document replaces the canvas.
     func prepareForRemoteDocumentLoad() {
+        quickToolTapCheckpoint = nil
         rasterLassoInteractionController.clearSelection()
         pendingProgrammaticDrawingData = nil
         clearNativeUndoHistory()

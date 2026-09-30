@@ -40,6 +40,8 @@ struct ContentView: View {
     @State private var loadedPath: String?
     @State private var initializedTool = false
     @State private var pendingRemoteToken: Int?
+    @State private var quickToolPaletteAnchor: CGPoint?
+    @State private var quickPhotoPickerPresented = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -61,6 +63,11 @@ struct ContentView: View {
         .sheet(isPresented: $showLiveSyncSettings) {
             LiveGraphicSyncSettingsView(settingsStore: liveSyncSettings)
         }
+        .photosPicker(
+            isPresented: $quickPhotoPickerPresented,
+            selection: $selectedPhotoItem,
+            matching: .images
+        )
         .onAppear {
             if !initializedTool {
                 initializedTool = true
@@ -182,6 +189,7 @@ struct ContentView: View {
                 onDisconnect: bridge.disconnect
             )
             .onChange(of: selectedPhotoItem) { _, item in
+                quickToolPaletteAnchor = nil
                 importPhoto(item)
             }
 
@@ -190,25 +198,45 @@ struct ContentView: View {
                 isVisible: showMeasurementRulers,
                 zoomScale: zoomScale
             ) {
-                PencilCanvasView(
-                    drawing: localDrawing,
-                    backgroundImage: backgroundImage,
-                    activeToolController: activeTool,
-                    documentToken: canvasToken,
-                    documentIdentifier: bridge.selectedPath ?? "",
-                    tool: activeTool.kind,
-                    imageObjects: [],
-                    selectedImageObjectID: nil,
-                    logicalCanvasSize: logicalCanvasSize,
-                    showMeasurementGrid: showMeasurementGrid,
-                    showMeasurementRulers: false,
-                    zoom100RequestToken: zoom100RequestToken,
-                    onDrawingChanged: handleDrawingChanged,
-                    onUndoManagerChanged: { _ in },
-                    onZoomChanged: { zoomScale = $0 },
-                    onImageObjectSelectionChanged: { _ in },
-                    onImageObjectsCommitted: { _, _, _ in }
-                )
+                ZStack(alignment: .topLeading) {
+                    PencilCanvasView(
+                        drawing: localDrawing,
+                        backgroundImage: backgroundImage,
+                        activeToolController: activeTool,
+                        documentToken: canvasToken,
+                        documentIdentifier: bridge.selectedPath ?? "",
+                        tool: activeTool.kind,
+                        imageObjects: [],
+                        selectedImageObjectID: nil,
+                        logicalCanvasSize: logicalCanvasSize,
+                        showMeasurementGrid: showMeasurementGrid,
+                        showMeasurementRulers: false,
+                        zoom100RequestToken: zoom100RequestToken,
+                        quickToolPalettePresented: quickToolPaletteAnchor != nil,
+                        onPencilSingleTap: { _ in
+                            quickToolPaletteAnchor = nil
+                        },
+                        onPencilDoubleTap: { point in
+                            quickToolPaletteAnchor = point
+                        },
+                        onDrawingChanged: handleDrawingChanged,
+                        onUndoManagerChanged: { _ in },
+                        onZoomChanged: { zoomScale = $0 },
+                        onImageObjectSelectionChanged: { _ in },
+                        onImageObjectsCommitted: { _, _, _ in }
+                    )
+
+                    if let quickToolPaletteAnchor {
+                        QuickDrawingToolPaletteView(
+                            activeTool: activeTool,
+                            savedTools: savedTools,
+                            anchor: quickToolPaletteAnchor,
+                            onSelectSavedTool: selectQuickTool,
+                            onSelectLasso: selectQuickLasso,
+                            onAddImage: openQuickPhotoPicker
+                        )
+                    }
+                }
                 .clipped()
                 .onAppear {
                     bindToolRuntime()
@@ -243,6 +271,7 @@ struct ContentView: View {
 
     private func loadRemoteDocument(token: Int) {
         guard token != localToken else { return }
+        quickToolPaletteAnchor = nil
         if activeTool.isCanvasGestureInFlight {
             pendingRemoteToken = token
             return
@@ -419,6 +448,24 @@ struct ContentView: View {
         restore(snapshot)
     }
 
+    private func selectQuickTool(_ savedTool: SavedDrawingTool) {
+        activeTool.select(savedTool: savedTool)
+        if savedTool.kind.supportsColor {
+            recentColors.remember(hex: savedTool.colorHex, for: savedTool.kind)
+        }
+        quickToolPaletteAnchor = nil
+    }
+
+    private func selectQuickLasso() {
+        activeTool.select(kind: .lasso)
+        quickToolPaletteAnchor = nil
+    }
+
+    private func openQuickPhotoPicker() {
+        quickToolPaletteAnchor = nil
+        quickPhotoPickerPresented = true
+    }
+
     private func restore(_ snapshot: CanvasEditHistoryController.Snapshot) {
         liveSaveScheduler.cancelPending()
         activeTool.applyHistorySnapshot(snapshot)
@@ -483,6 +530,7 @@ struct ContentView: View {
 
     private func closeCurrentImage() {
         guard bridge.selectedPath != nil else { return }
+        quickToolPaletteAnchor = nil
         liveSaveScheduler.cancelPending()
         saveCurrentState(persistBackground: false)
         let deferred = saveRetryController.closeWhenSettled {

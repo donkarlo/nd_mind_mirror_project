@@ -18,6 +18,9 @@ struct PencilCanvasView: UIViewRepresentable {
     let showMeasurementGrid: Bool
     let showMeasurementRulers: Bool
     let zoom100RequestToken: Int
+    let quickToolPalettePresented: Bool
+    let onPencilSingleTap: (CGPoint) -> Void
+    let onPencilDoubleTap: (CGPoint) -> Void
     let onDrawingChanged: (PKDrawing) -> Void
     let onUndoManagerChanged: (UndoManager?) -> Void
     let onZoomChanged: (CGFloat) -> Void
@@ -121,6 +124,18 @@ struct PencilCanvasView: UIViewRepresentable {
         context.coordinator.logicalCanvasSize = logicalCanvasSize
         context.coordinator.activeTool = tool
         context.coordinator.zoom100RequestToken = zoom100RequestToken
+        context.coordinator.configureQuickToolGestures(
+            activeToolController: activeToolController,
+            onSinglePencilTap: onPencilSingleTap,
+            onDoublePencilTap: onPencilDoubleTap
+        )
+        context.coordinator.quickToolGestureController.attach(
+            to: content,
+            coordinateView: scroll
+        )
+        context.coordinator.quickToolGestureController.setPalettePresented(
+            quickToolPalettePresented
+        )
 
         activeToolController.attach(canvas: canvas, backgroundView: background)
 
@@ -140,6 +155,14 @@ struct PencilCanvasView: UIViewRepresentable {
         coordinator.onImageObjectSelectionChanged = onImageObjectSelectionChanged
         coordinator.onImageObjectsCommitted = onImageObjectsCommitted
         coordinator.activeToolController = activeToolController
+        coordinator.configureQuickToolGestures(
+            activeToolController: activeToolController,
+            onSinglePencilTap: onPencilSingleTap,
+            onDoublePencilTap: onPencilDoubleTap
+        )
+        coordinator.quickToolGestureController.setPalettePresented(
+            quickToolPalettePresented
+        )
 
         coordinator.imageObjectLayer?.setObjects(imageObjects)
         coordinator.imageObjectInteractionView?.setState(
@@ -230,6 +253,10 @@ struct PencilCanvasView: UIViewRepresentable {
         }
     }
 
+    static func dismantleUIView(_ uiView: UIScrollView, coordinator: Coordinator) {
+        coordinator.quickToolGestureController.detach()
+    }
+
     final class Coordinator:
         NSObject,
         PKCanvasViewDelegate,
@@ -251,6 +278,7 @@ struct PencilCanvasView: UIViewRepresentable {
         weak var activeToolController: ActiveDrawingToolController?
 
         let historyRebaseController = PencilCanvasHistoryRebaseController()
+        let quickToolGestureController = PencilQuickToolPaletteGestureController()
         private var pendingHistoryCanvasReplacement = false
 
         var documentToken = -1
@@ -276,6 +304,35 @@ struct PencilCanvasView: UIViewRepresentable {
             self.onDrawingChanged = onDrawingChanged
             self.onUndoManagerChanged = onUndoManagerChanged
             self.onZoomChanged = onZoomChanged
+        }
+
+        func configureQuickToolGestures(
+            activeToolController: ActiveDrawingToolController,
+            onSinglePencilTap: @escaping (CGPoint) -> Void,
+            onDoublePencilTap: @escaping (CGPoint) -> Void
+        ) {
+            quickToolGestureController.onPencilContactBegan = {
+                [weak controller = activeToolController] in
+                controller?.beginQuickToolTapCandidate()
+            }
+            quickToolGestureController.onDoubleTapRejected = {
+                [weak controller = activeToolController] in
+                controller?.discardQuickToolTapCandidate()
+            }
+            quickToolGestureController.onSinglePencilTap = {
+                [weak controller = activeToolController] point in
+                guard controller?.restoreQuickToolTapCandidate() == true else {
+                    return
+                }
+                onSinglePencilTap(point)
+            }
+            quickToolGestureController.onDoublePencilTap = {
+                [weak controller = activeToolController] point in
+                guard controller?.restoreQuickToolTapCandidate() == true else {
+                    return
+                }
+                onDoublePencilTap(point)
+            }
         }
 
         func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {

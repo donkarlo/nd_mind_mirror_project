@@ -1,0 +1,50 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+\usepackage{adjustbox}
+\usepackage[active,tightpage]{preview}
+
+\PreviewBorder=4pt
+
+\title{}
+\date{}
+\author{Mohammad Rahmani}
+\begin{document}
+   \maketitle
+
+   \begin{preview}
+      \section*{2026-09-30 --- iPad quick-tool double-tap gesture fix}
+
+      The raster iPad quick-tool palette now relies on one native iOS Apple Pencil double-tap recognizer attached to the stable raster content surface.
+
+      \begin{itemize}
+         \item The quick-tool gesture uses a native Apple Pencil double-tap recognizer with two taps required, so normal writing strokes are rejected by the platform recognizer instead of custom handwriting heuristics.
+         \item The first Pencil contact captures the pre-contact canvas checkpoint; the second contact supplies the measured time and location used to enforce the 0.32-second and 16-point application limits.
+         \item The system tap recognizer remains simultaneous with PencilKit and never cancels PencilKit touches.
+         \item Manual tap pairing and handwriting-flow suppression were removed from the activation path.
+         \item Repeated SwiftUI refreshes no longer reset an in-progress double-tap sequence when palette visibility has not changed.
+         \item While the quick-tool palette is open, double-tap recognition is disabled and a separate Pencil single-tap recognizer handles dismissal.
+         \item The checkpoint captured before the first contact is restored only after the native double-tap recognizer succeeds and the application time/distance limits pass.
+         \item Because the recognizer lives on the stable raster content surface, PencilKit canvas replacement during Undo/Redo does not detach or recreate the quick-tool gesture path.
+         \item Pencil and marker dots created by the two taps are removed before the palette is shown.
+         \item Raster eraser side effects are also restored, so opening or dismissing the quick-tool palette does not edit the image.
+         \item A Pencil tap outside an open quick-tool palette dismisses it without leaving a drawing mark.
+      \end{itemize}
+   \end{preview}
+
+   \bibliographystyle{plainnat}
+   \bibliography{/home/donkarlo/Dropbox/repo/nd_shared_research/bibliography/bibliography.bib}
+\end{document}

@@ -262,6 +262,7 @@ There is no second root-level copy of `nd_graphic.zip` in the project. The canon
 ### iPad drawing controls
 
 - Pencil, Highlighter, Eraser, and Lasso.
+- Double-tapping the raster canvas with the Apple Pencil tip opens a four-column quick-tool palette at the tap location. It contains every saved drawing preset plus Lasso and Add image, prefers placement above the Pencil, stays fully inside the visible canvas, reduces its row count when fewer than 16 items exist, and scrolls inside the same four-row panel if more items are configured.
 - Saved drawing-tool presets can be added, edited, reordered by placement, or deleted; Pencil/Highlighter presets carry color, thickness, and opacity, while Eraser presets carry eraser mode and width.
 - Independent recent-color history for Pencil and Highlighter.
 - Persistent last stroke color and thickness.

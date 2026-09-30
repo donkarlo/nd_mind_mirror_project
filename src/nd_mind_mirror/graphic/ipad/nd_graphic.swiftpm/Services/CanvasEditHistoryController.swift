@@ -10,6 +10,13 @@ final class CanvasEditHistoryController: ObservableObject {
         let backgroundImage: UIImage?
     }
 
+    struct Checkpoint {
+        fileprivate let undoStack: [Snapshot]
+        fileprivate let redoStack: [Snapshot]
+        fileprivate let currentSnapshot: Snapshot?
+        fileprivate let gestureStartSnapshot: Snapshot?
+    }
+
     @Published private(set) var canUndo = false
     @Published private(set) var canRedo = false
 
@@ -34,6 +41,25 @@ final class CanvasEditHistoryController: ObservableObject {
     func beginGesture() {
         guard gestureStartSnapshot == nil else { return }
         gestureStartSnapshot = currentSnapshot
+    }
+
+    func makeCheckpoint() -> Checkpoint {
+        Checkpoint(
+            undoStack: undoStack,
+            redoStack: redoStack,
+            currentSnapshot: currentSnapshot,
+            gestureStartSnapshot: gestureStartSnapshot
+        )
+    }
+
+    @discardableResult
+    func restoreCheckpoint(_ checkpoint: Checkpoint) -> Snapshot? {
+        undoStack = checkpoint.undoStack
+        redoStack = checkpoint.redoStack
+        currentSnapshot = checkpoint.currentSnapshot
+        gestureStartSnapshot = checkpoint.gestureStartSnapshot
+        refreshAvailability()
+        return currentSnapshot
     }
 
     @discardableResult
