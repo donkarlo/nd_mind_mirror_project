@@ -115,6 +115,7 @@ This README describes the active functional project: desktop Python/PySide6 sour
 - Standard Source context-menu editing remains available; when text is selected, **Bookmark Selection** records the same canonical source range through the same bookmark toggle path used by the main Bookmarks action.
 - Ubuntu right-click menus use compact semantic icons for common actions, while the Navigator tree uses slightly wider child indentation for clearer hierarchy.
 - Source and Visual keep native text Copy/Cut/Paste semantics while exposing current-document Open actions such as Open in Files and Pin File in Tabs.
+- Source and Visual provide scroll-past-end breathing room: while typing near the bottom of the viewport, the caret stays above the lower edge and visually empty space remains available below it without adding characters to the canonical source.
 - Dragging an image from Navigator into Source inserts the exact image path into a LaTeX figure rather than substituting a different clipboard image.
 - Source graphic references can show the managed graphic preview/edit workflow without replacing the canonical `\includegraphics` source.
 

@@ -5,6 +5,9 @@ from PySide6.QtWidgets import QTextEdit
 from nd_mind_mirror.ui.editor.base.text_editor_rich_core import (
     TextEditor as RichTextEditor,
 )
+from nd_mind_mirror.ui.editor.cursor.caret_scroll_margin_controller import (
+    CaretScrollMarginController,
+)
 from nd_mind_mirror.ui.editor.cursor.cursor_appearance_controller import (
     CursorAppearanceController,
 )
@@ -27,6 +30,7 @@ class TextEditor(RichTextEditor):
         self._large_document_mode = False
         super().__init__(parent)
         self._cursor_appearance = CursorAppearanceController(self)
+        self._caret_scroll_margin = CaretScrollMarginController(self)
 
     def apply_cursor_preferences(
         self,

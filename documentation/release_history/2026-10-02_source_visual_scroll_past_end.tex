@@ -1,0 +1,48 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+\usepackage{adjustbox}
+\usepackage[active,tightpage]{preview}
+
+\PreviewBorder=4pt
+\title{}
+\date{}
+\author{Mohammad Rahmani}
+\begin{document}
+   \maketitle
+
+   \begin{preview}
+      \section*{2026-10-02 --- Source and Visual scroll-past-end}
+
+      Source and Visual editors now provide Word-like breathing room below the
+      active caret while typing near the bottom of the viewport.
+
+      \begin{itemize}
+         \item A shared caret scroll-margin controller is used by both Source
+               and Visual editors.
+         \item The QTextDocument root frame receives visual-only bottom space
+               proportional to the viewport height.
+         \item The focused caret is kept above the lower viewport edge while
+               typing, so additional empty working space remains visible below it.
+         \item Signal blockers preserve the canonical source and document
+               modified state while the visual margin changes.
+         \item Resize and font/layout changes recompute the available bottom space.
+      \end{itemize}
+   \end{preview}
+
+   \bibliographystyle{plainnat}
+   \bibliography{/home/donkarlo/Dropbox/repo/nd_shared_research/bibliography/bibliography.bib}
+\end{document}

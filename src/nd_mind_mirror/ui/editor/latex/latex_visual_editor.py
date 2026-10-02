@@ -31,6 +31,9 @@ from PySide6.QtWidgets import (
 
 from nd_mind_mirror.core.completion.latex.latex_shortcut_provider import LatexShortcut
 from nd_mind_mirror.ui.menu.context_menu_presenter import ContextMenuPresenter
+from nd_mind_mirror.ui.editor.cursor.caret_scroll_margin_controller import (
+    CaretScrollMarginController,
+)
 from nd_mind_mirror.ui.editor.cursor.cursor_appearance_controller import (
     CursorAppearanceController,
 )
@@ -177,6 +180,7 @@ class LatexVisualEditor(QTextEdit):
         self._emit_timer.timeout.connect(self._emit_serialized_source)
         self.textChanged.connect(self._schedule_source_emit)
         self._cursor_appearance = CursorAppearanceController(self)
+        self._caret_scroll_margin = CaretScrollMarginController(self)
 
     def apply_cursor_preferences(
         self,
