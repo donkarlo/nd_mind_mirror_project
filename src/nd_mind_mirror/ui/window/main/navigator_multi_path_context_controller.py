@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 from nd_mind_mirror.ui.window.main.navigator_context_controller import (
     NavigatorContextController,
 )
+from nd_mind_mirror.ui.menu.context_menu_presenter import ContextMenuPresenter
 from nd_mind_mirror.ui.input.navigator_clipboard_key_event_filter import (
     NavigatorClipboardKeyEventFilter,
 )
@@ -96,6 +97,70 @@ class NavigatorMultiPathContextController(NavigatorContextController):
             file_system_panel,
             pin_callback,
         )
+
+    def append_document_menu(self, menu, path: Path) -> None:
+        """Append the file-specific Navigator actions without replacing text clipboard actions."""
+        path = Path(path).expanduser()
+        open_menu = menu.addMenu("Open")
+        copy_menu = menu.addMenu("Copy / Share")
+        create_menu = menu.addMenu("Create")
+        manage_menu = menu.addMenu("Manage")
+
+        open_files = open_menu.addAction("Open in Files")
+        open_files.triggered.connect(lambda: self._panel._open_in_file_manager(path))
+        if self._is_ipad_editable(path):
+            edit_ipad = open_menu.addAction("Edit image in iPad…")
+            edit_ipad.triggered.connect(
+                lambda: self._panel.graphic_edit_requested.emit(str(path.resolve()))
+            )
+        if path.is_file() and self._pin_callback is not None:
+            pin_action = open_menu.addAction("Pin File in Tabs")
+            pin_action.triggered.connect(lambda: self._pin_callback(path))
+
+        copy_path = copy_menu.addAction("Copy Absolute Path")
+        copy_path.triggered.connect(
+            lambda: QApplication.clipboard().setText(str(path.resolve()))
+        )
+        rooted = self._default_rooted_paths([path])
+        copy_default = copy_menu.addAction("Copy from Default Path")
+        copy_default.setEnabled(bool(rooted))
+        copy_default.triggered.connect(
+            lambda: QApplication.clipboard().setText("\n".join(rooted))
+        )
+        copy_name = copy_menu.addAction("Copy File Name")
+        copy_name.triggered.connect(
+            lambda: QApplication.clipboard().setText(path.name)
+        )
+        github_url = self._github_url(path)
+        copy_github = copy_menu.addAction("Copy GitHub URL")
+        open_github = copy_menu.addAction("Open GitHub URL")
+        copy_github.setEnabled(bool(github_url))
+        open_github.setEnabled(bool(github_url))
+        copy_github.triggered.connect(
+            lambda: QApplication.clipboard().setText(github_url)
+        )
+        open_github.triggered.connect(
+            lambda: QDesktopServices.openUrl(QUrl(github_url))
+        )
+
+        new_latex = create_menu.addAction("New LaTeX File…")
+        new_latex.triggered.connect(lambda: self._panel._create_file(path, latex=True))
+        new_file = create_menu.addAction("New File…")
+        new_file.triggered.connect(lambda: self._panel._create_file(path, latex=False))
+        new_folder = create_menu.addAction("New Folder…")
+        new_folder.triggered.connect(lambda: self._panel._create_folder(path))
+
+        rename = manage_menu.addAction("Rename…")
+        delete = manage_menu.addAction("Delete…")
+        rename.setEnabled(path != self._panel._root_path)
+        delete.setEnabled(path != self._panel._root_path)
+        rename.triggered.connect(lambda: self._panel._rename_path(path))
+        delete.triggered.connect(lambda: self._panel._delete_path(path))
+
+        self._decorate_menu(menu)
+
+    def _decorate_menu(self, menu) -> None:
+        ContextMenuPresenter.decorate(menu)
 
     def show_menu(self, position) -> None:
         """Show one complete menu while preserving Ctrl/Shift multi-selection."""
@@ -228,6 +293,7 @@ class NavigatorMultiPathContextController(NavigatorContextController):
                 lambda: self._panel._delete_path(path)
             )
 
+        ContextMenuPresenter.decorate(menu)
         menu.exec(
             self._tree.viewport().mapToGlobal(position)
         )
@@ -583,7 +649,11 @@ class NavigatorMultiPathContextController(NavigatorContextController):
 
     def _copy_selected_absolute_paths(self) -> None:
         """Copy all selected absolute paths, one per line."""
-        paths = self.selected_paths()
+        self._copy_absolute_paths(self.selected_paths())
+
+    @staticmethod
+    def _copy_absolute_paths(paths: list[Path]) -> None:
+        """Copy explicit absolute paths, one per line."""
         if paths:
             QApplication.clipboard().setText(
                 "\n".join(str(path) for path in paths)
@@ -591,6 +661,10 @@ class NavigatorMultiPathContextController(NavigatorContextController):
 
     def _selected_default_rooted_paths(self) -> list[str]:
         """Return selected paths formatted relative to search.default_path."""
+        return self._default_rooted_paths(self.selected_paths())
+
+    def _default_rooted_paths(self, paths: list[Path]) -> list[str]:
+        """Format explicit paths relative to search.default_path."""
         settings = getattr(
             self._panel.window(),
             "_app_settings",
@@ -610,7 +684,7 @@ class NavigatorMultiPathContextController(NavigatorContextController):
             root = Path(default_path).expanduser()
 
         output: list[str] = []
-        for path in self.selected_paths():
+        for path in paths:
             try:
                 relative = path.resolve(strict=False).relative_to(root)
             except (OSError, ValueError):

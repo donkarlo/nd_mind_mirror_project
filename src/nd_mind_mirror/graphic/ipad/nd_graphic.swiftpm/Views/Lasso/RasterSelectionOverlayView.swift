@@ -86,6 +86,22 @@ final class RasterSelectionOverlayView: UIView {
         }
     }
 
+    func containsSelectionInteraction(at point: CGPoint) -> Bool {
+        guard !isHidden, let selectionBounds else { return false }
+        if selectionBounds.contains(point) {
+            return true
+        }
+
+        let movePoint = moveHandle.convert(point, from: self)
+        if moveHandle.point(inside: movePoint, with: nil) {
+            return true
+        }
+        return handles.contains { handle in
+            let local = handle.convert(point, from: self)
+            return handle.point(inside: local, with: nil)
+        }
+    }
+
     static func opposite(_ corner: Corner) -> Corner {
         switch corner {
         case .topLeft: return .bottomRight

@@ -137,7 +137,7 @@ class SpellCheckController(QObject):
             if self._enabled
             else "Enable spell check for this file"
         )
-        actions.append((toggle, self.toggle_enabled))
+        self._register_context_action(actions, toggle, self.toggle_enabled)
         if not self._enabled:
             return actions
 
@@ -154,11 +154,10 @@ class SpellCheckController(QObject):
             action = language_menu.addAction(label)
             action.setCheckable(True)
             action.setChecked(self._language_mode == value)
-            actions.append(
-                (
-                    action,
-                    lambda selected=value: self.set_language_mode(selected),
-                )
+            self._register_context_action(
+                actions,
+                action,
+                lambda selected=value: self.set_language_mode(selected),
             )
 
         candidate = (
@@ -183,41 +182,48 @@ class SpellCheckController(QObject):
             empty_action.setEnabled(False)
         for suggestion in suggestions:
             action = spelling_menu.addAction(suggestion)
-            actions.append(
-                (
-                    action,
-                    lambda replacement=suggestion, target=widget,
-                    left=start, right=end: self._replace_word(
-                        target,
-                        left,
-                        right,
-                        replacement,
-                    ),
-                )
+            self._register_context_action(
+                actions,
+                action,
+                lambda replacement=suggestion, target=widget,
+                left=start, right=end: self._replace_word(
+                    target,
+                    left,
+                    right,
+                    replacement,
+                ),
             )
 
         language_label = self._LANGUAGE_LABELS.get(language, language)
         add_action = spelling_menu.addAction(
             f"Add to {language_label} dictionary"
         )
-        actions.append(
-            (
-                add_action,
-                lambda lang=language, value=word: self._add_word(lang, value),
-            )
+        self._register_context_action(
+            actions,
+            add_action,
+            lambda lang=language, value=word: self._add_word(lang, value),
         )
         return actions
+
+    @staticmethod
+    def _register_context_action(
+        actions: list[tuple[object, Callable[[], None]]],
+        action,
+        callback: Callable[[], None],
+    ) -> None:
+        """Execute a spell-check action from its own QAction signal."""
+        action.triggered.connect(
+            lambda _checked=False, handler=callback: handler()
+        )
+        actions.append((action, callback))
 
     @staticmethod
     def execute_context_action(
         chosen,
         actions: list[tuple[object, Callable[[], None]]],
     ) -> bool:
-        for action, callback in actions:
-            if chosen == action:
-                callback()
-                return True
-        return False
+        """Report whether the chosen action belongs to spell checking."""
+        return any(chosen == action for action, _callback in actions)
     def _refresh(self) -> None:
         if not self._enabled:
             return

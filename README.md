@@ -93,7 +93,7 @@ This README describes the active functional project: desktop Python/PySide6 sour
 ### Source mode
 
 - LaTeX syntax highlighting.
-- Spell checking is disabled by default and can be enabled or disabled independently for each LaTeX file from the Source or Visual context menu.
+- Spell checking is enabled by default for every LaTeX file and can be disabled independently for a file from the Source or Visual context menu; an explicit per-file disabled state remains persisted.
 - Each file has exactly one spell-check language: English, German, or Persian. The default Auto mode detects that document language from prose while excluding LaTeX syntax; the context menu can lock a file to a language manually.
 - Only the selected document dictionary is used for correctness, suggestions, and custom words. Persian therefore adds no cost to English/German documents and English words cannot be accepted merely because they exist in the German dictionary.
 - Spell checking is debounced, cached, and bounded to the active Source/Visual viewport plus a small margin; when disabled, no spell-check scan runs.
@@ -113,6 +113,8 @@ This README describes the active functional project: desktop Python/PySide6 sour
 - Image insertion keeps the complete LaTeX `figure`/`\includegraphics` source visible.
 - The LaTeX toolbar provides grouped Unicode character insertion, an `\iffalse … \fi` helper, and a `_ → \_` action that escapes unescaped underscores in the current Source selection.
 - Standard Source context-menu editing remains available; when text is selected, **Bookmark Selection** records the same canonical source range through the same bookmark toggle path used by the main Bookmarks action.
+- Ubuntu right-click menus use compact semantic icons for common actions, while the Navigator tree uses slightly wider child indentation for clearer hierarchy.
+- Source and Visual keep native text Copy/Cut/Paste semantics while exposing current-document Open actions such as Open in Files and Pin File in Tabs.
 - Dragging an image from Navigator into Source inserts the exact image path into a LaTeX figure rather than substituting a different clipboard image.
 - Source graphic references can show the managed graphic preview/edit workflow without replacing the canonical `\includegraphics` source.
 
@@ -271,7 +273,7 @@ There is no second root-level copy of `nd_graphic.zip` in the project. The canon
 - Zoom percentage and logical canvas dimensions.
 - Explicit 100% zoom command.
 - Two-finger tap Undo.
-- PencilKit lasso movement plus proportional corner-handle resizing.
+- PencilKit lasso movement plus proportional corner-handle resizing; an Apple Pencil tap outside the active selection box and its interaction handles deselects the current lasso selection.
 - Finger pan/pinch with Pencil drawing.
 - Background photo import/removal.
 - Editable canvas sizes/presets, including A4 portrait, A4 landscape, square, and custom numeric dimensions; resizing is checked against existing drawing bounds so the requested canvas does not silently clip content.
@@ -398,6 +400,7 @@ New and modified implementation files begin with a concise module description. N
 - The iPad measurement Grid and centimeter Rulers have independent toolbar switches and remain view-only overlays.
 - PencilKit internal content geometry is synchronized with logical canvas resizing so the full A4 portrait drawing area accepts Apple Pencil input.
 - Tapping the active source/image identity opens the ten most recently edited graphics and can request any of them from the Ubuntu bridge.
+- The iPad image header provides Back/Forward navigation through graphics opened during the current session; opening a new graphic after going back clears the obsolete forward branch.
 - The current canvas dimensions are shown at the top of the canvas-size menu rather than permanently occupying the status bar.
 - `Ctrl+Shift+Delete` deletes the file represented by the current editor tab, using the normal delete confirmation workflow.
 - Pinned tabs have close buttons; closing one explicitly unpins it and closes the file.

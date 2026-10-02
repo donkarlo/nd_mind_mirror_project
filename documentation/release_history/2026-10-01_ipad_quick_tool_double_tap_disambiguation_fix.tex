@@ -1,0 +1,33 @@
+\documentclass[a4paper]{article}
+\usepackage{natbib}
+\usepackage[active,tightpage]{preview}
+
+\PreviewBorder=4pt
+\title{}
+\date{}
+\author{Mohammad Rahmani}
+
+\begin{document}
+   \maketitle
+
+   \begin{preview}
+      \section*{2026-10-01 --- iPad quick-tool double-tap disambiguation fix}
+
+      The Apple Pencil quick-tool gesture was adjusted to remain easy to activate
+      without treating fast handwriting strokes as a double tap.
+
+      \begin{itemize}
+         \item The application-level double-tap limits are 0.35 seconds and 12 points.
+         \item Pencil and highlighter activation additionally validates the PencilKit
+               strokes created by the gesture.
+         \item Only one or two newly added, dot-like strokes are accepted as a
+               quick-tool gesture; letter- or line-shaped strokes are rejected.
+         \item Validation runs on the next main run-loop turn so the second PencilKit
+               stroke is present before the decision is made.
+         \item A rejected gesture leaves the user's drawing untouched.
+      \end{itemize}
+   \end{preview}
+
+   \bibliographystyle{plainnat}
+   \bibliography{/home/donkarlo/Dropbox/repo/nd_shared_research/bibliography/bibliography.bib}
+\end{document}

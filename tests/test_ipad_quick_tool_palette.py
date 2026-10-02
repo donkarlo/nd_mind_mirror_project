@@ -14,6 +14,9 @@ def test_ipad_pencil_double_tap_quick_tool_palette_contract() -> None:
     active_tool = (
         package / "Services/ActiveDrawingToolController.swift"
     ).read_text(encoding="utf-8")
+    footprint_validator = (
+        package / "Services/PencilQuickToolTapFootprintValidator.swift"
+    ).read_text(encoding="utf-8")
     palette = (
         package / "Views/QuickDrawingToolPaletteView.swift"
     ).read_text(encoding="utf-8")
@@ -25,8 +28,8 @@ def test_ipad_pencil_double_tap_quick_tool_palette_contract() -> None:
     assert "doubleTap.numberOfTapsRequired = 2" in gesture
     assert "dismissTap.numberOfTapsRequired = 1" in gesture
     assert "UITouch.TouchType.pencil" in gesture
-    assert "maximumInterTapInterval: TimeInterval = 0.20" in gesture
-    assert "maximumInterTapDistance: CGFloat = 6" in gesture
+    assert "maximumInterTapInterval: TimeInterval = 0.35" in gesture
+    assert "maximumInterTapDistance: CGFloat = 12" in gesture
     assert "shouldReceive touch: UITouch" in gesture
     assert "touch.tapCount <= 1" in gesture
     assert "secondTapTimestamp - firstTapTimestamp" in gesture
@@ -35,14 +38,22 @@ def test_ipad_pencil_double_tap_quick_tool_palette_contract() -> None:
     assert "guard palettePresented != presented else" in gesture
     assert "doubleTapGesture?.isEnabled = !presented" in gesture
     assert "dismissTapGesture?.isEnabled = presented" in gesture
+    assert "dismissTap.require(toFail: doubleTap)" not in gesture
     assert "onPencilContactBegan" in gesture
     assert "onDoubleTapRejected" in gesture
 
     assert "makeCheckpoint()" in history
     assert "restoreCheckpoint" in history
     assert "quickToolTapCheckpoint = historyController?.makeCheckpoint()" in active_tool
+    assert "quickToolTapStartingDrawing = canvas?.drawing" in active_tool
+    assert "PencilQuickToolTapFootprintValidator()" in active_tool
+    assert "isTapLikeChange" in active_tool
     assert "restoreQuickToolTapCandidate" in active_tool
+    assert "restoreQuickToolDismissalTapCandidate" in active_tool
     assert "discardQuickToolTapCandidate" in active_tool
+    assert "maximumAddedStrokeCount = 2" in footprint_validator
+    assert "minimumStrokeSpan: CGFloat = 10" in footprint_validator
+    assert "stroke.renderBounds" in footprint_validator
 
     assert "quickToolGestureController.attach(" in canvas
     assert "to: content" in canvas
@@ -52,6 +63,8 @@ def test_ipad_pencil_double_tap_quick_tool_palette_contract() -> None:
     assert "quickToolGestureController.onPencilContactBegan" in canvas
     assert "controller?.beginQuickToolTapCandidate()" in canvas
     assert "quickToolGestureController.onDoubleTapRejected" in canvas
+    assert "onSinglePencilTap(point)" in canvas
+    assert "restoreQuickToolDismissalTapCandidate" in canvas
     assert "guard controller?.restoreQuickToolTapCandidate() == true else" in canvas
     assert "quickToolPalettePresented" in canvas
 

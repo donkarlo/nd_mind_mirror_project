@@ -26,6 +26,8 @@ final class ActiveDrawingToolController: NSObject, ObservableObject, UIGestureRe
     private weak var historyUndoGesture: UITapGestureRecognizer?
     private weak var historyController: CanvasEditHistoryController?
     private var quickToolTapCheckpoint: CanvasEditHistoryController.Checkpoint?
+    private var quickToolTapStartingDrawing: PKDrawing?
+    private let quickToolTapFootprintValidator = PencilQuickToolTapFootprintValidator()
     private let stateStore: ActiveDrawingToolStateStore
     private let lassoSelectionFeedbackController = LassoSelectionFeedbackController()
     private let rasterLassoInteractionController = RasterLassoInteractionController()
@@ -147,25 +149,60 @@ final class ActiveDrawingToolController: NSObject, ObservableObject, UIGestureRe
     /// Captures the canvas state before the first native Pencil tap of a quick-tool gesture.
     func beginQuickToolTapCandidate() {
         quickToolTapCheckpoint = historyController?.makeCheckpoint()
+        quickToolTapStartingDrawing = canvas?.drawing
     }
 
     /// Discards a failed quick-tool candidate without altering the drawing.
     func discardQuickToolTapCandidate() {
         quickToolTapCheckpoint = nil
+        quickToolTapStartingDrawing = nil
     }
 
-    /// Removes drawing/erasing side effects created by a recognized quick-tool tap.
+    /// Restores a recognized quick-tool double tap after validating its Pencil footprint.
     @discardableResult
     func restoreQuickToolTapCandidate() -> Bool {
         guard let checkpoint = quickToolTapCheckpoint,
-              let historyController,
-              let snapshot = historyController.restoreCheckpoint(checkpoint),
               let canvas else {
-            quickToolTapCheckpoint = nil
+            discardQuickToolTapCandidate()
             return false
         }
 
-        quickToolTapCheckpoint = nil
+        if state.kind == .pencil || state.kind == .highlighter {
+            guard let startingDrawing = quickToolTapStartingDrawing,
+                  quickToolTapFootprintValidator.isTapLikeChange(
+                    before: startingDrawing,
+                    after: canvas.drawing,
+                    toolWidth: state.width
+                  ) else {
+                discardQuickToolTapCandidate()
+                return false
+            }
+        }
+
+        return restoreQuickToolCheckpoint(checkpoint)
+    }
+
+    /// Restores the outside dismissal tap without applying double-tap footprint validation.
+    @discardableResult
+    func restoreQuickToolDismissalTapCandidate() -> Bool {
+        guard let checkpoint = quickToolTapCheckpoint else {
+            discardQuickToolTapCandidate()
+            return false
+        }
+        return restoreQuickToolCheckpoint(checkpoint)
+    }
+
+    private func restoreQuickToolCheckpoint(
+        _ checkpoint: CanvasEditHistoryController.Checkpoint
+    ) -> Bool {
+        guard let historyController,
+              let snapshot = historyController.restoreCheckpoint(checkpoint),
+              let canvas else {
+            discardQuickToolTapCandidate()
+            return false
+        }
+
+        discardQuickToolTapCandidate()
         rasterPreviewLayer?.removeFromSuperlayer()
         rasterPreviewLayer = nil
         rasterSession = nil
@@ -190,6 +227,7 @@ final class ActiveDrawingToolController: NSObject, ObservableObject, UIGestureRe
     /// Clears transient selection and native PencilKit history before a remote document replaces the canvas.
     func prepareForRemoteDocumentLoad() {
         quickToolTapCheckpoint = nil
+        quickToolTapStartingDrawing = nil
         rasterLassoInteractionController.clearSelection()
         pendingProgrammaticDrawingData = nil
         clearNativeUndoHistory()

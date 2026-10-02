@@ -9,6 +9,8 @@ from PySide6.QtCore import Qt, QUrl
 from PySide6.QtGui import QDesktopServices, QKeySequence, QShortcut
 from PySide6.QtWidgets import QApplication, QInputDialog, QMenu, QMessageBox
 
+from nd_mind_mirror.ui.menu.context_menu_presenter import ContextMenuPresenter
+
 
 class NavigatorContextController:
     """Own Navigator context actions, file copy/paste, and repository-aware sharing."""
@@ -108,6 +110,7 @@ class NavigatorContextController:
         rename.triggered.connect(lambda: self._panel._rename_path(path))
         delete.triggered.connect(lambda: self._panel._delete_path(path))
 
+        ContextMenuPresenter.decorate(menu)
         menu.exec(self._tree.viewport().mapToGlobal(position))
 
     def copy_selected_path(self) -> None:

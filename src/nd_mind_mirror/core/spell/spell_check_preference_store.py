@@ -28,7 +28,7 @@ class SpellCheckPreferenceStore:
     def is_enabled(self, path: str | Path) -> bool:
         return self._settings.value(
             f"{self._prefix(path)}/enabled",
-            False,
+            True,
             type=bool,
         )
 

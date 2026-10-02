@@ -279,6 +279,7 @@ class SearchAwareNavigatorMultiPathContextController(
         else:
             delete.triggered.connect(lambda: self._panel._delete_path(path))
 
+        self._decorate_menu(menu)
         try:
             menu.exec(self._tree.viewport().mapToGlobal(position))
         finally:

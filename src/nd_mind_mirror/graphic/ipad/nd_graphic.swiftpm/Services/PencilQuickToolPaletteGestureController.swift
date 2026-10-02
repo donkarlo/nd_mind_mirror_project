@@ -12,8 +12,8 @@ final class PencilQuickToolPaletteGestureController: NSObject, UIGestureRecogniz
     private weak var dismissTapGesture: UITapGestureRecognizer?
     private weak var doubleTapGesture: UITapGestureRecognizer?
 
-    private let maximumInterTapInterval: TimeInterval = 0.20
-    private let maximumInterTapDistance: CGFloat = 6
+    private let maximumInterTapInterval: TimeInterval = 0.35
+    private let maximumInterTapDistance: CGFloat = 12
 
     private var palettePresented = false
     private var firstTapPoint: CGPoint?
@@ -55,7 +55,6 @@ final class PencilQuickToolPaletteGestureController: NSObject, UIGestureRecogniz
         dismissTap.delaysTouchesEnded = false
         dismissTap.delegate = self
         dismissTap.isEnabled = false
-        dismissTap.require(toFail: doubleTap)
 
         view.addGestureRecognizer(doubleTap)
         view.addGestureRecognizer(dismissTap)

@@ -33,6 +33,7 @@ class EditorPanel(Panel):
     tab_close_requested = Signal(int, str, bool)
     settings_apply_requested = Signal()
     active_tab_clicked = Signal(str)
+    active_tab_activated = Signal(str)
     bookmarks_changed = Signal(object)
 
     _TAB_LABEL_LENGTH = 24
@@ -1124,6 +1125,7 @@ class EditorPanel(Panel):
             str(path),
             editor.toPlainText(),
         )
+        self.active_tab_activated.emit(str(path))
         self._emit_cursor_position(editor, path)
 
     def _on_editor_content_changed(

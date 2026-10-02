@@ -31,6 +31,7 @@ from nd_mind_mirror.core.clipboard.image.clipboard_image_saver import (
 from nd_mind_mirror.ui.model.file_system.ignored_file_system_proxy_model import (
     IgnoredFileSystemProxyModel,
 )
+from nd_mind_mirror.ui.menu.context_menu_presenter import ContextMenuPresenter
 from nd_mind_mirror.ui.panel.base.panel import Panel
 
 
@@ -101,7 +102,7 @@ class FileSystemPanel(Panel):
             0,
             Qt.SortOrder.AscendingOrder,
         )
-        self._tree.setIndentation(10)
+        self._tree.setIndentation(14)
         self._tree.setContextMenuPolicy(
             Qt.ContextMenuPolicy.CustomContextMenu
         )
@@ -647,6 +648,7 @@ class FileSystemPanel(Panel):
             rename_action.setEnabled(False)
             delete_action.setEnabled(False)
 
+        ContextMenuPresenter.decorate(menu)
         chosen = menu.exec(
             self._tree.viewport().mapToGlobal(
                 position

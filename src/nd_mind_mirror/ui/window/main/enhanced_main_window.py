@@ -298,6 +298,10 @@ class EnhancedMainWindow(BaseEnhancedMainWindow):
             )
         )
 
+    def decorate_editor_menu(self, menu, path: Path) -> None:
+        """Append Navigator document actions to an editor context menu."""
+        self._navigator_context_controller.append_document_menu(menu, path)
+
     def _show_file_search_from_navigator(self, path: Path) -> None:
         """Open file search scoped to a Navigator path."""
         self._search_window.show_file_search(path)

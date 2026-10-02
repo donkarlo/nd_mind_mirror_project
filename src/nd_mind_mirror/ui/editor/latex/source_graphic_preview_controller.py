@@ -9,6 +9,7 @@ from PySide6.QtCore import QEvent, QTimer
 from PySide6.QtGui import QTextCursor
 from PySide6.QtWidgets import QMenu
 
+from nd_mind_mirror.ui.menu.context_menu_presenter import ContextMenuPresenter
 from nd_mind_mirror.ui.editor.latex.source_graphic_preview_controller_core import (
     SourceGraphicPreviewController as SourceGraphicPreviewControllerCore,
 )
@@ -68,6 +69,7 @@ class SourceGraphicPreviewController(SourceGraphicPreviewControllerCore):
                 return False
             menu = QMenu(editor)
             edit_action = menu.addAction("Edit image in iPad…")
+            ContextMenuPresenter.decorate(menu)
             chosen = menu.exec(event.globalPos())
             if chosen == edit_action:
                 editor._edit_graphic_image_in_ipad(image_path)

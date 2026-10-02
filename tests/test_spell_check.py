@@ -88,13 +88,13 @@ def test_preferences_are_per_file_and_store_language(tmp_path: Path) -> None:
     store = SpellCheckPreferenceStore(settings_path)
     first = tmp_path / "one.tex"
     second = tmp_path / "two.tex"
-    assert not store.is_enabled(first)
-    assert store.language(first) == "auto"
-    store.set_enabled(first, True)
-    store.set_language(first, "de")
     assert store.is_enabled(first)
+    assert store.language(first) == "auto"
+    store.set_enabled(first, False)
+    store.set_language(first, "de")
+    assert not store.is_enabled(first)
     assert store.language(first) == "de"
-    assert not store.is_enabled(second)
+    assert store.is_enabled(second)
     assert store.language(second) == "auto"
 
 
@@ -123,6 +123,45 @@ def test_english_document_offers_phoneme_for_phonem(tmp_path: Path) -> None:
     controller.set_enabled(False)
     editor.deleteLater()
     app.processEvents()
+def test_source_suggestion_action_replaces_misspelling(tmp_path: Path) -> None:
+    app = _application()
+    editor = LatexEditor([], tmp_path / "source.tex", YamlSettings())
+    editor.set_content("guided leanring")
+    controller = editor._spell_check_controller
+    controller.set_language_mode("en")
+    menu = QMenu()
+    position = editor.toPlainText().index("leanring") + 2
+    actions = controller.append_context_actions(
+        menu, editor, position, source_mode=True
+    )
+    learning = next(action for action, _callback in actions if action.text() == "learning")
+    learning.trigger()
+    assert editor.toPlainText() == "guided learning"
+    editor.deleteLater()
+    app.processEvents()
+
+
+def test_visual_suggestion_action_replaces_misspelling(tmp_path: Path) -> None:
+    app = _application()
+    editor = LatexEditor([], tmp_path / "visual.tex", YamlSettings())
+    editor.set_content("guided leanring")
+    editor.set_edit_mode("visual")
+    visual = editor._visual_editor
+    controller = editor._spell_check_controller
+    controller.set_language_mode("en")
+    position = visual.toPlainText().index("leanring") + 2
+    menu = QMenu()
+    actions = controller.append_context_actions(
+        menu, visual, position, source_mode=False
+    )
+    learning = next(action for action, _callback in actions if action.text() == "learning")
+    learning.trigger()
+    assert "learning" in visual.toPlainText()
+    assert "leanring" not in visual.toPlainText()
+    editor.deleteLater()
+    app.processEvents()
+
+
 def test_spell_decoration_survives_current_line_refresh() -> None:
     app = _application()
     editor = TextEditor()

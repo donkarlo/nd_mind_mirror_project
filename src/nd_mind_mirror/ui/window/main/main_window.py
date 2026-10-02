@@ -591,6 +591,9 @@ class MainWindow(Window):
         self._editor_panel.active_tab_clicked.connect(
             self._reveal_active_editor_tab
         )
+        self._editor_panel.active_tab_activated.connect(
+            self._reveal_active_editor_tab
+        )
 
         self._preview_panel.export_requested.connect(
             self._export_pdf

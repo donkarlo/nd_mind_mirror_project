@@ -16,6 +16,7 @@ struct ContentView: View {
     @StateObject private var saveGate = GraphicDocumentSaveGate()
     @StateObject private var liveSyncSettings = LiveGraphicSyncSettingsStore()
     @StateObject private var liveSaveScheduler = LiveGraphicSaveScheduler()
+    @StateObject private var documentNavigation = GraphicDocumentNavigationHistory()
 
     @AppStorage("graphic.last.canvas.width") private var rememberedCanvasWidth: Double = 760
     @AppStorage("graphic.last.canvas.height") private var rememberedCanvasHeight: Double = 980
@@ -106,6 +107,28 @@ struct ContentView: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
             Spacer()
+
+            if bridge.selectedPath != nil {
+                Button(action: navigateBack) {
+                    Image(systemName: "chevron.left")
+                        .font(.title3)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(!documentNavigation.canGoBack)
+                .accessibilityLabel("Previous graphic")
+
+                Button(action: navigateForward) {
+                    Image(systemName: "chevron.right")
+                        .font(.title3)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(!documentNavigation.canGoForward)
+                .accessibilityLabel("Next graphic")
+            }
 
             Button {
                 showLiveSyncSettings = true
@@ -293,6 +316,7 @@ struct ContentView: View {
            loadedPath == renamedFrom,
            path != renamedFrom {
             saveGate.remapPath(from: renamedFrom, to: path)
+            documentNavigation.remapPath(from: renamedFrom, to: path)
             loadedPath = path
             return
         }
@@ -308,6 +332,7 @@ struct ContentView: View {
         saveGate.beginLoading(path: path)
         let newDocument = path != loadedPath
         loadedPath = path
+        documentNavigation.recordOpened(path: path)
         localDrawing = bridge.drawing
 
         let remoteBackground = bridge.backgroundImageForCurrentDocument()
@@ -526,6 +551,25 @@ struct ContentView: View {
         if status.hasPrefix("Saved —") {
             saveRetryController.acknowledgeSave()
         }
+        if status == "Recent graphic is no longer available" {
+            documentNavigation.cancelPendingNavigation()
+        }
+    }
+
+    private func navigateBack() {
+        navigate(to: documentNavigation.backPath())
+    }
+
+    private func navigateForward() {
+        navigate(to: documentNavigation.forwardPath())
+    }
+
+    private func navigate(to path: String?) {
+        guard let path, path != bridge.selectedPath else { return }
+        quickToolPaletteAnchor = nil
+        liveSaveScheduler.cancelPending()
+        saveCurrentState(persistBackground: false)
+        bridge.requestOpen(path: path)
     }
 
     private func closeCurrentImage() {

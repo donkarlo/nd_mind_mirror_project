@@ -81,6 +81,11 @@ class RangeBookmarkVisualContextController(QObject):
         update_action.setEnabled(watched.textCursor().hasSelection())
         insert_action = menu.addAction("Insert raw LaTeX here…")
 
+        decorate_menu = getattr(watched.window(), "decorate_editor_menu", None)
+        if callable(decorate_menu):
+            menu.addSeparator()
+            decorate_menu(menu, self._editor.source_path)
+
         chosen = menu.exec(event.globalPos())
         if (
             spell_controller is not None

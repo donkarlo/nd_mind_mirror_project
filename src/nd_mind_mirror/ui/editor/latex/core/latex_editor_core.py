@@ -28,6 +28,7 @@ from nd_mind_mirror.graphic.core.document_manager import GraphicDocumentManager
 from nd_mind_mirror.graphic.core.bridge_notifier import GraphicBridgeNotifier
 from nd_mind_mirror.ui.editor.base.text_editor import TextEditor
 from nd_mind_mirror.ui.editor.bookmark.bookmark_gutter import BookmarkGutter
+from nd_mind_mirror.ui.menu.context_menu_presenter import ContextMenuPresenter
 from nd_mind_mirror.ui.editor.latex.latex_shortcut_popup import (
     LatexShortcutPopup,
 )
@@ -509,6 +510,11 @@ class LatexEditor(TextEditor):
             if existing is not None
             else "Insert image in iPad…"
         )
+        decorate_menu = getattr(self.window(), "decorate_editor_menu", None)
+        if callable(decorate_menu):
+            menu.addSeparator()
+            decorate_menu(menu, self._source_path)
+        ContextMenuPresenter.decorate(menu)
         chosen = menu.exec(event.globalPos())
         if chosen != graphic_action:
             return

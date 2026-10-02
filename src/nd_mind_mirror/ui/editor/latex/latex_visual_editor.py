@@ -30,6 +30,7 @@ from PySide6.QtWidgets import (
 )
 
 from nd_mind_mirror.core.completion.latex.latex_shortcut_provider import LatexShortcut
+from nd_mind_mirror.ui.menu.context_menu_presenter import ContextMenuPresenter
 from nd_mind_mirror.ui.editor.cursor.cursor_appearance_controller import (
     CursorAppearanceController,
 )
@@ -982,6 +983,11 @@ class LatexVisualEditor(QTextEdit):
             update_action = menu.addAction("Update selected LaTeX source…")
 
         insert_action = menu.addAction("Insert raw LaTeX here…")
+        decorate_menu = getattr(self.window(), "decorate_editor_menu", None)
+        if callable(decorate_menu) and self._source_path is not None:
+            menu.addSeparator()
+            decorate_menu(menu, self._source_path)
+        ContextMenuPresenter.decorate(menu)
         chosen = menu.exec(event.globalPos())
         if chosen == graphic_action:
             if not cursor.hasSelection():

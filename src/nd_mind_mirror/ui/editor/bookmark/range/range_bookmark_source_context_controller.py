@@ -58,6 +58,11 @@ class RangeBookmarkSourceContextController:
             else "Create TikZ in iPad…"
         )
 
+        decorate_menu = getattr(editor.window(), "decorate_editor_menu", None)
+        if callable(decorate_menu):
+            menu.addSeparator()
+            decorate_menu(menu, editor._source_path)
+
         chosen = menu.exec(event.globalPos())
         if (
             spell_controller is not None

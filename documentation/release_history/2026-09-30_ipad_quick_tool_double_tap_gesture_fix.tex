@@ -32,7 +32,8 @@
 
       \begin{itemize}
          \item The quick-tool gesture uses a native Apple Pencil double-tap recognizer with two taps required, so normal writing strokes are rejected by the platform recognizer instead of custom handwriting heuristics.
-         \item The first Pencil contact captures the pre-contact canvas checkpoint; the second contact supplies the measured time and location used to enforce the 0.32-second and 16-point application limits.
+         \item The first Pencil contact captures the pre-contact canvas checkpoint; the second contact supplies the measured time and location used to enforce the 0.35-second and 12-point application limits.
+         \item For pencil and highlighter tools, the two added PencilKit strokes must also remain dot-like; letter- or line-shaped strokes are rejected before the palette can open.
          \item The system tap recognizer remains simultaneous with PencilKit and never cancels PencilKit touches.
          \item Manual tap pairing and handwriting-flow suppression were removed from the activation path.
          \item Repeated SwiftUI refreshes no longer reset an in-progress double-tap sequence when palette visibility has not changed.

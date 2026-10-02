@@ -15,6 +15,9 @@ CANVAS = (
 ACTIVE = (
     IPAD / "Services/ActiveDrawingToolController.swift"
 ).read_text(encoding="utf-8")
+OVERLAY = (
+    IPAD / "Views/Lasso/RasterSelectionOverlayView.swift"
+).read_text(encoding="utf-8")
 
 
 def test_one_lasso_controller_owns_mixed_raster_and_pencil_selection() -> None:
@@ -69,3 +72,15 @@ def test_lasso_feedback_follows_the_unified_raster_selection_overlay() -> None:
 def test_active_tool_routes_completed_lasso_only_to_the_unified_controller() -> None:
     assert "lassoSelectionFeedbackController.onLassoCompleted" in ACTIVE
     assert "rasterLassoInteractionController.selectRasterRegion(with: points)" in ACTIVE
+
+
+def test_pencil_tap_outside_selection_deselects_without_stealing_handle_taps() -> None:
+    assert "UITapGestureRecognizer(" in RASTER
+    assert "UITouch.TouchType.pencil.rawValue" in RASTER
+    assert "handleOutsideSelectionTap" in RASTER
+    assert "overlay.containsSelectionInteraction(at: point)" in RASTER
+    assert "clearSelection()" in RASTER
+    assert "func containsSelectionInteraction(at point: CGPoint) -> Bool" in OVERLAY
+    assert "selectionBounds.contains(point)" in OVERLAY
+    assert "moveHandle.point(inside: movePoint, with: nil)" in OVERLAY
+    assert "handles.contains" in OVERLAY

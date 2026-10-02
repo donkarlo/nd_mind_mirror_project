@@ -18,6 +18,7 @@ from nd_mind_mirror.ui.editor.latex.latex_visual_editor import (
     _BlockMeta,
     _RAW_LATEX_PROPERTY,
 )
+from nd_mind_mirror.ui.menu.context_menu_presenter import ContextMenuPresenter
 from nd_mind_mirror.ui.editor.latex.tikz_visual_preview_service import (
     TikZVisualPreviewService,
 )
@@ -169,6 +170,11 @@ class WindowedLatexVisualEditor(WindowedLatexVisualEditorCore):
             menu,
             click_cursor,
         )
+        decorate_menu = getattr(self.window(), "decorate_editor_menu", None)
+        if callable(decorate_menu) and self._source_path is not None:
+            menu.addSeparator()
+            decorate_menu(menu, self._source_path)
+        ContextMenuPresenter.decorate(menu)
         chosen = menu.exec(event.globalPos())
         if self._table_visual_controller.apply_context_action(
             chosen,

@@ -8,6 +8,8 @@ from PySide6.QtCore import QPoint, Qt, Signal
 from PySide6.QtGui import QColor, QMouseEvent, QPaintEvent, QPainter, QPen, QPolygon
 from PySide6.QtWidgets import QMenu, QWidget
 
+from nd_mind_mirror.ui.menu.context_menu_presenter import ContextMenuPresenter
+
 
 class BookmarkGutter(QWidget):
     """Thin clickable gutter shared by Source and Visual LaTeX views."""
@@ -111,12 +113,14 @@ class BookmarkGutter(QWidget):
             menu = QMenu(self)
             if existing is None:
                 add_action = menu.addAction("Add Bookmark")
+                ContextMenuPresenter.decorate(menu)
                 chosen = menu.exec(event.globalPosition().toPoint())
                 if chosen == add_action:
                     self.toggle_requested.emit(line, column)
             else:
                 rename_action = menu.addAction("Rename Bookmark…")
                 remove_action = menu.addAction("Remove Bookmark")
+                ContextMenuPresenter.decorate(menu)
                 chosen = menu.exec(event.globalPosition().toPoint())
                 if chosen == rename_action:
                     self.rename_requested.emit(line, column)

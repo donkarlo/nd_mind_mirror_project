@@ -1,0 +1,32 @@
+\documentclass[a4paper]{article}
+\usepackage{natbib}
+\usepackage[active,tightpage]{preview}
+
+\PreviewBorder=4pt
+\title{}
+\date{}
+\author{Mohammad Rahmani}
+
+\begin{document}
+   \maketitle
+
+   \begin{preview}
+      \section*{2026-10-01 --- iPad quick-tool palette dismissal fix}
+
+      Quick-tool palette dismissal is now independent from double-tap
+      activation validation.
+
+      \begin{itemize}
+         \item A single Apple Pencil tap outside the open palette closes it immediately.
+         \item The dismissal recognizer no longer waits for the disabled double-tap recognizer.
+         \item The dismissal tap restores its pre-contact canvas checkpoint without
+               applying the dot-footprint validator used only for palette opening.
+         \item Canvas restoration runs on the next main run-loop turn so any PencilKit
+               mark created by the dismissal tap is removed after PencilKit finishes it.
+         \item Palette dismissal is not blocked if cleanup fails; the UI closes first.
+      \end{itemize}
+   \end{preview}
+
+   \bibliographystyle{plainnat}
+   \bibliography{/home/donkarlo/Dropbox/repo/nd_shared_research/bibliography/bibliography.bib}
+\end{document}

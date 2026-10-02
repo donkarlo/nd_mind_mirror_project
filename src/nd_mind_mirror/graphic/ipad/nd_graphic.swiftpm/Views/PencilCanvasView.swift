@@ -321,17 +321,19 @@ struct PencilCanvasView: UIViewRepresentable {
             }
             quickToolGestureController.onSinglePencilTap = {
                 [weak controller = activeToolController] point in
-                guard controller?.restoreQuickToolTapCandidate() == true else {
-                    return
-                }
                 onSinglePencilTap(point)
+                DispatchQueue.main.async {
+                    _ = controller?.restoreQuickToolDismissalTapCandidate()
+                }
             }
             quickToolGestureController.onDoublePencilTap = {
                 [weak controller = activeToolController] point in
-                guard controller?.restoreQuickToolTapCandidate() == true else {
-                    return
+                DispatchQueue.main.async {
+                    guard controller?.restoreQuickToolTapCandidate() == true else {
+                        return
+                    }
+                    onDoublePencilTap(point)
                 }
-                onDoublePencilTap(point)
             }
         }
 

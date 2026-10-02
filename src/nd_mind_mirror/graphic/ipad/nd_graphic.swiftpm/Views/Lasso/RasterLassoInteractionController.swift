@@ -29,6 +29,7 @@ final class RasterLassoInteractionController: NSObject, UIGestureRecognizerDeleg
     private weak var hostView: UIView?
     private weak var historyController: CanvasEditHistoryController?
     private var overlay: RasterSelectionOverlayView?
+    private weak var outsideSelectionTapRecognizer: UITapGestureRecognizer?
     private var selection: Selection?
 
     private var canvasSize = CGSize(width: 1240, height: 1754)
@@ -44,6 +45,9 @@ final class RasterLassoInteractionController: NSObject, UIGestureRecognizerDeleg
             return
         }
 
+        if let recognizer = outsideSelectionTapRecognizer {
+            recognizer.view?.removeGestureRecognizer(recognizer)
+        }
         overlay?.removeFromSuperview()
         self.canvas = canvas
         self.backgroundView = backgroundView
@@ -54,6 +58,7 @@ final class RasterLassoInteractionController: NSObject, UIGestureRecognizerDeleg
         installGestures(on: overlay)
         host.addSubview(overlay)
         self.overlay = overlay
+        installOutsideSelectionTap(on: host)
     }
 
     func bindRuntime(
@@ -139,6 +144,33 @@ final class RasterLassoInteractionController: NSObject, UIGestureRecognizerDeleg
 
         // Identity composition guarantees selection creation itself never duplicates content.
         applySelectionPreview()
+    }
+
+    private func installOutsideSelectionTap(on host: UIView) {
+        let tap = UITapGestureRecognizer(
+            target: self,
+            action: #selector(handleOutsideSelectionTap(_:))
+        )
+        tap.allowedTouchTypes = [
+            NSNumber(value: UITouch.TouchType.pencil.rawValue)
+        ]
+        tap.cancelsTouchesInView = false
+        tap.delegate = self
+        host.addGestureRecognizer(tap)
+        outsideSelectionTapRecognizer = tap
+    }
+
+    @objc private func handleOutsideSelectionTap(
+        _ recognizer: UITapGestureRecognizer
+    ) {
+        guard recognizer.state == .ended,
+              selection != nil,
+              let overlay else {
+            return
+        }
+        let point = recognizer.location(in: overlay)
+        guard !overlay.containsSelectionInteraction(at: point) else { return }
+        clearSelection()
     }
 
     private func installGestures(on overlay: RasterSelectionOverlayView) {

@@ -17,6 +17,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from nd_mind_mirror.ui.menu.context_menu_presenter import ContextMenuPresenter
+
 
 class _SingleActiveProxyTabBar(QTabBar):
     """Paint selection only when this row owns the application's active file."""
@@ -214,6 +216,7 @@ class PinnedTabController:
         menu = QMenu(self._open_bar)
         action = menu.addAction("Pin Tab")
         action.triggered.connect(lambda: self.pin_path(path))
+        ContextMenuPresenter.decorate(menu)
         menu.exec(self._open_bar.mapToGlobal(position))
 
     def _show_pinned_context_menu(self, position) -> None:
@@ -225,6 +228,7 @@ class PinnedTabController:
         menu = QMenu(self._pin_bar)
         action = menu.addAction("Unpin Tab")
         action.triggered.connect(lambda: self.unpin_path(path))
+        ContextMenuPresenter.decorate(menu)
         menu.exec(self._pin_bar.mapToGlobal(position))
 
     def _open_file(self, path, content, select=True) -> bool:
