@@ -14,16 +14,34 @@ class MindMirrorAndroidUi {
     this.dirty = false;
     this.autosaveTimer = null;
 
-    this.sourceEditor = document.getElementById("source-editor");
     this.currentFile = document.getElementById("current-file");
     this.statusBar = document.getElementById("status-bar");
     this.saveButton = document.getElementById("save-button");
 
-    this.sourcePresentation = new SourceEditorPresentation(
+    this.sourceEditor = new AndroidSourceEditor(
+      document.getElementById("source-editor"),
+    );
+    this.mathRenderer = new LatexMathRenderer();
+    this.inlineRenderer = new LatexInlineRenderer(this.mathRenderer);
+    this.tableRenderer = new LatexTableRenderer(this.inlineRenderer);
+    this.graphicRenderer = new LatexGraphicRenderer(this.bridge, this.inlineRenderer);
+    this.sourcePreviewController = new SourceLatexPreviewController(
       this.sourceEditor,
-      document.getElementById("source-highlight"),
-      document.getElementById("source-wrap-markers"),
-      document.getElementById("source-editor-shell"),
+      new SourceLatexPreviewExtractor(),
+      this.mathRenderer,
+      this.tableRenderer,
+      this.graphicRenderer,
+    );
+    this.visualRenderer = new LatexVisualRenderer(
+      new LatexDocumentParser(),
+      this.inlineRenderer,
+      this.mathRenderer,
+      this.tableRenderer,
+      this.graphicRenderer,
+      (line) => {
+        this.activateTab("source");
+        this.jumpToLine(line);
+      },
     );
     this.searchTree = new SearchResultTree(
       document.getElementById("search-results"),
@@ -73,8 +91,8 @@ class MindMirrorAndroidUi {
       button.addEventListener("click", () => this.setSearchKind(button.dataset.kind));
     });
 
-    this.sourceEditor.addEventListener("input", () => {
-      this.sourcePresentation.sourceChanged();
+    this.sourceEditor.onChange(() => {
+      this.sourcePreviewController.sourceChanged(this.sourceEditor.getValue());
       this.setDirty(true);
       window.clearTimeout(this.autosaveTimer);
       this.autosaveTimer = window.setTimeout(() => this.saveCurrentFile(), 1000);
@@ -147,7 +165,7 @@ class MindMirrorAndroidUi {
     if (name === "structure") this.loadStructure();
     if (name === "visual") this.loadVisual();
     if (name === "preview") this.loadPreview(false);
-    if (name === "source") this.sourcePresentation.refreshLayout();
+    if (name === "source") this.sourceEditor.refresh();
     if (name === "search") this.scheduleSearch(true);
   }
 
@@ -202,7 +220,9 @@ class MindMirrorAndroidUi {
       const info = this.nativeJson(this.bridge.workspaceInfo());
       this.updateSettingsDisplay(settings);
       this.currentPath = null;
-      this.sourcePresentation.clear();
+      this.sourcePreviewController.clear();
+      this.sourceEditor.clear();
+      this.graphicRenderer.clearCache();
       this.currentFile.textContent = "No file open";
       this.setDirty(false);
       this.navigatorPath = "";
@@ -285,7 +305,8 @@ class MindMirrorAndroidUi {
     try {
       const data = this.nativeJson(this.bridge.readFile(path));
       this.currentPath = data.path;
-      this.sourcePresentation.setSource(data.path, data.content || "");
+      this.sourceEditor.setSource(data.path, data.content || "");
+      this.sourcePreviewController.setSource(data.path, data.content || "");
       this.currentFile.textContent = data.path;
       this.setDirty(false);
       this.activateTab("source");
