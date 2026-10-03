@@ -299,6 +299,27 @@ There is no second root-level copy of `nd_graphic.zip` in the project. The canon
 - Shape fill, border, label text, connector line, and connector-label text use native SwiftUI `ColorPicker` controls with arbitrary RGB colors rather than a fixed preset palette.
 - The raster Image workspace is removed from the SwiftUI hierarchy while TikZ is active, preventing image-only floating controls or magnifier overlays from leaking into the TikZ canvas.
 
+## Android companion
+
+Mind Mirror includes a **standalone Android editor**. The installed app does not connect to the Ubuntu Mind Mirror process, does not use a LAN server, and does not require an IP address or access token.
+
+The Android layout is intentionally single-pane for phone screens. **Navigator**, **Structure**, **Preview**, **Source**, **Visual**, and **Search** are separate tabs; selecting one hides the others. The gear button opens Android settings with two independently persisted roots: **Local Android** and **Dropbox**. Each root is selected through the Android Storage Access Framework folder picker and keeps its read/write permission across restarts. The active-root buttons switch instantly between the two saved locations, so Navigator/Search root `/` can point either to a local Android folder or to a Dropbox folder exposed by the installed Dropbox document provider.
+
+Navigator operates directly on the selected Android document tree. Search uses a persistent local SQLite index on Android. **Files** is the default mode and reuses indexed file-name metadata without waiting for text-content indexing; **Text in files** is a separate explicit mode. Both result modes are rendered as an expandable root/folder/file tree modeled after the Ubuntu Double-Shift search, with text occurrences nested below their files. Source reads, edits, and autosaves the selected file directly through Android's document provider. The Android Source editor now provides filename-aware syntax highlighting for LaTeX/BibTeX, Python, YAML, JSON, JavaScript/TypeScript, Java/Kotlin/C-family languages, shell, HTML/XML, CSS, Markdown, TOML/INI/configuration files, SQL and other common source formats, with plain-text fallback. Long logical lines soft-wrap automatically and continuation rows show the same `↳` marker in the left gutter used by the Ubuntu editor. Structure is generated locally for common LaTeX section commands. Visual is a lightweight local LaTeX projection and remains read-only. Preview is also local: it renders an existing sibling PDF (for example `paper.pdf` beside `paper.tex`) with Android's PDF renderer. The Android build intentionally does not contact Ubuntu to compile LaTeX; a local Android TeX engine is not bundled at this stage.
+
+The iPad/PencilKit graphic editor is deliberately not part of the Android application.
+
+Build and install with:
+
+```bash
+cd /home/donkarlo/Dropbox/repo/nd_mind_mirror_project
+./scripts/android/install_android.sh
+```
+
+The installer builds the standalone APK and installs it through an already-authorized USB or wireless ADB connection. If no device is connected, it can request the wireless-debugging address/port and pairing information.
+
+The debug APK is produced at `src/nd_mind_mirror/mobile/android/app/build/outputs/apk/debug/app-debug.apk`.
+
 ## Running on Ubuntu
 
 From the project root:
@@ -323,6 +344,7 @@ Each desktop application session starts a bridge process from the current projec
 - `src/nd_mind_mirror/core/` — document, LaTeX, search, settings, rendering, and workspace logic.
 - `src/nd_mind_mirror/core/workspace/operation/` — process-side services and worker entry points for batched workspace reference maintenance.
 - `src/nd_mind_mirror/ui/` — Qt editors, panels, Preview, search UI, and main-window controllers.
+- `src/nd_mind_mirror/mobile/android/` — standalone Android editor, local document-tree access, mobile UI assets, and wireless-ADB build/install tooling.
 - `src/nd_mind_mirror/graphic/` — desktop/iPad graphic workflow and bridge.
 - `src/nd_mind_mirror/graphic/ipad/` — editable Swift package and canonical transfer ZIP.
 - `tests/` — automated/regression tests covering LaTeX/YAML parsing and formatting, large-document architecture, Preview safety/synchronization, Navigator selection/clipboard/reference operations, bookmarks/Undo, and Ubuntu↔iPad graphic transport/lifecycle behavior.
@@ -368,6 +390,7 @@ The active source/tests/settings currently cover these functional areas:
 14. Native iPad PencilKit raster drawing plus direct source-backed TikZ editing, including reliable select/double-tap label edit, separate move/resize controls, arbitrary native colors, TikZ canvas sizing, Undo/Redo-compatible source updates, and shared transport.
 15. Ubuntu↔iPad bridge transport, open/update/save acknowledgements, revision tracking, managed sidecars, background preservation, stale-path rename aliases, current-session bridge process ownership, and Source/Visual/Preview refresh after accepted graphic updates.
 16. Startup/package tooling, canonical iPad ZIP generation, crash/startup diagnostics, preferred virtual environment selection, Python cache relocation, regression tests, examples, templates, icons, and release-history documentation.
+17. Standalone Android editor with one-visible-panel tabs for Navigator, Structure, Preview, Source, Visual, and file/text Search; separately persisted Local Android and Dropbox root folders with instant active-root switching, direct document-provider editing/autosave, local sibling-PDF rendering, and wireless-ADB build/install tooling without an Ubuntu runtime connection.
 
 ## Code documentation rule
 

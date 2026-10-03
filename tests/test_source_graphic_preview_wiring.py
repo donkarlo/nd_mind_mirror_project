@@ -59,3 +59,12 @@ def test_source_preview_controller_reacts_to_editor_state_changes():
     assert "current_content_changed.connect" in SOURCE_PREVIEW_CONTROLLER
     assert "current_view_changed.connect" in SOURCE_PREVIEW_CONTROLLER
     assert "QTimer.singleShot(0, self._rebuild_layout)" in SOURCE_PREVIEW_CONTROLLER
+
+
+def test_source_preview_ignores_non_latex_editors_before_reading_edit_mode():
+    assert "from nd_mind_mirror.ui.editor.latex.latex_editor import LatexEditor" in SOURCE_PREVIEW_CONTROLLER
+    assert (
+        'if not isinstance(editor, LatexEditor) or editor.edit_mode != "source":'
+        in SOURCE_PREVIEW_CONTROLLER
+    )
+    assert 'if editor.edit_mode != "source":' not in SOURCE_PREVIEW_CONTROLLER

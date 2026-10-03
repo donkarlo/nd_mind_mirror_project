@@ -10,6 +10,7 @@ from PySide6.QtGui import QTextCursor
 from PySide6.QtWidgets import QMenu
 
 from nd_mind_mirror.ui.menu.context_menu_presenter import ContextMenuPresenter
+from nd_mind_mirror.ui.editor.latex.latex_editor import LatexEditor
 from nd_mind_mirror.ui.editor.latex.source_graphic_preview_controller_core import (
     SourceGraphicPreviewController as SourceGraphicPreviewControllerCore,
 )
@@ -99,7 +100,7 @@ class SourceGraphicPreviewController(SourceGraphicPreviewControllerCore):
         if editor is not self._active_editor:
             self.schedule_layout_refresh()
             return
-        if editor is None or editor.edit_mode != "source":
+        if not isinstance(editor, LatexEditor) or editor.edit_mode != "source":
             self._sync_polling_state()
             self._hide_unused(0)
             return
@@ -155,7 +156,7 @@ class SourceGraphicPreviewController(SourceGraphicPreviewControllerCore):
             self._detach_editor()
             self._hide_unused(0)
             return
-        if editor.edit_mode != "source":
+        if not isinstance(editor, LatexEditor) or editor.edit_mode != "source":
             self._sync_polling_state()
             self._hide_unused(0)
             return
@@ -183,7 +184,11 @@ class SourceGraphicPreviewController(SourceGraphicPreviewControllerCore):
     def _settle_layout_geometry(self) -> None:
         """Cache layout geometry only for the still-active Source editor."""
         editor = self._editor_panel.current_editor()
-        if editor is None or editor is not self._active_editor or editor.edit_mode != "source":
+        if (
+            not isinstance(editor, LatexEditor)
+            or editor is not self._active_editor
+            or editor.edit_mode != "source"
+        ):
             return
         try:
             if editor.viewport().width() != self._layout_viewport_width:

@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=5,user-scalable=yes">
+  <title>Mind Mirror</title>
+  <link rel="stylesheet" href="vendor/codemirror/lib/codemirror.css">
+  <link rel="stylesheet" href="vendor/katex/katex.min.css">
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <header class="app-header">
+    <div class="title-block">
+      <strong>Mind Mirror</strong>
+      <span id="current-file">No file open</span>
+    </div>
+    <div class="header-actions">
+      <button id="save-button" disabled>Save</button>
+      <button id="refresh-button" aria-label="Refresh">↻</button>
+      <button id="settings-button" aria-label="Settings">⚙</button>
+    </div>
+  </header>
+
+  <div id="status-bar">Starting…</div>
+
+  <nav id="tab-bar" class="tab-bar">
+    <button data-tab="navigator" class="active">Navigator</button>
+    <button data-tab="structure">Structure</button>
+    <button data-tab="preview">Preview</button>
+    <button data-tab="source">Source</button>
+    <button data-tab="visual">Visual</button>
+    <button data-tab="search">Search</button>
+  </nav>
+
+  <main id="panels">
+    <section id="panel-navigator" class="panel active">
+      <div class="panel-toolbar">
+        <button id="navigator-up">↑ Up</button>
+        <span id="navigator-path">/</span>
+      </div>
+      <div id="navigator-list" class="list-view"></div>
+    </section>
+
+    <section id="panel-structure" class="panel">
+      <div id="structure-list" class="list-view empty-state">Open a LaTeX file.</div>
+    </section>
+
+    <section id="panel-preview" class="panel">
+      <div class="panel-toolbar">
+        <button id="preview-refresh">Refresh</button>
+        <span id="preview-state"></span>
+      </div>
+      <div id="preview-pages" class="preview-pages empty-state">Open a LaTeX file or PDF.</div>
+    </section>
+
+    <section id="panel-source" class="panel">
+      <div id="source-editor-shell" class="source-editor-shell">
+        <textarea id="source-editor" spellcheck="true" autocapitalize="off" autocomplete="off"
+          placeholder="Open a text file from Navigator or Search."></textarea>
+      </div>
+    </section>
+
+    <section id="panel-visual" class="panel">
+      <div class="panel-toolbar visual-note">Local Ubuntu-style LaTeX projection</div>
+      <article id="visual-content" class="visual-content empty-state">Open a LaTeX file.</article>
+    </section>
+
+    <section id="panel-search" class="panel">
+      <div class="search-controls">
+        <input id="search-query" type="search" placeholder="Search files or text">
+        <div class="search-kind">
+          <button data-kind="text">Text in files</button>
+          <button data-kind="files" class="active">Files</button>
+        </div>
+      </div>
+      <div id="search-results" class="list-view"></div>
+    </section>
+
+    <section id="panel-settings" class="panel">
+      <div class="settings-page">
+        <div class="settings-heading">
+          <button id="settings-back">← Back</button>
+          <strong>Settings</strong>
+        </div>
+
+        <div class="settings-card active-root-card">
+          <strong>Active root</strong>
+          <div class="root-choice-row">
+            <button id="use-local-root">Local Android</button>
+            <button id="use-dropbox-root">Dropbox</button>
+          </div>
+          <p>Navigator, Source, Search and Preview use the active root as <b>/</b>.</p>
+        </div>
+
+        <div class="settings-card">
+          <strong>Local Android folder</strong>
+          <div id="local-root-name" class="root-folder-name">No folder selected</div>
+          <div id="local-root-uri" class="root-folder-uri"></div>
+          <button id="choose-local-root">Choose local folder…</button>
+        </div>
+
+        <div class="settings-card">
+          <strong>Dropbox folder</strong>
+          <div id="dropbox-root-name" class="root-folder-name">No folder selected</div>
+          <div id="dropbox-root-uri" class="root-folder-uri"></div>
+          <button id="choose-dropbox-root">Choose Dropbox folder…</button>
+          <p>Select Dropbox in Android's system folder picker. The permission is remembered.</p>
+        </div>
+
+        <div class="settings-card">
+          <strong>Standalone Android mode</strong>
+          <p>Both roots are stored on Android. No Ubuntu server, IP address or token is used.</p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script src="vendor/codemirror/lib/codemirror.js"></script>
+  <script src="vendor/codemirror/mode/xml/xml.js"></script>
+  <script src="vendor/codemirror/mode/css/css.js"></script>
+  <script src="vendor/codemirror/mode/javascript/javascript.js"></script>
+  <script src="vendor/codemirror/mode/htmlmixed/htmlmixed.js"></script>
+  <script src="vendor/codemirror/mode/stex/stex.js"></script>
+  <script src="vendor/codemirror/mode/python/python.js"></script>
+  <script src="vendor/codemirror/mode/yaml/yaml.js"></script>
+  <script src="vendor/codemirror/mode/clike/clike.js"></script>
+  <script src="vendor/codemirror/mode/shell/shell.js"></script>
+  <script src="vendor/codemirror/mode/markdown/markdown.js"></script>
+  <script src="vendor/codemirror/mode/toml/toml.js"></script>
+  <script src="vendor/codemirror/mode/properties/properties.js"></script>
+  <script src="vendor/codemirror/mode/sql/sql.js"></script>
+  <script src="vendor/katex/katex.js"></script>
+
+  <script src="editor/android_source_editor.js"></script>
+  <script src="latex/latex_math_renderer.js"></script>
+  <script src="latex/latex_inline_renderer.js"></script>
+  <script src="latex/latex_table_renderer.js"></script>
+  <script src="latex/latex_graphic_renderer.js"></script>
+  <script src="latex/source_latex_preview_extractor.js"></script>
+  <script src="latex/source_latex_preview_controller.js"></script>
+  <script src="latex/latex_document_parser.js"></script>
+  <script src="latex/latex_visual_renderer.js"></script>
+  <script src="search/search_result_tree.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
