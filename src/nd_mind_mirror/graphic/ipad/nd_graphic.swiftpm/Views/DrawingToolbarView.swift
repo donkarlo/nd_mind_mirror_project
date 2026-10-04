@@ -6,18 +6,7 @@ struct DrawingToolbarView: View {
     @ObservedObject var activeTool: ActiveDrawingToolController
     @ObservedObject var savedTools: SavedDrawingToolStore
     @ObservedObject var recentColors: RecentPencilColors
-    @ObservedObject var editHistory: CanvasEditHistoryController
-    @Binding var showMeasurementGrid: Bool
-    @Binding var showMeasurementRulers: Bool
     @Binding var selectedPhotoItem: PhotosPickerItem?
-
-    let onUndo: () -> Void
-    let onRedo: () -> Void
-    let onZoom100: () -> Void
-    let onSetCanvas: (Double, Double) -> Void
-    let onCustomCanvas: () -> Void
-    let onClearDrawing: () -> Void
-    let onDisconnect: () -> Void
 
     @State private var editingToolID: UUID?
     @State private var editorColor: Color = .black
@@ -32,19 +21,10 @@ struct DrawingToolbarView: View {
                     savedToolButton(saved)
                 }
                 systemToolButton(.lasso, image: "lasso")
-                overlayButton($showMeasurementGrid, image: "square.grid.3x3", label: "Grid")
-                overlayButton($showMeasurementRulers, image: "ruler", label: "Rulers")
                 PhotosPicker(selection: $selectedPhotoItem, matching: .images) {
                     Image(systemName: "photo.badge.plus").frame(width: 30, height: 30)
                 }
                 .buttonStyle(.bordered)
-                Button(action: onUndo) { Image(systemName: "arrow.uturn.backward") }
-                    .disabled(activeTool.isPencilGestureActive)
-                    .keyboardShortcut("z", modifiers: .command)
-                Button(action: onRedo) { Image(systemName: "arrow.uturn.forward") }
-                    .disabled(!editHistory.canRedo || activeTool.isPencilGestureActive)
-                    .keyboardShortcut("z", modifiers: [.command, .shift])
-                canvasMenu
             }
             .controlSize(.small)
             .padding(.horizontal, 8)
@@ -98,41 +78,6 @@ struct DrawingToolbarView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 8))
         }
         .buttonStyle(.plain)
-    }
-
-    private func overlayButton(
-        _ value: Binding<Bool>,
-        image: String,
-        label: String
-    ) -> some View {
-        Button { value.wrappedValue.toggle() } label: {
-            Image(systemName: image)
-                .frame(width: 32, height: 32)
-                .background(value.wrappedValue ? Color.accentColor.opacity(0.18) : Color.clear)
-                .overlay(RoundedRectangle(cornerRadius: 8).stroke(
-                    value.wrappedValue ? Color.accentColor : Color.secondary.opacity(0.25),
-                    lineWidth: value.wrappedValue ? 2 : 0.7
-                ))
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(label)
-    }
-
-    private var canvasMenu: some View {
-        Menu {
-            Button("100% zoom", action: onZoom100)
-            Divider()
-            Button("A4 portrait — 1240 × 1754") { onSetCanvas(1240, 1754) }
-            Button("A4 landscape — 1754 × 1240") { onSetCanvas(1754, 1240) }
-            Button("Square — 1600 × 1600") { onSetCanvas(1600, 1600) }
-            Button("Custom canvas size…", action: onCustomCanvas)
-            Divider()
-            Button("Clear drawing", role: .destructive, action: onClearDrawing)
-            Button("Disconnect", role: .destructive, action: onDisconnect)
-        } label: {
-            Image(systemName: "ellipsis.circle").frame(width: 30, height: 30)
-        }
     }
 
     private func select(_ saved: SavedDrawingTool) {
@@ -199,8 +144,7 @@ struct DrawingToolbarView: View {
         savedTools.remove(id: saved.id)
         editingToolID = nil
         guard wasActive else { return }
-        // Never activate an arbitrary preset (the first one is usually black)
-        // after deleting the current preset. A neutral non-drawing tool is safer.
         activeTool.select(kind: .lasso)
     }
 }
+

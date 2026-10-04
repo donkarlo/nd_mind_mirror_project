@@ -47,7 +47,8 @@
 
     <section id="panel-preview" class="panel">
       <div class="panel-toolbar">
-        <button id="preview-refresh">Refresh</button>
+        <button id="preview-refresh">Compile</button>
+        <button id="preview-export">Export PDF</button>
         <span id="preview-state"></span>
       </div>
       <div id="preview-pages" class="preview-pages empty-state">Open a LaTeX file or PDF.</div>
@@ -140,6 +141,8 @@
   <script src="latex/source_latex_preview_controller.js"></script>
   <script src="latex/latex_document_parser.js"></script>
   <script src="latex/latex_visual_renderer.js"></script>
+  <script src="workspace/long_press_controller.js"></script>
+  <script src="workspace/workspace_folder_context_menu.js"></script>
   <script src="search/search_result_tree.js"></script>
   <script src="app.js"></script>
 </body>

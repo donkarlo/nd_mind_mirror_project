@@ -2,7 +2,7 @@ import UIKit
 
 /// Uses the native iOS double-tap recognizer for Apple Pencil quick-tool activation.
 final class PencilQuickToolPaletteGestureController: NSObject, UIGestureRecognizerDelegate {
-    var onPencilContactBegan: () -> Void = {}
+    var onPencilContactBegan: (CGPoint) -> Void = { _ in }
     var onSinglePencilTap: (CGPoint) -> Void = { _ in }
     var onDoublePencilTap: (CGPoint) -> Void = { _ in }
     var onDoubleTapRejected: () -> Void = {}
@@ -140,13 +140,14 @@ final class PencilQuickToolPaletteGestureController: NSObject, UIGestureRecogniz
                 firstTapTimestamp = ProcessInfo.processInfo.systemUptime
                 secondTapPoint = nil
                 secondTapTimestamp = nil
-                onPencilContactBegan()
+                onPencilContactBegan(firstTapPoint ?? touch.location(in: coordinateView))
             } else {
                 secondTapPoint = touch.location(in: coordinateView)
                 secondTapTimestamp = ProcessInfo.processInfo.systemUptime
             }
-        } else if gestureRecognizer === dismissTapGesture {
-            onPencilContactBegan()
+        } else if gestureRecognizer === dismissTapGesture,
+                  let coordinateView {
+            onPencilContactBegan(touch.location(in: coordinateView))
         }
         return true
     }

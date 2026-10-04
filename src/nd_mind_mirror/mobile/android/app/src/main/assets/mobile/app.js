@@ -13,6 +13,8 @@ class MindMirrorAndroidUi {
     this.searchDisplaySignature = "";
     this.dirty = false;
     this.autosaveTimer = null;
+    this.compileTimer = null;
+    this.compileRequestId = 0;
 
     this.currentFile = document.getElementById("current-file");
     this.statusBar = document.getElementById("status-bar");
@@ -43,9 +45,14 @@ class MindMirrorAndroidUi {
         this.jumpToLine(line);
       },
     );
+    this.folderContextMenu = new WorkspaceFolderContextMenu(
+      new LongPressController(),
+      (action, path) => this.handleFolderContextAction(action, path),
+    );
     this.searchTree = new SearchResultTree(
       document.getElementById("search-results"),
       (path, line) => this.openFile(path, line),
+      (element, path) => this.folderContextMenu.bindFolder(element, path),
     );
 
     this.bindEvents();
@@ -77,7 +84,16 @@ class MindMirrorAndroidUi {
     });
     this.saveButton.addEventListener("click", () => this.saveCurrentFile());
     document.getElementById("refresh-button").addEventListener("click", () => this.refreshActiveTab());
-    document.getElementById("preview-refresh").addEventListener("click", () => this.loadPreview(true));
+    document.getElementById("preview-refresh").addEventListener("click", () => {
+      if (this.isCompilableLatexPath()) {
+        this.requestLatexCompile(false, true);
+      } else {
+        this.loadPreview(true);
+      }
+    });
+    document.getElementById("preview-export").addEventListener("click", () => {
+      this.requestLatexCompile(true, true);
+    });
     document.getElementById("search-query").addEventListener("input", () => {
       this.scheduleSearch();
     });
@@ -94,8 +110,10 @@ class MindMirrorAndroidUi {
     this.sourceEditor.onChange(() => {
       this.sourcePreviewController.sourceChanged(this.sourceEditor.getValue());
       this.setDirty(true);
+      document.getElementById("preview-pages").dataset.path = "";
       window.clearTimeout(this.autosaveTimer);
       this.autosaveTimer = window.setTimeout(() => this.saveCurrentFile(), 1000);
+      this.scheduleLatexCompile();
     });
 
     document.getElementById("settings-button").addEventListener("click", () => this.showSettings());
@@ -227,8 +245,12 @@ class MindMirrorAndroidUi {
       this.setDirty(false);
       this.navigatorPath = "";
       this.searchRequestId += 1;
+      this.compileRequestId += 1;
       window.clearTimeout(this.searchTimer);
+      window.clearTimeout(this.compileTimer);
       document.getElementById("search-results").replaceChildren();
+      document.getElementById("preview-pages").replaceChildren();
+      document.getElementById("preview-pages").dataset.path = "";
 
       if (!info.configured) {
         this.activateTab("settings");
@@ -245,19 +267,28 @@ class MindMirrorAndroidUi {
     }
   }
 
-  loadNavigator(path) {
+  loadNavigator(path, selectedPath = null) {
     try {
       const data = this.nativeJson(this.bridge.listDirectory(path || ""));
       this.navigatorPath = data.path || "";
       document.getElementById("navigator-path").textContent = "/" + this.navigatorPath;
-      this.renderNavigator(data.entries || []);
+
+      const currentSelection =
+        selectedPath ||
+        (
+          this.currentPath &&
+          this.parentPath(this.currentPath) === this.navigatorPath
+            ? this.currentPath
+            : null
+        );
+      this.renderNavigator(data.entries || [], currentSelection);
       this.setStatus(`Navigator: /${this.navigatorPath}`);
     } catch (error) {
       this.setStatus(error.message, true);
     }
   }
 
-  renderNavigator(entries) {
+  renderNavigator(entries, selectedPath = null) {
     const container = document.getElementById("navigator-list");
     container.replaceChildren();
     if (!entries.length) {
@@ -270,6 +301,10 @@ class MindMirrorAndroidUi {
     entries.forEach((entry) => {
       const button = document.createElement("button");
       button.className = "list-item";
+      button.classList.toggle(
+        "current-file",
+        !entry.is_directory && entry.path === selectedPath,
+      );
 
       const icon = document.createElement("span");
       icon.textContent = entry.is_directory ? "📁" : "📄";
@@ -278,6 +313,11 @@ class MindMirrorAndroidUi {
       name.textContent = entry.name;
 
       button.append(icon, name);
+
+      if (entry.is_directory) {
+        this.folderContextMenu.bindFolder(button, entry.path);
+      }
+
       button.addEventListener("click", () => {
         if (entry.is_directory) {
           this.loadNavigator(entry.path);
@@ -299,6 +339,107 @@ class MindMirrorAndroidUi {
     return parts.join("/");
   }
 
+  async handleFolderContextAction(action, folderPath) {
+    try {
+      if (action === "open_navigator") {
+        this.activateTab("navigator");
+        this.loadNavigator(folderPath);
+        return;
+      }
+
+      if (action === "create_latex") {
+        await this.createLatexFileInFolder(folderPath);
+        return;
+      }
+
+      if (action === "create_file") {
+        await this.createFileInFolder(folderPath);
+        return;
+      }
+
+      if (action === "create_folder") {
+        await this.createFolderInFolder(folderPath);
+        return;
+      }
+
+      if (action === "recent_files") {
+        await this.openRecentFile();
+      }
+    } catch (error) {
+      this.setStatus(error.message, true);
+    }
+  }
+
+  async createLatexFileInFolder(folderPath) {
+    const fileName = await this.folderContextMenu.promptText(
+      "New LaTeX File",
+      "File name:",
+      "",
+      "document.tex",
+    );
+    if (!fileName) return;
+
+    const templateData = this.nativeJson(this.bridge.latexTemplates());
+    const templates = templateData.templates || [];
+    const templateId = await this.folderContextMenu.chooseItem(
+      "New LaTeX File",
+      "LaTeX template:",
+      templates.map((template) => ({
+        value: template.id,
+        label: template.label,
+        secondary: "",
+      })),
+    );
+    if (!templateId) return;
+
+    const created = this.nativeJson(
+      this.bridge.createLatexFile(folderPath, fileName, templateId),
+    );
+    this.activateTab("navigator");
+    this.loadNavigator(folderPath, created.path);
+    this.setStatus(`Created ${created.path}`);
+  }
+
+  async createFileInFolder(folderPath) {
+    const fileName = await this.folderContextMenu.promptText(
+      "New File",
+      "File name:",
+      "",
+      "notes.txt",
+    );
+    if (!fileName) return;
+
+    const created = this.nativeJson(
+      this.bridge.createFile(folderPath, fileName),
+    );
+    this.activateTab("navigator");
+    this.loadNavigator(folderPath, created.path);
+    this.setStatus(`Created ${created.path}`);
+  }
+
+  async createFolderInFolder(folderPath) {
+    const folderName = await this.folderContextMenu.promptText(
+      "New Folder",
+      "Folder name:",
+      "",
+      "folder",
+    );
+    if (!folderName) return;
+
+    const created = this.nativeJson(
+      this.bridge.createFolder(folderPath, folderName),
+    );
+    this.activateTab("navigator");
+    this.loadNavigator(folderPath, created.path);
+    this.setStatus(`Created ${created.path}`);
+  }
+
+  async openRecentFile() {
+    const data = this.nativeJson(this.bridge.recentFiles());
+    const path = await this.folderContextMenu.showRecentFiles(data.files || []);
+    if (path) this.openFile(path);
+  }
+
   openFile(path, line = null) {
     if (this.dirty && !window.confirm("Discard unsaved Source changes?")) return;
 
@@ -309,8 +450,12 @@ class MindMirrorAndroidUi {
       this.sourcePreviewController.setSource(data.path, data.content || "");
       this.currentFile.textContent = data.path;
       this.setDirty(false);
+      document.getElementById("preview-pages").dataset.path = "";
+      this.bridge.rememberRecentFile(data.path);
+      this.loadNavigator(this.parentPath(data.path), data.path);
       this.activateTab("source");
       if (line) this.jumpToLine(line);
+      if (this.isCompilableLatexPath()) this.scheduleLatexCompile(true);
       this.setStatus(`Opened ${data.path}`);
     } catch (error) {
       this.setStatus(error.message, true);
@@ -320,7 +465,7 @@ class MindMirrorAndroidUi {
   saveCurrentFile() {
     if (!this.currentPath || !this.dirty) return;
     try {
-      this.nativeJson(this.bridge.writeFile(this.currentPath, this.sourceEditor.value));
+      this.nativeJson(this.bridge.writeFile(this.currentPath, this.sourceEditor.getValue()));
       this.setDirty(false);
       document.getElementById("preview-pages").dataset.path = "";
       this.setStatus(`Saved ${this.currentPath}`);
@@ -331,6 +476,10 @@ class MindMirrorAndroidUi {
 
   isLatexPath() {
     return this.currentPath && /\.(tex|ltx|tikz)$/i.test(this.currentPath);
+  }
+
+  isCompilableLatexPath() {
+    return this.currentPath && /\.(tex|ltx)$/i.test(this.currentPath);
   }
 
   loadStructure() {
@@ -352,7 +501,7 @@ class MindMirrorAndroidUi {
     };
     const pattern = /\\(part|chapter|section|subsection|subsubsection|paragraph|subparagraph)\*?\{([^}]*)\}/g;
     const items = [];
-    this.sourceEditor.value.split("\n").forEach((line, index) => {
+    this.sourceEditor.getValue().split("\n").forEach((line, index) => {
       pattern.lastIndex = 0;
       let match;
       while ((match = pattern.exec(line)) !== null) {
@@ -387,18 +536,7 @@ class MindMirrorAndroidUi {
   }
 
   jumpToLine(lineNumber) {
-    const lines = this.sourceEditor.value.split("\n");
-    const target = Math.min(Math.max(Number(lineNumber) || 1, 1), Math.max(lines.length, 1));
-    let position = 0;
-    for (let index = 0; index < target - 1; index += 1) {
-      position += lines[index].length + 1;
-    }
-    this.sourceEditor.focus();
-    this.sourceEditor.setSelectionRange(position, position);
-    const ratio = lines.length > 1 ? (target - 1) / (lines.length - 1) : 0;
-    this.sourceEditor.scrollTop =
-      ratio * Math.max(0, this.sourceEditor.scrollHeight - this.sourceEditor.clientHeight);
-    this.sourcePresentation.syncScroll();
+    this.sourceEditor.jumpToLine(lineNumber);
   }
 
   loadVisual() {
@@ -409,75 +547,229 @@ class MindMirrorAndroidUi {
       return;
     }
 
-    container.className = "visual-content";
-    container.innerHTML = this.renderLatexProjection(this.sourceEditor.value);
+    this.visualRenderer.render(
+      container,
+      this.sourceEditor.getValue(),
+      this.currentPath,
+    );
   }
 
-  renderLatexProjection(source) {
-    const escape = (value) => String(value)
-      .replaceAll("&", "&amp;")
-      .replaceAll("<", "&lt;")
-      .replaceAll(">", "&gt;");
+  scheduleLatexCompile(shortDelay = false) {
+    window.clearTimeout(this.compileTimer);
+    if (!this.isCompilableLatexPath()) return;
 
-    const inline = (value) => {
-      let text = escape(value);
-      text = text.replace(/\\textbf\{([^{}]*)\}/g, "<strong>$1</strong>");
-      text = text.replace(/\\(?:emph|textit)\{([^{}]*)\}/g, "<em>$1</em>");
-      text = text.replace(/\$([^$]+)\$/g, '<span class="math">$1</span>');
-      return text;
-    };
+    this.compileTimer = window.setTimeout(
+      () => this.runLatexCompile(false),
+      shortDelay ? 420 : 1500,
+    );
+  }
 
-    const result = [];
-    let inList = false;
-    for (const rawLine of String(source).split("\n")) {
-      const line = rawLine.replace(/(^|[^\\])%.*/, "$1").trim();
-      if (!line) {
-        if (inList) {
-          result.push("</ul>");
-          inList = false;
-        }
-        continue;
-      }
-
-      const heading = line.match(/^\\(section|subsection|subsubsection)\*?\{([^}]*)\}/);
-      if (heading) {
-        if (inList) {
-          result.push("</ul>");
-          inList = false;
-        }
-        const tag = heading[1] === "section" ? "h1" : heading[1] === "subsection" ? "h2" : "h3";
-        result.push(`<${tag}>${inline(heading[2])}</${tag}>`);
-        continue;
-      }
-
-      const item = line.match(/^\\item\s*(.*)$/);
-      if (item) {
-        if (!inList) {
-          result.push("<ul>");
-          inList = true;
-        }
-        result.push(`<li>${inline(item[1])}</li>`);
-        continue;
-      }
-
-      if (/^\\(begin|end)\{(document|itemize|enumerate|figure|table)\}/.test(line)) continue;
-      result.push(`<p>${inline(line)}</p>`);
+  requestLatexCompile(exportPdf = false, immediate = false) {
+    window.clearTimeout(this.compileTimer);
+    if (!this.isCompilableLatexPath()) {
+      if (exportPdf) this.setStatus("Open a .tex or .ltx file to export PDF.", true);
+      return;
     }
-    if (inList) result.push("</ul>");
-    return result.join("");
+
+    if (immediate) {
+      this.runLatexCompile(exportPdf);
+      return;
+    }
+
+    this.compileTimer = window.setTimeout(
+      () => this.runLatexCompile(exportPdf),
+      1500,
+    );
+  }
+
+  runLatexCompile(exportPdf) {
+    if (!this.isCompilableLatexPath()) return;
+
+    this.compileRequestId += 1;
+    const requestId = this.compileRequestId;
+    const pages = document.getElementById("preview-pages");
+    const state = document.getElementById("preview-state");
+    const compileButton = document.getElementById("preview-refresh");
+    const exportButton = document.getElementById("preview-export");
+
+    compileButton.disabled = true;
+    exportButton.disabled = true;
+    state.textContent = exportPdf ? "Compiling for export…" : "Compiling locally…";
+
+    if (this.currentTab === "preview") {
+      pages.className = "preview-pages empty-state";
+      pages.textContent =
+        "Compiling locally with Tectonic… The first compile may download TeX packages once.";
+    }
+
+    try {
+      this.bridge.requestLatexCompile(
+        requestId,
+        this.currentPath,
+        this.sourceEditor.getValue(),
+        Boolean(exportPdf),
+      );
+    } catch (error) {
+      compileButton.disabled = false;
+      exportButton.disabled = false;
+      state.textContent = "Compile failed";
+      this.setStatus(error.message, true);
+    }
+  }
+
+  receiveCompileResult(requestId, rawResult) {
+    let data;
+    try {
+      data = JSON.parse(String(rawResult || "{}"));
+    } catch (_error) {
+      data = {
+        ok: false,
+        exported: false,
+        error: "Invalid compiler response from Android.",
+        log: "",
+      };
+    }
+
+    const isExport = Boolean(data.exported);
+    if (!isExport && Number(requestId) !== this.compileRequestId) return;
+
+    const compileButton = document.getElementById("preview-refresh");
+    const exportButton = document.getElementById("preview-export");
+    const state = document.getElementById("preview-state");
+    compileButton.disabled = false;
+    exportButton.disabled = false;
+
+    if (!data.ok) {
+      state.textContent = "Compile failed";
+      if (data.source_path === this.currentPath || !data.source_path) {
+        this.showCompileError(data.error || "Tectonic compilation failed.", data.log || "");
+      }
+      this.setStatus(data.error || "Tectonic compilation failed.", true);
+      return;
+    }
+
+    if (data.source_path === this.currentPath && data.preview_available) {
+      this.renderCompiledPreview(Number(data.page_count) || 0);
+    }
+
+    if (isExport) {
+      const target = data.exported_path || "PDF";
+      state.textContent = "Compiled and exported";
+      this.setStatus(`Exported PDF: ${target}`);
+    } else {
+      state.textContent = `Compiled • ${data.page_count || 0} page${Number(data.page_count) === 1 ? "" : "s"}`;
+      this.setStatus(`Compiled locally: ${this.currentPath}`);
+    }
+  }
+
+  showCompileError(message, log) {
+    const pages = document.getElementById("preview-pages");
+    pages.replaceChildren();
+    pages.className = "preview-pages compile-error-view";
+
+    const heading = document.createElement("strong");
+    heading.textContent = String(message || "Compile failed.");
+    pages.appendChild(heading);
+
+    const usefulLog = String(log || "").trim();
+    if (usefulLog) {
+      const details = document.createElement("details");
+      details.className = "compile-log";
+      const summary = document.createElement("summary");
+      summary.textContent = "Compiler log";
+      const pre = document.createElement("pre");
+      pre.textContent = usefulLog;
+      details.append(summary, pre);
+      pages.appendChild(details);
+    }
   }
 
   loadPreview(force) {
     const pages = document.getElementById("preview-pages");
     const state = document.getElementById("preview-state");
+    const exportButton = document.getElementById("preview-export");
 
     if (!this.currentPath || !(/\.(tex|ltx|tikz|pdf)$/i.test(this.currentPath))) {
       pages.className = "preview-pages empty-state";
       pages.textContent = "Open a LaTeX file or PDF.";
       state.textContent = "";
+      exportButton.disabled = true;
       return;
     }
-    if (!force && pages.dataset.path === this.currentPath && pages.children.length) return;
+
+    exportButton.disabled = !this.isCompilableLatexPath();
+
+    if (!this.isCompilableLatexPath()) {
+      this.loadStoredPdfPreview(force);
+      return;
+    }
+
+    if (force) {
+      this.runLatexCompile(false);
+      return;
+    }
+
+    try {
+      const compiled = this.nativeJson(this.bridge.compiledPreviewInfo(this.currentPath));
+      if (compiled.available) {
+        this.renderCompiledPreview(compiled.page_count || 0);
+        return;
+      }
+    } catch (_error) {
+      // A missing compiled preview is expected before the first local compile.
+    }
+
+    this.scheduleLatexCompile(true);
+    pages.className = "preview-pages empty-state";
+    pages.textContent = "Preparing local LaTeX preview…";
+    state.textContent = "Waiting for local compile…";
+  }
+
+  renderCompiledPreview(pageCount) {
+    const pages = document.getElementById("preview-pages");
+    const state = document.getElementById("preview-state");
+
+    pages.replaceChildren();
+    pages.className = "preview-pages";
+    pages.dataset.path = this.currentPath;
+    pages.dataset.kind = "compiled";
+    state.textContent = `Compiled • ${pageCount} page${pageCount === 1 ? "" : "s"}`;
+
+    this.loadCompiledPreviewPagesSequentially(1, pageCount, pages, this.currentPath);
+  }
+
+  loadCompiledPreviewPagesSequentially(pageNumber, pageCount, container, sourcePath) {
+    if (pageNumber > pageCount || sourcePath !== this.currentPath) return;
+
+    window.setTimeout(() => {
+      try {
+        const data = this.nativeJson(
+          this.bridge.compiledPreviewPage(sourcePath, pageNumber),
+        );
+        const image = document.createElement("img");
+        image.className = "preview-page";
+        image.alt = `Compiled preview page ${pageNumber}`;
+        image.src = data.data_url;
+        container.appendChild(image);
+        this.loadCompiledPreviewPagesSequentially(
+          pageNumber + 1,
+          pageCount,
+          container,
+          sourcePath,
+        );
+      } catch (error) {
+        this.setStatus(error.message, true);
+      }
+    }, 0);
+  }
+
+  loadStoredPdfPreview(force) {
+    const pages = document.getElementById("preview-pages");
+    const state = document.getElementById("preview-state");
+
+    if (!force && pages.dataset.path === this.currentPath && pages.children.length) {
+      return;
+    }
 
     try {
       pages.className = "preview-pages";
@@ -487,15 +779,20 @@ class MindMirrorAndroidUi {
 
       if (!info.available) {
         pages.className = "preview-pages empty-state";
-        pages.textContent =
-          `No local PDF found at ${info.pdf_path}. Android works standalone and does not compile LaTeX on Ubuntu.`;
+        pages.textContent = `No local PDF found at ${info.pdf_path}.`;
         state.textContent = "No PDF";
         return;
       }
 
       pages.dataset.path = this.currentPath;
+      pages.dataset.kind = "stored";
       state.textContent = `${info.page_count} page${info.page_count === 1 ? "" : "s"}`;
-      this.loadPreviewPagesSequentially(1, info.page_count, pages);
+      this.loadStoredPreviewPagesSequentially(
+        1,
+        info.page_count,
+        pages,
+        this.currentPath,
+      );
     } catch (error) {
       pages.className = "preview-pages error-state";
       pages.textContent = error.message;
@@ -503,17 +800,23 @@ class MindMirrorAndroidUi {
     }
   }
 
-  loadPreviewPagesSequentially(pageNumber, pageCount, container) {
-    if (pageNumber > pageCount) return;
+  loadStoredPreviewPagesSequentially(pageNumber, pageCount, container, sourcePath) {
+    if (pageNumber > pageCount || sourcePath !== this.currentPath) return;
+
     window.setTimeout(() => {
       try {
-        const data = this.nativeJson(this.bridge.previewPage(this.currentPath, pageNumber));
+        const data = this.nativeJson(this.bridge.previewPage(sourcePath, pageNumber));
         const image = document.createElement("img");
         image.className = "preview-page";
         image.alt = `Preview page ${pageNumber}`;
         image.src = data.data_url;
         container.appendChild(image);
-        this.loadPreviewPagesSequentially(pageNumber + 1, pageCount, container);
+        this.loadStoredPreviewPagesSequentially(
+          pageNumber + 1,
+          pageCount,
+          container,
+          sourcePath,
+        );
       } catch (error) {
         this.setStatus(error.message, true);
       }
@@ -630,5 +933,11 @@ const ui = new MindMirrorAndroidUi();
 window.mindMirrorNativeRootChanged = () => ui.rootChanged();
 window.mindMirrorNativeSearchResults = (requestId, result) => {
   ui.receiveSearchResults(requestId, result);
+};
+window.mindMirrorNativeLatexResource = (requestId, result) => {
+  ui.graphicRenderer.receive(requestId, result);
+};
+window.mindMirrorNativeCompileResult = (requestId, result) => {
+  ui.receiveCompileResult(requestId, result);
 };
 ui.start();

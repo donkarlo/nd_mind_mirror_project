@@ -27,7 +27,7 @@ class SourceLatexPreviewExtractor {
 
   collectFigures(masked, original, previews, occupied) {
     const pattern =
-      /\begin\s*\{figure\}(?:\s*\[[^\]]*\])?[\s\S]*?\end\s*\{figure\}/gi;
+      /\\begin\s*\{figure\}(?:\s*\[[^\]]*\])?[\s\S]*?\\end\s*\{figure\}/gi;
     let match;
 
     while ((match = pattern.exec(masked)) !== null) {
@@ -35,7 +35,7 @@ class SourceLatexPreviewExtractor {
       const graphics = this.graphicsInside(raw);
       if (!graphics.length) continue;
 
-      const captionMatch = raw.match(/\caption(?:\s*\[[^\]]*\])?\s*\{([^{}]*)\}/i);
+      const captionMatch = raw.match(/\\caption(?:\s*\[[^\]]*\])?\s*\{([^{}]*)\}/i);
       const endOffset = match.index + match[0].lastIndexOf("\\end");
       previews.push({
         kind: "graphic",
@@ -52,7 +52,7 @@ class SourceLatexPreviewExtractor {
 
   collectTables(masked, original, previews, occupied) {
     const pattern =
-      /\begin\{tabular\}(?:\[[^\]]*\])?\s*\{.*?\}[\s\S]*?\end\{tabular\}/g;
+      /\\begin\{tabular\}(?:\[[^\]]*\])?\s*\{.*?\}[\s\S]*?\\end\{tabular\}/g;
     let match;
 
     while ((match = pattern.exec(masked)) !== null) {
@@ -73,9 +73,9 @@ class SourceLatexPreviewExtractor {
 
   collectDisplayMath(masked, original, previews, occupied) {
     const patterns = [
-      /\[[\s\S]*?\]/g,
+      /\\\[[\s\S]*?\\\]/g,
       /\$\$[\s\S]*?\$\$/g,
-      /\begin\{(equation\*?|align\*?|gather\*?|multline\*?)\}[\s\S]*?\end\{\1\}/g,
+      /\\begin\{(equation\*?|align\*?|gather\*?|multline\*?)\}[\s\S]*?\\end\{\1\}/g,
     ];
 
     patterns.forEach((pattern) => {
@@ -100,7 +100,7 @@ class SourceLatexPreviewExtractor {
 
   collectStandaloneGraphics(masked, original, previews, occupied) {
     const pattern =
-      /\includegraphics\s*(?:\[(?<options>[^\]]*)\]\s*)?\{(?<path>[^{}]+)\}/gi;
+      /\\includegraphics\s*(?:\[(?<options>[^\]]*)\]\s*)?\{(?<path>[^{}]+)\}/gi;
     let match;
 
     while ((match = pattern.exec(masked)) !== null) {
@@ -183,7 +183,7 @@ class SourceLatexPreviewExtractor {
   graphicsInside(raw) {
     const graphics = [];
     const pattern =
-      /\includegraphics\s*(?:\[(?<options>[^\]]*)\]\s*)?\{(?<path>[^{}]+)\}/gi;
+      /\\includegraphics\s*(?:\[(?<options>[^\]]*)\]\s*)?\{(?<path>[^{}]+)\}/gi;
     let match;
     while ((match = pattern.exec(raw)) !== null) {
       graphics.push({

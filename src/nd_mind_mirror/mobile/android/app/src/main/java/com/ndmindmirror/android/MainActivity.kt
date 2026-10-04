@@ -9,6 +9,8 @@ import android.webkit.WebView
 import android.widget.FrameLayout
 import android.widget.ProgressBar
 import android.widget.Toast
+import com.ndmindmirror.android.latex.compiler.AndroidLatexCompileCoordinator
+import com.ndmindmirror.android.latex.compiler.LatexCompileService
 
 /**
  * Hosts the standalone Android Mind Mirror editor over local app assets.
@@ -21,6 +23,7 @@ class MainActivity : Activity() {
     private lateinit var searchIndex: SearchIndexManager
     private lateinit var searchCoordinator: AndroidSearchCoordinator
     private lateinit var latexResourceCoordinator: AndroidLatexResourceCoordinator
+    private lateinit var latexCompileCoordinator: AndroidLatexCompileCoordinator
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -29,17 +32,24 @@ class MainActivity : Activity() {
         workspace = AndroidWorkspaceService(this, preferences)
         val preview = PdfPreviewService(this, workspace)
         val latexResources = AndroidLatexResourceService(workspace, preview)
+        val recentFiles = RecentFileStore(this, preferences)
+        val latexDocumentTemplates = LatexDocumentTemplateCatalog(this)
 
         createContentView()
         searchIndex = SearchIndexManager(this, workspace)
         searchCoordinator = AndroidSearchCoordinator(webView, searchIndex)
         latexResourceCoordinator = AndroidLatexResourceCoordinator(webView, latexResources)
+        val latexCompileService = LatexCompileService(this, workspace, preview)
+        latexCompileCoordinator = AndroidLatexCompileCoordinator(webView, latexCompileService)
         webView.addJavascriptInterface(
             AndroidBridge(
                 this,
                 workspace,
                 preview,
+                recentFiles,
+                latexDocumentTemplates,
                 latexResourceCoordinator,
+                latexCompileCoordinator,
                 searchCoordinator,
             ),
             "MindMirrorAndroid",
@@ -114,6 +124,12 @@ class MainActivity : Activity() {
         return activated
     }
 
+    fun workspaceMutated() {
+        if (::searchIndex.isInitialized) {
+            searchIndex.refreshActiveRoot()
+        }
+    }
+
     @Deprecated("Deprecated by Android API; retained for minSdk compatibility.")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
@@ -169,6 +185,9 @@ class MainActivity : Activity() {
     }
 
     override fun onDestroy() {
+        if (::latexCompileCoordinator.isInitialized) {
+            latexCompileCoordinator.close()
+        }
         if (::latexResourceCoordinator.isInitialized) {
             latexResourceCoordinator.close()
         }

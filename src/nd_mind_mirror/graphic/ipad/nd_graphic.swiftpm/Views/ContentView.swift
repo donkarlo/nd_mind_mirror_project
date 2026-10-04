@@ -15,6 +15,8 @@ struct ContentView: View {
     @StateObject private var saveRetryController = GraphicSaveRetryController()
     @StateObject private var saveGate = GraphicDocumentSaveGate()
     @StateObject private var liveSyncSettings = LiveGraphicSyncSettingsStore()
+    @StateObject private var pencilContactPreviewSettings = PencilContactPreviewSettingsStore()
+    @StateObject private var pencilContactPreviewVisibility = PencilContactPreviewVisibilityController()
     @StateObject private var liveSaveScheduler = LiveGraphicSaveScheduler()
     @StateObject private var documentNavigation = GraphicDocumentNavigationHistory()
 
@@ -42,6 +44,7 @@ struct ContentView: View {
     @State private var initializedTool = false
     @State private var pendingRemoteToken: Int?
     @State private var quickToolPaletteAnchor: CGPoint?
+    @State private var pencilContactPreviewAnchor: CGPoint?
     @State private var quickPhotoPickerPresented = false
 
     var body: some View {
@@ -62,7 +65,10 @@ struct ContentView: View {
             )
         }
         .sheet(isPresented: $showLiveSyncSettings) {
-            LiveGraphicSyncSettingsView(settingsStore: liveSyncSettings)
+            LiveGraphicSyncSettingsView(
+                settingsStore: liveSyncSettings,
+                pencilContactPreviewSettings: pencilContactPreviewSettings
+            )
         }
         .photosPicker(
             isPresented: $quickPhotoPickerPresented,
@@ -128,6 +134,20 @@ struct ContentView: View {
                 .buttonStyle(.plain)
                 .disabled(!documentNavigation.canGoForward)
                 .accessibilityLabel("Next graphic")
+
+                HeaderDrawingControlsView(
+                    activeTool: activeTool,
+                    editHistory: editHistory,
+                    showMeasurementRulers: $showMeasurementRulers,
+                    showMeasurementGrid: $showMeasurementGrid,
+                    onRedo: performRedo,
+                    onUndo: performUndo,
+                    onZoom100: { zoom100RequestToken += 1 },
+                    onSetCanvas: setCanvas,
+                    onCustomCanvas: openCanvasEditor,
+                    onClearDrawing: clearDrawing,
+                    onDisconnect: bridge.disconnect
+                )
             }
 
             Button {
@@ -199,17 +219,7 @@ struct ContentView: View {
                 activeTool: activeTool,
                 savedTools: savedTools,
                 recentColors: recentColors,
-                editHistory: editHistory,
-                showMeasurementGrid: $showMeasurementGrid,
-                showMeasurementRulers: $showMeasurementRulers,
-                selectedPhotoItem: $selectedPhotoItem,
-                onUndo: performUndo,
-                onRedo: performRedo,
-                onZoom100: { zoom100RequestToken += 1 },
-                onSetCanvas: setCanvas,
-                onCustomCanvas: openCanvasEditor,
-                onClearDrawing: clearDrawing,
-                onDisconnect: bridge.disconnect
+                selectedPhotoItem: $selectedPhotoItem
             )
             .onChange(of: selectedPhotoItem) { _, item in
                 quickToolPaletteAnchor = nil
@@ -236,10 +246,12 @@ struct ContentView: View {
                         showMeasurementRulers: false,
                         zoom100RequestToken: zoom100RequestToken,
                         quickToolPalettePresented: quickToolPaletteAnchor != nil,
+                        onPencilContactBegan: showPencilContactPreview,
                         onPencilSingleTap: { _ in
                             quickToolPaletteAnchor = nil
                         },
                         onPencilDoubleTap: { point in
+                            pencilContactPreviewAnchor = nil
                             quickToolPaletteAnchor = point
                         },
                         onDrawingChanged: handleDrawingChanged,
@@ -249,11 +261,25 @@ struct ContentView: View {
                         onImageObjectsCommitted: { _, _, _ in }
                     )
 
+                    if let pencilContactPreviewAnchor,
+                       quickToolPaletteAnchor == nil {
+                        PencilContactToolPreviewView(
+                            tool: activeTool.kind,
+                            color: activeTool.color,
+                            opacity: activeTool.opacity,
+                            eraserMode: activeTool.eraserMode,
+                            anchor: pencilContactPreviewAnchor
+                        )
+                    }
+
                     if let quickToolPaletteAnchor {
                         QuickDrawingToolPaletteView(
                             activeTool: activeTool,
                             savedTools: savedTools,
+                            editHistory: editHistory,
                             anchor: quickToolPaletteAnchor,
+                            onRedo: performRedo,
+                            onUndo: performUndo,
                             onSelectSavedTool: selectQuickTool,
                             onSelectLasso: selectQuickLasso,
                             onAddImage: openQuickPhotoPicker
@@ -329,6 +355,7 @@ struct ContentView: View {
         }
 
         activeTool.prepareForRemoteDocumentLoad()
+        pencilContactPreviewVisibility.reset()
         saveGate.beginLoading(path: path)
         let newDocument = path != loadedPath
         loadedPath = path
@@ -424,6 +451,7 @@ struct ContentView: View {
             return
         }
 
+        pencilContactPreviewVisibility.recordDrawingActivity()
         localDrawing = drawing
         if activeTool.isCanvasGestureInFlight {
             scheduleLiveSave(drawing)
@@ -471,6 +499,20 @@ struct ContentView: View {
             return
         }
         restore(snapshot)
+    }
+
+    private func showPencilContactPreview(_ point: CGPoint) {
+        guard quickToolPaletteAnchor == nil,
+              pencilContactPreviewVisibility.shouldShow(
+                minimumIdleSeconds: pencilContactPreviewSettings.minimumIdleSeconds
+              ) else { return }
+        pencilContactPreviewAnchor = point
+        let previewPoint = point
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
+            if pencilContactPreviewAnchor == previewPoint {
+                pencilContactPreviewAnchor = nil
+            }
+        }
     }
 
     private func selectQuickTool(_ savedTool: SavedDrawingTool) {

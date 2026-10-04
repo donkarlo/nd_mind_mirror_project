@@ -27,14 +27,8 @@ class PdfPreviewService(
         }
 
         val cached = cachePdf(pdfPath)
-        ParcelFileDescriptor.open(cached, ParcelFileDescriptor.MODE_READ_ONLY).use { descriptor ->
-            PdfRenderer(descriptor).use { renderer ->
-                return JSONObject()
-                    .put("available", true)
-                    .put("pdf_path", pdfPath)
-                    .put("page_count", renderer.pageCount)
-            }
-        }
+        return infoForLocalFile(cached)
+            .put("pdf_path", pdfPath)
     }
 
     fun pageDataUrl(sourcePath: String, pageNumber: Int): String {
@@ -42,8 +36,23 @@ class PdfPreviewService(
     }
 
     fun pageDataUrlForPdfPath(pdfPath: String, pageNumber: Int): String {
-        val cached = cachePdf(pdfPath)
-        ParcelFileDescriptor.open(cached, ParcelFileDescriptor.MODE_READ_ONLY).use { descriptor ->
+        return pageDataUrlForLocalFile(cachePdf(pdfPath), pageNumber)
+    }
+
+    fun infoForLocalFile(file: File): JSONObject {
+        require(file.isFile) { "Compiled PDF is unavailable." }
+        ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY).use { descriptor ->
+            PdfRenderer(descriptor).use { renderer ->
+                return JSONObject()
+                    .put("available", true)
+                    .put("page_count", renderer.pageCount)
+            }
+        }
+    }
+
+    fun pageDataUrlForLocalFile(file: File, pageNumber: Int): String {
+        require(file.isFile) { "Compiled PDF is unavailable." }
+        ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY).use { descriptor ->
             PdfRenderer(descriptor).use { renderer ->
                 require(pageNumber in 1..renderer.pageCount) { "Invalid PDF page." }
                 renderer.openPage(pageNumber - 1).use { page ->

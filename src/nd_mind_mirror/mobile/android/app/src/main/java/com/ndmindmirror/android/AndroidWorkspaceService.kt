@@ -86,12 +86,18 @@ class AndroidWorkspaceService(
 
     fun readText(relativePath: String): JSONObject {
         val normalized = normalize(relativePath)
-        val uri = resolve(normalized)
-        val text = resolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }
-            ?: throw FileNotFoundException(normalized)
         return JSONObject()
             .put("path", normalized)
-            .put("content", text)
+            .put("content", readTextContent(normalized))
+    }
+
+    fun readTextContent(relativePath: String): String {
+        val normalized = normalize(relativePath)
+        val uri = resolve(normalized)
+        return resolver.openInputStream(uri)
+            ?.bufferedReader(Charsets.UTF_8)
+            ?.use { it.readText() }
+            ?: throw FileNotFoundException(normalized)
     }
 
     fun writeText(relativePath: String, content: String): JSONObject {
@@ -101,6 +107,75 @@ class AndroidWorkspaceService(
             it.write(content)
         } ?: throw FileNotFoundException(normalized)
         return JSONObject().put("path", normalized)
+    }
+
+    fun writeBytes(relativePath: String, bytes: ByteArray, mimeType: String) {
+        val normalized = normalize(relativePath)
+        val existing = runCatching { resolve(normalized) }.getOrNull()
+        val uri = existing ?: createFile(normalized, mimeType)
+        resolver.openOutputStream(uri, "rwt")?.use { output ->
+            output.write(bytes)
+        } ?: throw FileNotFoundException(normalized)
+    }
+
+    fun writeFile(relativePath: String, sourceFile: java.io.File, mimeType: String) {
+        require(sourceFile.isFile) { "Source file is unavailable." }
+        val normalized = normalize(relativePath)
+        val existing = runCatching { resolve(normalized) }.getOrNull()
+        val uri = existing ?: createFile(normalized, mimeType)
+        sourceFile.inputStream().use { input ->
+            resolver.openOutputStream(uri, "rwt")?.use { output ->
+                input.copyTo(output)
+            } ?: throw FileNotFoundException(normalized)
+        }
+    }
+
+    fun createTextFile(
+        directoryPath: String,
+        fileName: String,
+        content: String,
+        mimeType: String = "text/plain",
+    ): JSONObject {
+        val directory = normalize(directoryPath)
+        val name = validateEntryName(fileName)
+        val parentUri = resolve(directory)
+        ensureChildDoesNotExist(parentUri, name)
+
+        val uri = DocumentsContract.createDocument(
+            resolver,
+            parentUri,
+            mimeType,
+            name,
+        ) ?: throw IllegalStateException("Could not create file.")
+
+        resolver.openOutputStream(uri, "rwt")?.bufferedWriter(Charsets.UTF_8)?.use {
+            it.write(content)
+        } ?: throw IllegalStateException("Could not write the new file.")
+
+        return JSONObject()
+            .put("path", joinPath(directory, name))
+            .put("name", name)
+    }
+
+    fun createDirectory(
+        directoryPath: String,
+        folderName: String,
+    ): JSONObject {
+        val directory = normalize(directoryPath)
+        val name = validateEntryName(folderName)
+        val parentUri = resolve(directory)
+        ensureChildDoesNotExist(parentUri, name)
+
+        DocumentsContract.createDocument(
+            resolver,
+            parentUri,
+            DocumentsContract.Document.MIME_TYPE_DIR,
+            name,
+        ) ?: throw IllegalStateException("Could not create folder.")
+
+        return JSONObject()
+            .put("path", joinPath(directory, name))
+            .put("name", name)
     }
 
     fun activeRootKey(): String {
@@ -177,6 +252,43 @@ class AndroidWorkspaceService(
                 )
             )
         }
+    }
+
+    private fun validateEntryName(rawName: String): String {
+        val name = rawName.trim()
+        require(
+            name.isNotBlank() &&
+                name != "." &&
+                name != ".." &&
+                '/' !in name &&
+                '\\' !in name
+        ) {
+            "Invalid file or folder name."
+        }
+        return name
+    }
+
+    private fun ensureChildDoesNotExist(
+        directoryUri: Uri,
+        name: String,
+    ) {
+        if (children(directoryUri).any { child -> child.name == name }) {
+            throw IllegalStateException("$name already exists.")
+        }
+    }
+
+    private fun createFile(relativePath: String, mimeType: String): Uri {
+        val parentPath = relativePath.substringBeforeLast('/', "")
+        val displayName = relativePath.substringAfterLast('/')
+        require(displayName.isNotBlank()) { "Invalid file path." }
+
+        val parentUri = resolve(parentPath)
+        return DocumentsContract.createDocument(
+            resolver,
+            parentUri,
+            mimeType,
+            displayName,
+        ) ?: throw FileNotFoundException(relativePath)
     }
 
     private fun resolve(relativePath: String): Uri {

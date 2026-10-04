@@ -4,9 +4,10 @@
  * Renders Android search hits as the same root/folder/file hierarchy used by desktop search.
  */
 class SearchResultTree {
-  constructor(container, openFile) {
+  constructor(container, openFile, bindFolderContext = null) {
     this.container = container;
     this.openFile = openFile;
+    this.bindFolderContext = bindFolderContext;
   }
 
   render(results, kind) {
@@ -22,6 +23,7 @@ class SearchResultTree {
 
     const summary = document.createElement("summary");
     summary.textContent = "/";
+    this.bindDirectoryContext(summary, root.path);
     rootDetails.appendChild(summary);
 
     const children = document.createElement("div");
@@ -38,16 +40,21 @@ class SearchResultTree {
   }
 
   buildTree(results) {
-    const root = this.directoryNode("");
+    const root = this.directoryNode("", "");
 
     results.forEach((result) => {
       const parts = String(result.path || "").split("/").filter(Boolean);
       if (!parts.length) return;
 
       let directory = root;
+      let directoryPath = "";
       parts.slice(0, -1).forEach((part) => {
+        directoryPath = directoryPath ? `${directoryPath}/${part}` : part;
         if (!directory.directories.has(part)) {
-          directory.directories.set(part, this.directoryNode(part));
+          directory.directories.set(
+            part,
+            this.directoryNode(part, directoryPath),
+          );
         }
         directory = directory.directories.get(part);
       });
@@ -71,12 +78,19 @@ class SearchResultTree {
     return root;
   }
 
-  directoryNode(name) {
+  directoryNode(name, path) {
     return {
       name,
+      path,
       directories: new Map(),
       files: new Map(),
     };
+  }
+
+  bindDirectoryContext(element, path) {
+    if (typeof this.bindFolderContext === "function") {
+      this.bindFolderContext(element, path);
+    }
   }
 
   renderDirectoryChildren(directory, container, kind) {
@@ -89,6 +103,7 @@ class SearchResultTree {
 
         const summary = document.createElement("summary");
         summary.textContent = child.name;
+        this.bindDirectoryContext(summary, child.path);
         details.appendChild(summary);
 
         const children = document.createElement("div");

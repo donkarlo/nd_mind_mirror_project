@@ -2,6 +2,8 @@ package com.ndmindmirror.android
 
 import android.util.Base64
 import org.json.JSONObject
+import java.io.ByteArrayOutputStream
+import java.io.InputStream
 
 /**
  * Resolves LaTeX graphics inside the active Android workspace and exposes them
@@ -22,10 +24,7 @@ class AndroidLatexResourceService(
             pdfPreview.pageDataUrlForPdfPath(resolvedPath, 1)
         } else {
             val bytes = workspace.inputStream(resolvedPath).use { input ->
-                input.readBytes(MAX_RESOURCE_BYTES + 1)
-            }
-            require(bytes.size <= MAX_RESOURCE_BYTES) {
-                "Graphic is too large for Android inline preview."
+                readLimitedBytes(input)
             }
             val mime = mimeType(suffix)
             "data:$mime;base64," + Base64.encodeToString(bytes, Base64.NO_WRAP)
@@ -95,6 +94,23 @@ class AndroidLatexResourceService(
             }
         }
         return stack.joinToString("/")
+    }
+
+    private fun readLimitedBytes(input: InputStream): ByteArray {
+        val output = ByteArrayOutputStream()
+        val buffer = ByteArray(8192)
+        var total = 0
+
+        while (true) {
+            val count = input.read(buffer)
+            if (count < 0) break
+            total += count
+            require(total <= MAX_RESOURCE_BYTES) {
+                "Graphic is too large for Android inline preview."
+            }
+            output.write(buffer, 0, count)
+        }
+        return output.toByteArray()
     }
 
     private fun mimeType(suffix: String): String {

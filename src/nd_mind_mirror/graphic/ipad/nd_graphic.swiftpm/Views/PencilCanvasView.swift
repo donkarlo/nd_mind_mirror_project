@@ -19,6 +19,7 @@ struct PencilCanvasView: UIViewRepresentable {
     let showMeasurementRulers: Bool
     let zoom100RequestToken: Int
     let quickToolPalettePresented: Bool
+    let onPencilContactBegan: (CGPoint) -> Void
     let onPencilSingleTap: (CGPoint) -> Void
     let onPencilDoubleTap: (CGPoint) -> Void
     let onDrawingChanged: (PKDrawing) -> Void
@@ -126,6 +127,7 @@ struct PencilCanvasView: UIViewRepresentable {
         context.coordinator.zoom100RequestToken = zoom100RequestToken
         context.coordinator.configureQuickToolGestures(
             activeToolController: activeToolController,
+            onPencilContactBegan: onPencilContactBegan,
             onSinglePencilTap: onPencilSingleTap,
             onDoublePencilTap: onPencilDoubleTap
         )
@@ -157,6 +159,7 @@ struct PencilCanvasView: UIViewRepresentable {
         coordinator.activeToolController = activeToolController
         coordinator.configureQuickToolGestures(
             activeToolController: activeToolController,
+            onPencilContactBegan: onPencilContactBegan,
             onSinglePencilTap: onPencilSingleTap,
             onDoublePencilTap: onPencilDoubleTap
         )
@@ -308,12 +311,14 @@ struct PencilCanvasView: UIViewRepresentable {
 
         func configureQuickToolGestures(
             activeToolController: ActiveDrawingToolController,
+            onPencilContactBegan: @escaping (CGPoint) -> Void,
             onSinglePencilTap: @escaping (CGPoint) -> Void,
             onDoublePencilTap: @escaping (CGPoint) -> Void
         ) {
             quickToolGestureController.onPencilContactBegan = {
-                [weak controller = activeToolController] in
+                [weak controller = activeToolController] point in
                 controller?.beginQuickToolTapCandidate()
+                onPencilContactBegan(point)
             }
             quickToolGestureController.onDoubleTapRejected = {
                 [weak controller = activeToolController] in

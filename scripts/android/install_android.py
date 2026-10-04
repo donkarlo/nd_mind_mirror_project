@@ -13,6 +13,15 @@ import sys
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 ANDROID_DIR = PROJECT_ROOT / "src" / "nd_mind_mirror" / "mobile" / "android"
 APK_PATH = ANDROID_DIR / "app" / "build" / "outputs" / "apk" / "debug" / "app-debug.apk"
+TECTONIC_LIBRARY_PATH = (
+    ANDROID_DIR
+    / "app"
+    / "src"
+    / "main"
+    / "jniLibs"
+    / "arm64-v8a"
+    / "libtexslate_native.so"
+)
 STATE_PATH = Path.home() / ".config" / "nd_mind_mirror" / "android_installer.json"
 
 
@@ -154,6 +163,11 @@ def prepare_android_sdk(adb: Path) -> None:
 
 
 def build_apk() -> None:
+    if not TECTONIC_LIBRARY_PATH.is_file():
+        raise RuntimeError(
+            "Embedded Tectonic library is missing. Run "
+            "./scripts/android/build_native_tectonic.sh first."
+        )
     gradlew = ANDROID_DIR / "gradlew"
     run([str(gradlew), ":app:assembleDebug", "--no-daemon"])
     if not APK_PATH.is_file():

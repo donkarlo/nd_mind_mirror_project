@@ -4,8 +4,11 @@ import SwiftUI
 struct QuickDrawingToolPaletteView: View {
     @ObservedObject var activeTool: ActiveDrawingToolController
     @ObservedObject var savedTools: SavedDrawingToolStore
+    @ObservedObject var editHistory: CanvasEditHistoryController
 
     let anchor: CGPoint
+    let onRedo: () -> Void
+    let onUndo: () -> Void
     let onSelectSavedTool: (SavedDrawingTool) -> Void
     let onSelectLasso: () -> Void
     let onAddImage: () -> Void
@@ -32,6 +35,8 @@ struct QuickDrawingToolPaletteView: View {
                 ForEach(savedTools.tools) { savedTool in
                     savedToolButton(savedTool)
                 }
+                redoButton
+                undoButton
                 lassoButton
                 addImageButton
             }
@@ -53,7 +58,7 @@ struct QuickDrawingToolPaletteView: View {
     }
 
     private var itemCount: Int {
-        savedTools.tools.count + 2
+        savedTools.tools.count + 4
     }
     private func savedToolButton(_ savedTool: SavedDrawingTool) -> some View {
         Button {
@@ -67,6 +72,32 @@ struct QuickDrawingToolPaletteView: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(accessibilityLabel(for: savedTool))
+    }
+
+    private var redoButton: some View {
+        Button(action: onRedo) {
+            paletteCell(
+                image: "arrow.uturn.forward",
+                tint: .primary,
+                isSelected: false
+            )
+        }
+        .buttonStyle(.plain)
+        .disabled(!editHistory.canRedo || activeTool.isPencilGestureActive)
+        .accessibilityLabel("Redo")
+    }
+
+    private var undoButton: some View {
+        Button(action: onUndo) {
+            paletteCell(
+                image: "arrow.uturn.backward",
+                tint: .primary,
+                isSelected: false
+            )
+        }
+        .buttonStyle(.plain)
+        .disabled(!editHistory.canUndo || activeTool.isPencilGestureActive)
+        .accessibilityLabel("Undo")
     }
 
     private var lassoButton: some View {
