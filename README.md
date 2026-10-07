@@ -16,6 +16,7 @@ This README describes the active functional project: desktop Python/PySide6 sour
 - Create, rename, drag/move, and active-tab reveals remain deterministic; Source/Visual clicks intentionally force a centered reveal even when the same Navigator row is already selected.
 - Double-click opens editable files in Mind Mirror; PDFs/images can open in the system application.
 - Navigator sort order is folders A–Z first, then files A–Z.
+- Navigator child indentation is independently configurable through `ui.navigator_child_indent_width` in `settings.yaml`; changing it through **Reload settings.yaml** updates the tree without restarting. Folder entries use a modern light-blue folder icon, configurable through `ui.navigator_folder_color`.
 - Navigator right-click commands are grouped into **Open**, **Copy / Share**, **Create**, and **Manage** submenus.
 - **Copy Absolute Path**, **Copy from Default Path**, file-name copy, GitHub URL copy/open, file-manager reveal, pinning, create, rename, delete, clipboard-image paste, and iPad graphic editing are supported. **Copy from Default Path** copies `/path/to/item` relative to `search.default_path`, and supports multi-selection with one path per line.
 - Ctrl-click cherry-picks Navigator rows and Shift-click selects a contiguous range; file/folder Copy, Cut, Delete, and grouped operations use the complete top-level selected set.
@@ -178,6 +179,7 @@ The controller handles Qt standard-key matching and German/Swiss QWERTZ layouts.
 - Ctrl+mouse-wheel zoom and panning are supported.
 - Zoom percentage and page information are displayed.
 - PDF export is available. Full LaTeX documents are compiled from the canonical source with LuaLaTeX plus Biber/BibTeX when required; fragment-style documents can be exported through the Preview wrapper.
+- The Preview toolbar order is **Export PDF → Export TeX → Detach → Lock → Extend → Fit**. **Export TeX** saves the exact prepared LaTeX source that produced the PDF currently visible in Preview, including recursively resolved `\input` content, the selected Preview wrapper/profile, and Preview reference materialization. If a newer compile fails, it still exports the LaTeX corresponding to the last valid PDF that remains visible. The default output name is `<source>_preview.tex`.
 - Preview can be detached into its own window and reattached without permanently stretching the editor layout.
 - **Fit Once** performs content-aware fit.
 - **Auto Fit** fits the page to the settled Preview width without continuously changing zoom while typing.
@@ -265,7 +267,9 @@ There is no second root-level copy of `nd_graphic.zip` in the project. The canon
 ### iPad drawing controls
 
 - Pencil, Highlighter, Eraser, and Lasso.
-- Double-tapping the raster canvas with the Apple Pencil tip opens a four-column quick-tool palette at the tap location. It contains every saved drawing preset plus Redo, Undo, Lasso, and Add image, prefers placement above the Pencil, stays fully inside the visible canvas, reduces its row count when fewer than 16 items exist, and scrolls inside the same four-row panel if more items are configured.
+- The top-right Gear settings sheet has a persistent **Show drawing toolbar** toggle. Hiding the drawing toolbar removes the Pencil/Highlighter/Eraser/Lasso/image-import row without disabling the Apple Pencil double-tap palette or photo import.
+- The Gear settings sheet also owns one persistent drawing-tool order. Tap **Edit** and drag the reorder handles to arrange saved Pencil/Highlighter/Eraser presets, Lasso, and Import image; the top drawing toolbar and the Apple Pencil double-tap palette read the same order, so both change together.
+- Double-tapping the raster canvas with the Apple Pencil tip opens a four-column quick-tool palette at the tap location. It contains the shared ordered drawing-tool items plus Redo and Undo, prefers placement above the Pencil, stays fully inside the visible canvas, reduces its row count when fewer than 16 items exist, and scrolls inside the same four-row panel if more items are configured.
 - On first Apple Pencil contact after a configurable idle period, the raster canvas briefly shows only the active tool icon beside the contact point. Pencil and Marker icons use the selected tool color and opacity; Eraser and Lasso remain neutral. The Gear settings sheet provides a 1.0–10.0 second minimum idle interval in 0.5-second steps so continuous handwriting does not repeatedly show the icon. The indicator is transient and does not intercept drawing input.
 - Saved drawing-tool presets can be added, edited, reordered by placement, or deleted; Pencil/Highlighter presets carry color, thickness, and opacity, while Eraser presets carry eraser mode and width.
 - Independent recent-color history for Pencil and Highlighter.

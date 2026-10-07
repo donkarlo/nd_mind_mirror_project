@@ -1,11 +1,12 @@
 import PhotosUI
 import SwiftUI
 
-/// Owns toolbar-only UI state and saved-tool preset editing.
+/// Owns toolbar-only UI state while using the shared persisted item order.
 struct DrawingToolbarView: View {
     @ObservedObject var activeTool: ActiveDrawingToolController
     @ObservedObject var savedTools: SavedDrawingToolStore
     @ObservedObject var recentColors: RecentPencilColors
+    @ObservedObject var toolbarSettings: DrawingToolbarSettingsStore
     @Binding var selectedPhotoItem: PhotosPickerItem?
 
     @State private var editingToolID: UUID?
@@ -17,20 +18,34 @@ struct DrawingToolbarView: View {
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 7) {
-                ForEach(savedTools.tools) { saved in
-                    savedToolButton(saved)
+                ForEach(toolbarSettings.items(for: savedTools.tools)) { item in
+                    toolbarItem(item)
                 }
-                systemToolButton(.lasso, image: "lasso")
-                PhotosPicker(selection: $selectedPhotoItem, matching: .images) {
-                    Image(systemName: "photo.badge.plus").frame(width: 30, height: 30)
-                }
-                .buttonStyle(.bordered)
             }
             .controlSize(.small)
             .padding(.horizontal, 8)
             .padding(.vertical, 6)
         }
         .background(.bar)
+    }
+
+    @ViewBuilder
+    private func toolbarItem(_ item: DrawingToolbarItem) -> some View {
+        switch item {
+        case .savedTool(let id):
+            if let saved = savedTools.tools.first(where: { $0.id == id }) {
+                savedToolButton(saved)
+            }
+        case .lasso:
+            systemToolButton(.lasso, image: "lasso")
+        case .addImage:
+            PhotosPicker(selection: $selectedPhotoItem, matching: .images) {
+                Image(systemName: "photo.badge.plus")
+                    .frame(width: 30, height: 30)
+            }
+            .buttonStyle(.bordered)
+            .accessibilityLabel("Add image")
+        }
     }
 
     private func savedToolButton(_ saved: SavedDrawingTool) -> some View {
@@ -115,6 +130,7 @@ struct DrawingToolbarView: View {
         }
         guard let newID,
               let created = savedTools.tools.first(where: { $0.id == newID }) else { return }
+        toolbarSettings.insertSavedTool(newID, after: saved.id)
         openEditor(created)
     }
 
@@ -141,10 +157,10 @@ struct DrawingToolbarView: View {
 
     private func deleteTool(_ saved: SavedDrawingTool) {
         let wasActive = activeTool.selectedSavedToolID == saved.id
+        toolbarSettings.removeSavedTool(saved.id)
         savedTools.remove(id: saved.id)
         editingToolID = nil
         guard wasActive else { return }
         activeTool.select(kind: .lasso)
     }
 }
-

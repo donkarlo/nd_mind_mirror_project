@@ -863,6 +863,28 @@ class YamlSettings:
         )
 
     @property
+    def navigator_child_indent_width(self) -> int:
+        value = self._positive_int(
+            self._get(
+                "ui",
+                "navigator_child_indent_width",
+                default=self.navigator_indent_width,
+            ),
+            self.navigator_indent_width,
+        )
+        return max(1, min(value, 80))
+
+    @property
+    def navigator_folder_color(self) -> str:
+        return str(
+            self._get(
+                "ui",
+                "navigator_folder_color",
+                default="#69B7F4",
+            )
+        ).strip() or "#69B7F4"
+
+    @property
     def navigator_row_height(self) -> int:
         value = self._positive_int(
             self._get(

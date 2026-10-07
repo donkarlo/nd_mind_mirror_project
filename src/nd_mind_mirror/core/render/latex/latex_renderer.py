@@ -161,6 +161,7 @@ class LatexRenderer(BaseLatexRenderer):
             shutil.copy2(self._pdf_path, destination)
         except OSError:
             return
+        self._remember_published_tex(destination)
         self._last_valid_pdf_by_source[resolved] = destination
 
     def _resolved_source_path(

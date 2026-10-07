@@ -15,6 +15,7 @@ struct ContentView: View {
     @StateObject private var saveRetryController = GraphicSaveRetryController()
     @StateObject private var saveGate = GraphicDocumentSaveGate()
     @StateObject private var liveSyncSettings = LiveGraphicSyncSettingsStore()
+    @StateObject private var toolbarSettings = DrawingToolbarSettingsStore()
     @StateObject private var pencilContactPreviewSettings = PencilContactPreviewSettingsStore()
     @StateObject private var pencilContactPreviewVisibility = PencilContactPreviewVisibilityController()
     @StateObject private var liveSaveScheduler = LiveGraphicSaveScheduler()
@@ -67,7 +68,9 @@ struct ContentView: View {
         .sheet(isPresented: $showLiveSyncSettings) {
             LiveGraphicSyncSettingsView(
                 settingsStore: liveSyncSettings,
-                pencilContactPreviewSettings: pencilContactPreviewSettings
+                pencilContactPreviewSettings: pencilContactPreviewSettings,
+                toolbarSettings: toolbarSettings,
+                savedTools: savedTools
             )
         }
         .photosPicker(
@@ -80,6 +83,7 @@ struct ContentView: View {
                 initializedTool = true
                 activeTool.reconcileSavedToolSelection(savedTools.tools)
             }
+            toolbarSettings.reconcile(with: savedTools.tools)
             bindToolRuntime()
         }
         .onChange(of: bridge.documentToken) { _, token in
@@ -98,6 +102,7 @@ struct ContentView: View {
         }
         .onChange(of: savedTools.tools) { _, tools in
             activeTool.reconcileSavedToolSelection(tools)
+            toolbarSettings.reconcile(with: tools)
         }
         .onChange(of: activeTool.isPencilGestureActive) { _, active in
             if !active {
@@ -160,7 +165,7 @@ struct ContentView: View {
             }
             .buttonStyle(.plain)
             .contentShape(Rectangle())
-            .accessibilityLabel("Live sync settings")
+            .accessibilityLabel("iPad settings")
 
             if bridge.selectedPath != nil {
                 Button(action: closeCurrentImage) {
@@ -215,15 +220,14 @@ struct ContentView: View {
 
     private var drawingScreen: some View {
         VStack(spacing: 0) {
-            DrawingToolbarView(
-                activeTool: activeTool,
-                savedTools: savedTools,
-                recentColors: recentColors,
-                selectedPhotoItem: $selectedPhotoItem
-            )
-            .onChange(of: selectedPhotoItem) { _, item in
-                quickToolPaletteAnchor = nil
-                importPhoto(item)
+            if toolbarSettings.isToolbarVisible {
+                DrawingToolbarView(
+                    activeTool: activeTool,
+                    savedTools: savedTools,
+                    recentColors: recentColors,
+                    toolbarSettings: toolbarSettings,
+                    selectedPhotoItem: $selectedPhotoItem
+                )
             }
 
             statusBar
@@ -276,6 +280,7 @@ struct ContentView: View {
                         QuickDrawingToolPaletteView(
                             activeTool: activeTool,
                             savedTools: savedTools,
+                            toolbarSettings: toolbarSettings,
                             editHistory: editHistory,
                             anchor: quickToolPaletteAnchor,
                             onRedo: performRedo,
@@ -291,6 +296,10 @@ struct ContentView: View {
                     bindToolRuntime()
                 }
             }
+        }
+        .onChange(of: selectedPhotoItem) { _, item in
+            quickToolPaletteAnchor = nil
+            importPhoto(item)
         }
     }
 

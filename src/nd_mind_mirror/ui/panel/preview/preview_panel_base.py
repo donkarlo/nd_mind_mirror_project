@@ -48,6 +48,13 @@ class PreviewPanel(Panel):
         )
         self._export_button.clicked.connect(self._export_current_pdf_directly)
 
+        self._export_tex_button = QPushButton("Export TeX", self)
+        self._export_tex_button.setToolTip(
+            "Save the exact prepared LaTeX source that produced the PDF "
+            "currently visible in Preview."
+        )
+        self._export_tex_button.clicked.connect(self._export_current_tex_directly)
+
         self._fit_button = QPushButton("Fit", self)
         self._fit_button.setToolTip(
             "Fit the widest rendered PDF content to 95% of the preview panel "
@@ -125,6 +132,7 @@ class PreviewPanel(Panel):
         controls = QHBoxLayout()
         controls.setContentsMargins(0, 0, 0, 0)
         controls.addWidget(self._export_button, 1)
+        controls.addWidget(self._export_tex_button, 1)
         controls.addWidget(self._fit_button)
         controls.addWidget(self._zoom_label)
         controls.addWidget(self._zoom_edit)
@@ -133,6 +141,7 @@ class PreviewPanel(Panel):
         self._controls_layout = controls
         self._latex_controls = [
             self._export_button,
+            self._export_tex_button,
             self._fit_button,
             self._zoom_label,
             self._zoom_edit,
@@ -259,6 +268,75 @@ class PreviewPanel(Panel):
         if callable(status_bar):
             status_bar().showMessage(
                 f"Exported PDF to {destination_path}",
+                5000,
+            )
+
+    def _export_current_tex_directly(self) -> None:
+        """Save the prepared LaTeX behind the PDF currently shown."""
+        rendered_pdf = self._preview.current_pdf_path
+        if rendered_pdf is None:
+            QMessageBox.information(
+                self,
+                "Export TeX",
+                "There is no rendered Preview PDF to export LaTeX from yet.",
+            )
+            return
+
+        rendered_pdf = Path(rendered_pdf).expanduser().resolve()
+        window = self.window()
+        exporter = getattr(window, "_preview_tex_exporter", None)
+        if exporter is None:
+            QMessageBox.critical(
+                self,
+                "Export TeX",
+                "The Preview LaTeX exporter is not available.",
+            )
+            return
+
+        editor_panel = getattr(window, "_editor_panel", None)
+        source_path = editor_panel.current_path() if editor_panel is not None else None
+        if source_path is not None:
+            source_path = Path(source_path).expanduser().resolve()
+            default_path = source_path.with_name(
+                f"{source_path.stem}_preview.tex"
+            )
+        else:
+            source_path = None
+            default_path = Path.home() / "preview.tex"
+
+        destination, _selected_filter = QFileDialog.getSaveFileName(
+            self,
+            "Export TeX",
+            str(default_path),
+            "TeX files (*.tex)",
+        )
+        if not destination:
+            return
+
+        destination_path = Path(destination).expanduser()
+        if destination_path.suffix.lower() != ".tex":
+            destination_path = destination_path.with_suffix(".tex")
+
+        try:
+            if source_path is not None and destination_path.resolve() == source_path:
+                QMessageBox.warning(
+                    self,
+                    "Export TeX",
+                    "Choose a different file name.",
+                )
+                return
+            exported_path = exporter.export_for_pdf(
+                pdf_path=rendered_pdf,
+                destination_path=destination_path,
+            )
+        except (OSError, ValueError) as exc:
+            QMessageBox.critical(self, "Export TeX", str(exc))
+            return
+
+        status_bar = getattr(window, "statusBar", None)
+        if callable(status_bar):
+            status_bar().showMessage(
+                f"Exported Preview TeX to {exported_path}",
                 5000,
             )
 

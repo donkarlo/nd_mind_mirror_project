@@ -5,16 +5,22 @@ import SwiftUI
 struct LiveGraphicSyncSettingsView: View {
     @ObservedObject var settingsStore: LiveGraphicSyncSettingsStore
     @ObservedObject var pencilContactPreviewSettings: PencilContactPreviewSettingsStore
+    @ObservedObject var toolbarSettings: DrawingToolbarSettingsStore
+    @ObservedObject var savedTools: SavedDrawingToolStore
     @Environment(\.dismiss) private var dismiss
     @State private var updateRateHz: Double
     @State private var minimumIdleSeconds: Double
 
     init(
         settingsStore: LiveGraphicSyncSettingsStore,
-        pencilContactPreviewSettings: PencilContactPreviewSettingsStore
+        pencilContactPreviewSettings: PencilContactPreviewSettingsStore,
+        toolbarSettings: DrawingToolbarSettingsStore,
+        savedTools: SavedDrawingToolStore
     ) {
         self.settingsStore = settingsStore
         self.pencilContactPreviewSettings = pencilContactPreviewSettings
+        self.toolbarSettings = toolbarSettings
+        self.savedTools = savedTools
         _updateRateHz = State(initialValue: settingsStore.updateRateHz)
         _minimumIdleSeconds = State(
             initialValue: pencilContactPreviewSettings.minimumIdleSeconds
@@ -24,6 +30,11 @@ struct LiveGraphicSyncSettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
+                DrawingToolbarSettingsSectionView(
+                    toolbarSettings: toolbarSettings,
+                    savedTools: savedTools
+                )
+
                 Section("Pencil tool preview") {
                     HStack {
                         Text("Minimum idle time")
@@ -68,6 +79,9 @@ struct LiveGraphicSyncSettingsView: View {
             }
             .navigationTitle("iPad Settings")
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    EditButton()
+                }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Close") {
                         settingsStore.save(updateRateHz: updateRateHz)

@@ -523,8 +523,8 @@ class LateRuntimeFixes:
         lock_button.setToolTip(
             "Lock Preview position and zoom against Source/Visual synchronization and live reload jumps"
         )
-        preview_panel._controls_layout.insertWidget(2, lock_button)
-        preview_panel._latex_controls.insert(2, lock_button)
+        preview_panel._controls_layout.insertWidget(3, lock_button)
+        preview_panel._latex_controls.insert(3, lock_button)
         preview._nd_view_locked = False
         original_scroll_to_source = preview.scroll_to_source_location
 
@@ -558,8 +558,8 @@ class LateRuntimeFixes:
         extend_button = QPushButton("Extend", preview_panel)
         extend_button.setCheckable(True)
         extend_button.setToolTip("Show only Preview across the main window")
-        preview_panel._controls_layout.insertWidget(3, extend_button)
-        preview_panel._latex_controls.insert(3, extend_button)
+        preview_panel._controls_layout.insertWidget(4, extend_button)
+        preview_panel._latex_controls.insert(4, extend_button)
         visibility_state = {
             "navigator": window._navigator_splitter.isVisible(),
             "editor": window._editor_panel.isVisible(),

@@ -4,6 +4,7 @@ import SwiftUI
 struct QuickDrawingToolPaletteView: View {
     @ObservedObject var activeTool: ActiveDrawingToolController
     @ObservedObject var savedTools: SavedDrawingToolStore
+    @ObservedObject var toolbarSettings: DrawingToolbarSettingsStore
     @ObservedObject var editHistory: CanvasEditHistoryController
 
     let anchor: CGPoint
@@ -29,16 +30,15 @@ struct QuickDrawingToolPaletteView: View {
                 )
         }
     }
+
     private var palette: some View {
         ScrollView(.vertical, showsIndicators: itemCount > Layout.maximumVisibleItems) {
             LazyVGrid(columns: Layout.columns, spacing: Layout.spacing) {
-                ForEach(savedTools.tools) { savedTool in
-                    savedToolButton(savedTool)
+                ForEach(toolbarSettings.items(for: savedTools.tools)) { item in
+                    toolbarItem(item)
                 }
                 redoButton
                 undoButton
-                lassoButton
-                addImageButton
             }
         }
         .frame(
@@ -58,8 +58,23 @@ struct QuickDrawingToolPaletteView: View {
     }
 
     private var itemCount: Int {
-        savedTools.tools.count + 4
+        toolbarSettings.items(for: savedTools.tools).count + 2
     }
+
+    @ViewBuilder
+    private func toolbarItem(_ item: DrawingToolbarItem) -> some View {
+        switch item {
+        case .savedTool(let id):
+            if let savedTool = savedTools.tools.first(where: { $0.id == id }) {
+                savedToolButton(savedTool)
+            }
+        case .lasso:
+            lassoButton
+        case .addImage:
+            addImageButton
+        }
+    }
+
     private func savedToolButton(_ savedTool: SavedDrawingTool) -> some View {
         Button {
             onSelectSavedTool(savedTool)
@@ -124,6 +139,7 @@ struct QuickDrawingToolPaletteView: View {
         .buttonStyle(.plain)
         .accessibilityLabel("Add image")
     }
+
     private func paletteCell(
         image: String,
         tint: Color,

@@ -28,6 +28,9 @@ from nd_mind_mirror.core.completion.latex.latex_completion_provider import (
 )
 from nd_mind_mirror.core.document.latex.latex_document import LatexDocument
 from nd_mind_mirror.core.render.latex.latex_renderer import LatexRenderer
+from nd_mind_mirror.core.render.latex.export.latex_preview_tex_exporter import (
+    LatexPreviewTexExporter,
+)
 from nd_mind_mirror.graphic.core.dependency_resolver import GraphicDependencyResolver
 from nd_mind_mirror.graphic.core.bridge_notifier import GraphicBridgeNotifier
 from nd_mind_mirror.graphic.core.bridge_process_manager import (
@@ -131,6 +134,9 @@ class MainWindow(Window):
             ),
             parent=self,
         )
+        self._preview_tex_exporter = LatexPreviewTexExporter(
+            self._renderer
+        )
 
         completions = LatexCompletionProvider().load()
 
@@ -138,12 +144,13 @@ class MainWindow(Window):
             self
         )
         self._file_system_panel.apply_settings(
-            indent_width=self._app_settings.navigator_indent_width,
+            indent_width=self._app_settings.navigator_child_indent_width,
             root_path=self._app_settings.search_default_path,
             ignore_file_path=(
                 self._app_settings.search_ignore_file_path
             ),
             row_height=self._app_settings.navigator_row_height,
+            folder_color=self._app_settings.navigator_folder_color,
             latex_templates=self._app_settings.new_latex_file_templates,
         )
 
@@ -1485,12 +1492,13 @@ class MainWindow(Window):
             self._app_settings
         )
         self._file_system_panel.apply_settings(
-            indent_width=self._app_settings.navigator_indent_width,
+            indent_width=self._app_settings.navigator_child_indent_width,
             root_path=self._app_settings.search_default_path,
             ignore_file_path=(
                 self._app_settings.search_ignore_file_path
             ),
             row_height=self._app_settings.navigator_row_height,
+            folder_color=self._app_settings.navigator_folder_color,
             latex_templates=self._app_settings.new_latex_file_templates,
         )
         self._structure_panel.apply_settings(

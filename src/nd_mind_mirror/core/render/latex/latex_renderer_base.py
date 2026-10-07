@@ -104,6 +104,7 @@ class LatexRenderer(Renderer):
         self._cache_source_path: Path | None = None
         self._current_source_text = ""
         self._current_prepared_text = ""
+        self._published_tex_by_pdf: dict[Path, str] = {}
         self._cursor_sync_enabled = bool(cursor_sync_enabled)
         self._pending_sync_source_path: Path | None = None
         self._pending_sync_line = 1
@@ -239,6 +240,73 @@ class LatexRenderer(Renderer):
         self._timer.setInterval(debounce)
         self._timer.start()
 
+    def prepare_preview_source(
+        self,
+        source: str,
+        source_path: str | Path | None = None,
+    ) -> str:
+        """Build the exact LaTeX text that Preview would compile."""
+        resolved_source_path = (
+            self._source_path
+            if source_path is None
+            else Path(source_path).expanduser().resolve()
+        )
+        expanded = self._input_resolver.resolve(
+            source,
+            resolved_source_path,
+        )
+        return self._prepare_preview_source(
+            source=source,
+            source_path=resolved_source_path,
+            expanded_source=expanded,
+        )
+
+    def _prepare_preview_source(
+        self,
+        *,
+        source: str,
+        source_path: Path | None,
+        expanded_source: str,
+    ) -> str:
+        prepared = self._preview_source_builder.build(
+            source=expanded_source,
+            source_path=source_path,
+            title_source=source,
+        )
+        return self._optimize_preview_for_fast_engine(
+            prepared,
+            expanded_source,
+        )
+
+    def prepared_source_for_pdf(
+        self,
+        pdf_path: str | Path,
+    ) -> str | None:
+        """Return the prepared LaTeX that produced a published Preview PDF."""
+        try:
+            resolved = Path(pdf_path).expanduser().resolve()
+        except (OSError, TypeError, ValueError):
+            return None
+        return self._published_tex_by_pdf.get(resolved)
+
+    def _remember_published_tex(
+        self,
+        pdf_path: str | Path,
+        prepared_source: str | None = None,
+    ) -> None:
+        """Associate a rendered PDF with the exact prepared LaTeX that produced it."""
+        try:
+            resolved = Path(pdf_path).expanduser().resolve()
+        except (OSError, TypeError, ValueError):
+            return
+        source = (
+            self._current_prepared_text
+            if prepared_source is None
+            else str(prepared_source)
+        )
+        if source:
+            self._published_tex_by_pdf[resolved] = source
+
     def _compile_pending_source(self) -> None:
         if self._process.state() != QProcess.ProcessState.NotRunning:
             return
@@ -260,14 +328,10 @@ class LatexRenderer(Renderer):
         self.dependencies_changed.emit([str(path) for path in dependency_paths])
 
         try:
-            prepared = self._preview_source_builder.build(
-                source=expanded,
+            prepared = self._prepare_preview_source(
+                source=source,
                 source_path=source_path,
-                title_source=source,
-            )
-            prepared = self._optimize_preview_for_fast_engine(
-                prepared,
-                expanded,
+                expanded_source=expanded,
             )
         except (OSError, ValueError) as exc:
             if self._is_current_generation():
@@ -644,6 +708,7 @@ class LatexRenderer(Renderer):
         published_pdf = self._publish_pdf(self._active_generation)
         if published_pdf is None:
             return False
+        self._remember_published_tex(published_pdf)
         self._last_published_generation = self._active_generation
         self.rendered.emit(str(published_pdf))
         if self._cursor_sync_enabled:

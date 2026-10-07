@@ -31,7 +31,7 @@ class PreviewDetachController(QObject):
         self._detach_button.clicked.connect(self.toggle_detached)
         controls = getattr(self._panel, "_controls_layout", None)
         if controls is not None:
-            controls.insertWidget(1, self._detach_button)
+            controls.insertWidget(2, self._detach_button)
 
         try:
             self._action.toggled.disconnect(self._window._set_preview_enabled)

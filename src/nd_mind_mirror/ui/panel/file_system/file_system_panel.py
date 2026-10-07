@@ -28,6 +28,9 @@ from PySide6.QtWidgets import (
 from nd_mind_mirror.core.clipboard.image.clipboard_image_saver import (
     ClipboardImageSaver,
 )
+from nd_mind_mirror.ui.icon.file_system.modern_folder_icon_provider import (
+    ModernFolderIconProvider,
+)
 from nd_mind_mirror.ui.model.file_system.ignored_file_system_proxy_model import (
     IgnoredFileSystemProxyModel,
 )
@@ -70,7 +73,9 @@ class FileSystemPanel(Panel):
             self,
         )
 
+        self._folder_icon_provider = ModernFolderIconProvider()
         self._model = QFileSystemModel(self)
+        self._model.setIconProvider(self._folder_icon_provider)
         self._model.setReadOnly(False)
         self._model.setFilter(
             QDir.Filter.AllDirs
@@ -165,6 +170,7 @@ class FileSystemPanel(Panel):
         root_path: str | Path,
         ignore_file_path: str | Path | None,
         row_height: int = 24,
+        folder_color: str = "#69B7F4",
         latex_templates: list[tuple[str, Path]] | None = None,
     ) -> None:
         new_root = Path(
@@ -190,6 +196,8 @@ class FileSystemPanel(Panel):
                 1,
             )
         )
+        self._folder_icon_provider.set_folder_color(folder_color)
+        self._model.setIconProvider(self._folder_icon_provider)
         self._tree.setStyleSheet(
             f"QTreeView::item {{ min-height: {max(int(row_height), 18)}px; }}"
         )
