@@ -276,7 +276,7 @@ There is no second root-level copy of `nd_graphic.zip` in the project. The canon
 - Persistent last stroke color and thickness.
 - Thickness range 1–24.
 - Floating recent-color matrix.
-- Zoom percentage and logical canvas dimensions.
+- The image header shows a color-matched icon for the selected tool, then the logical canvas dimensions, immediately to the left of Back; these no longer occupy a separate status strip.
 - Explicit 100% zoom command.
 - Two-finger tap Undo.
 - PencilKit lasso movement plus proportional corner-handle resizing; an Apple Pencil tap outside the active selection box and its interaction handles deselects the current lasso selection.
@@ -284,12 +284,12 @@ There is no second root-level copy of `nd_graphic.zip` in the project. The canon
 - Background photo import/removal.
 - Editable canvas sizes/presets, including A4 portrait, A4 landscape, square, and custom numeric dimensions; resizing is checked against existing drawing bounds so the requested canvas does not silently clip content.
 - Independent measurement **Grid** and centimeter **Rulers** overlays are view-only and can be toggled from the toolbar.
-- Autosave/live-save through the Ubuntu/iPad bridge with a configurable Ubuntu update rate shown in the iPad status area.
+- Autosave/live-save through the Ubuntu/iPad bridge with a configurable Ubuntu update rate in Live Sync settings; the rate is not displayed on the drawing canvas.
 - The native iPad side listens on TCP port `8768`; Ubuntu connects to it, performs the bridge handshake, opens graphics, receives `update_graphic` payloads, and acknowledges saved revisions.
 - Managed PNG graphics keep neighboring `.ndgraphic` sidecars.
 - Existing managed figures can be updated from the iPad without replacing the surrounding LaTeX workflow.
 - New `Insert image in iPad` documents take their logical canvas size from Ubuntu `graphic.canvas_width` and `graphic.canvas_height`; the shipped/current default is **760 × 980**. `Edit image in iPad` continues to use the existing image's native dimensions.
-- The iPad header has a **Close image** button that closes only the active graphic and returns to the Ubuntu-waiting screen without disconnecting the bridge listener.
+- The iPad header has a **Close image** button that closes only the active graphic and returns to the Ubuntu-waiting screen without disconnecting the bridge listener. The header background extends under the native system status-bar safe area, avoiding a separate launch-screen-colored band without overlapping the native time indicators.
 - Save serialization keeps one save in flight and coalesces newer changes to the latest state. Unacknowledged state is retried every 0.8 s until acknowledgement or document reset; closing waits for the final state for a bounded interval before returning to the waiting screen.
 - During a desktop rename/move of the active managed graphic, the iPad remaps the document identity without reloading the canvas or losing the current viewport/Undo/Redo state.
 - Repeated same-path open messages do not replace the iPad-authoritative in-progress canvas.
@@ -438,11 +438,11 @@ New and modified implementation files begin with a concise module description. N
 - Lasso stroke selection keeps four proportional resize handles plus a smaller pale-gray move handle. Resizing changes geometry without scaling stroke thickness, and transformed stroke points are tested in canvas coordinates so moving a selection cannot silently move a different stroke.
 - Canvas width and height are not capped at the former 8192 px limit. Existing PencilKit strokes define the minimum safe canvas dimensions, and the iPad reports when a requested canvas would clip the graphic.
 - Custom canvas numeric fields request the ASCII-capable number pad so canvas dimensions are entered with English digits.
-- The iPad measurement Grid and centimeter Rulers have independent switches and remain view-only overlays. Redo, Undo, Rulers, Grid, and the canvas-options menu are grouped in that order in the image header between Forward navigation and Live Sync settings, leaving the drawing toolbar focused on drawing tools.
+- The iPad measurement Grid and centimeter Rulers remain independent view-only overlays. The image header retains Rulers, Grid, and canvas options but omits Undo/Redo buttons; Undo/Redo remain available in the Pencil quick-tool palette, and two-finger tap performs Undo.
 - PencilKit internal content geometry is synchronized with logical canvas resizing so the full A4 portrait drawing area accepts Apple Pencil input.
 - Tapping the active source/image identity opens the ten most recently edited graphics and can request any of them from the Ubuntu bridge.
 - The iPad image header provides Back/Forward navigation through graphics opened during the current session; opening a new graphic after going back clears the obsolete forward branch.
-- The current canvas dimensions are shown at the top of the canvas-size menu rather than permanently occupying the status bar.
+- The current canvas dimensions appear between the selected-tool icon and Back navigation in the primary image header; the former secondary status bar has been removed.
 - `Ctrl+Shift+Delete` deletes the file represented by the current editor tab, using the normal delete confirmation workflow.
 - Pinned tabs have close buttons; closing one explicitly unpins it and closes the file.
 - Preview Lock prevents Source/Visual synchronization from moving the PDF and preserves the current zoom/scroll view through live reloads.

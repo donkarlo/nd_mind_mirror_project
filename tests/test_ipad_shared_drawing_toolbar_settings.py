@@ -51,11 +51,50 @@ def test_photo_import_handler_survives_hidden_toolbar() -> None:
     drawing_screen = content.split(
         "    private var drawingScreen: some View {", 1
     )[1].split(
-        "    private var statusBar: some View {", 1
+        "    private func loadRemoteDocument(token: Int) {", 1
     )[0]
 
     assert ".onChange(of: selectedPhotoItem)" in drawing_screen
     conditional = drawing_screen.split(
         "if toolbarSettings.isToolbarVisible", 1
-    )[1].split("statusBar", 1)[0]
+    )[1].split("MeasurementRulerFrameView(", 1)[0]
     assert ".onChange(of: selectedPhotoItem)" not in conditional
+
+
+def test_primary_image_header_contains_active_icon_and_canvas_size_before_back() -> None:
+    content = read("Views/ContentView.swift")
+    indicator = read("Views/ActiveToolHeaderIndicatorView.swift")
+    header = content.split("    private var header: some View {", 1)[1].split(
+        "    private var connectionScreen: some View {", 1
+    )[0]
+
+    icon = header.index("ActiveToolHeaderIndicatorView(activeTool: activeTool)")
+    dimensions = header.index('Text("\\(Int(canvasWidth)) × \\(Int(canvasHeight))")')
+    back = header.index("Button(action: navigateBack)")
+    assert icon < dimensions < back
+    assert "Image(systemName: symbolName)" in indicator
+    assert "activeTool.color.opacity(activeTool.opacity)" in indicator
+    assert "statusBar" not in content
+    assert 'Text("Ubuntu ' not in content
+
+
+def test_image_header_does_not_duplicate_history_controls() -> None:
+    header = read("Views/HeaderDrawingControlsView.swift")
+    content = read("Views/ContentView.swift")
+    quick_palette = read("Views/QuickDrawingToolPaletteView.swift")
+
+    assert "onRedo" not in header and "onUndo" not in header
+    assert 'image: "ruler"' in header
+    assert 'image: "square.grid.3x3"' in header
+    assert "onRedo: performRedo" in content
+    assert "onUndo: performUndo" in content
+    assert "onRedo" in quick_palette and "onUndo" in quick_palette
+
+
+def test_ipad_status_bar_area_has_same_editor_background() -> None:
+    app = read("NDGraphicApp.swift")
+    content = read("Views/ContentView.swift")
+
+    assert "(openWorkspace ? Color(uiColor: .systemBackground) : Color.indigo)" in app
+    assert "VStack(spacing: 0)" in content
+    assert ".ignoresSafeArea(edges: .top)" in content

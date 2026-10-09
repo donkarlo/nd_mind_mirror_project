@@ -2,13 +2,9 @@ import SwiftUI
 
 /// Places document-wide drawing controls in the main header.
 struct HeaderDrawingControlsView: View {
-    @ObservedObject var activeTool: ActiveDrawingToolController
-    @ObservedObject var editHistory: CanvasEditHistoryController
     @Binding var showMeasurementRulers: Bool
     @Binding var showMeasurementGrid: Bool
 
-    let onRedo: () -> Void
-    let onUndo: () -> Void
     let onZoom100: () -> Void
     let onSetCanvas: (Double, Double) -> Void
     let onCustomCanvas: () -> Void
@@ -17,22 +13,6 @@ struct HeaderDrawingControlsView: View {
 
     var body: some View {
         HStack(spacing: 2) {
-            headerButton(
-                image: "arrow.uturn.forward",
-                label: "Redo",
-                action: onRedo
-            )
-            .disabled(!editHistory.canRedo || activeTool.isPencilGestureActive)
-            .keyboardShortcut("z", modifiers: [.command, .shift])
-
-            headerButton(
-                image: "arrow.uturn.backward",
-                label: "Undo",
-                action: onUndo
-            )
-            .disabled(!editHistory.canUndo || activeTool.isPencilGestureActive)
-            .keyboardShortcut("z", modifiers: .command)
-
             toggleButton(
                 value: $showMeasurementRulers,
                 image: "ruler",
@@ -47,21 +27,6 @@ struct HeaderDrawingControlsView: View {
 
             canvasMenu
         }
-    }
-
-    private func headerButton(
-        image: String,
-        label: String,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            Image(systemName: image)
-                .font(.title3)
-                .frame(width: 38, height: 44)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(label)
     }
 
     private func toggleButton(

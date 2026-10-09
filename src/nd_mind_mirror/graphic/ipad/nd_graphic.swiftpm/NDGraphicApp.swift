@@ -22,12 +22,13 @@ struct NDGraphicBootstrapView: View {
 
     var body: some View {
         ZStack {
-            Color.indigo
+            // The opened editor must not retain the indigo launch-screen
+            // background in the system status-bar safe area.
+            (openWorkspace ? Color(uiColor: .systemBackground) : Color.indigo)
                 .ignoresSafeArea()
 
             if openWorkspace {
                 GraphicWorkspaceRouterView()
-                    .background(Color.white)
             } else {
                 VStack(spacing: 24) {
                     Image(systemName: "brain.head.profile")

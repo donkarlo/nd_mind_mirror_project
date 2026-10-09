@@ -117,9 +117,18 @@ struct ContentView: View {
                 .font(.subheadline.bold())
                 .lineLimit(1)
                 .truncationMode(.middle)
-            Spacer()
+            Spacer(minLength: 6)
 
             if bridge.selectedPath != nil {
+                ActiveToolHeaderIndicatorView(activeTool: activeTool)
+
+                Text("\(Int(canvasWidth)) × \(Int(canvasHeight))")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .accessibilityLabel("Canvas size \(Int(canvasWidth)) by \(Int(canvasHeight))")
+
                 Button(action: navigateBack) {
                     Image(systemName: "chevron.left")
                         .font(.title3)
@@ -141,12 +150,8 @@ struct ContentView: View {
                 .accessibilityLabel("Next graphic")
 
                 HeaderDrawingControlsView(
-                    activeTool: activeTool,
-                    editHistory: editHistory,
                     showMeasurementRulers: $showMeasurementRulers,
                     showMeasurementGrid: $showMeasurementGrid,
-                    onRedo: performRedo,
-                    onUndo: performUndo,
                     onZoom100: { zoom100RequestToken += 1 },
                     onSetCanvas: setCanvas,
                     onCustomCanvas: openCanvasEditor,
@@ -181,7 +186,13 @@ struct ContentView: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
-        .background(.thinMaterial)
+        // Extend only the header background under the native iPad status bar.
+        // Header controls themselves remain below the system safe area.
+        .background {
+            Rectangle()
+                .fill(.thinMaterial)
+                .ignoresSafeArea(edges: .top)
+        }
     }
 
     private var connectionScreen: some View {
@@ -230,7 +241,6 @@ struct ContentView: View {
                 )
             }
 
-            statusBar
             MeasurementRulerFrameView(
                 isVisible: showMeasurementRulers,
                 zoomScale: zoomScale
@@ -301,30 +311,6 @@ struct ContentView: View {
             quickToolPaletteAnchor = nil
             importPhoto(item)
         }
-    }
-
-    private var statusBar: some View {
-        HStack(spacing: 12) {
-            Text(activeToolName)
-                .font(.caption2.bold())
-                .foregroundStyle(Color.accentColor)
-            Text("\(Int((zoomScale * 100).rounded()))%")
-                .font(.caption2.monospacedDigit())
-            Text("\(Int(canvasWidth)) × \(Int(canvasHeight))")
-                .font(.caption2.monospacedDigit())
-            Text("Ubuntu \(Int(liveSyncSettings.updateRateHz.rounded()))/s")
-                .font(.caption2.monospacedDigit())
-                .foregroundStyle(.secondary)
-            Spacer()
-            if activeTool.kind == .eraser {
-                Text("\(activeTool.eraserMode.title) • \(Int(activeTool.width)) px")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 4)
-        .background(Color(uiColor: .secondarySystemBackground))
     }
 
     private func loadRemoteDocument(token: Int) {
@@ -721,16 +707,4 @@ struct ContentView: View {
         return folder.isEmpty ? resolved : "\(folder) / \(resolved)"
     }
 
-    private var activeToolName: String {
-        switch activeTool.kind {
-        case .pencil:
-            return "Pencil \(activeTool.width.formatted(.number.precision(.fractionLength(0...1)))) px"
-        case .highlighter:
-            return "Marker \(activeTool.width.formatted(.number.precision(.fractionLength(0...1)))) px"
-        case .eraser:
-            return "\(activeTool.eraserMode.title) Eraser \(Int(activeTool.width.rounded())) px"
-        case .lasso:
-            return "Lasso"
-        }
-    }
 }
