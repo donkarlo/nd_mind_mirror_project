@@ -462,14 +462,6 @@ class MainWindow(Window):
             self._edit_beamer_preview_template
         )
 
-        self._toggle_bookmark_action = QAction(
-            "Toggle Bookmark at Cursor", self
-        )
-        self._toggle_bookmark_action.setShortcut(QKeySequence("Ctrl+Shift+B"))
-        self._toggle_bookmark_action.triggered.connect(
-            self._editor_panel.toggle_current_bookmark
-        )
-
         self._show_preview_action = QAction("Show Preview", self)
         self._show_preview_action.setCheckable(True)
         self._show_preview_action.setChecked(self._preview_enabled)
@@ -516,10 +508,6 @@ class MainWindow(Window):
         search_menu.addAction(
             self._search_action
         )
-
-        self._bookmarks_menu = self.menuBar().addMenu("Bookmarks")
-        self._bookmarks_menu.aboutToShow.connect(self._refresh_bookmarks_menu)
-        self._refresh_bookmarks_menu()
 
         settings_menu = self.menuBar().addMenu(
             "Settings"
@@ -2243,63 +2231,6 @@ class MainWindow(Window):
             ),
         )
         self._session_settings.sync()
-        self._refresh_bookmarks_menu()
-
-    def _refresh_bookmarks_menu(self) -> None:
-        if not hasattr(self, "_bookmarks_menu"):
-            return
-        self._bookmarks_menu.clear()
-        self._bookmarks_menu.addAction(self._toggle_bookmark_action)
-        data = self._editor_panel.bookmarks()
-        entries: list[tuple[str, int, int, str, str]] = []
-        for raw_path, bookmarks in data.items():
-            for bookmark in bookmarks:
-                try:
-                    line = max(int(bookmark.get("line", 1)), 1)
-                except (TypeError, ValueError):
-                    line = 1
-                try:
-                    column = max(int(bookmark.get("column", 1)), 1)
-                except (TypeError, ValueError):
-                    column = 1
-                name = str(bookmark.get("name", "")).strip()
-                anchor = str(bookmark.get("anchor", "")).strip()
-                label = name or anchor[:48] or f"Line {line}"
-                entries.append(
-                    (str(raw_path), line, column, label, Path(str(raw_path)).name)
-                )
-        if not entries:
-            empty = self._bookmarks_menu.addAction("No bookmarks")
-            empty.setEnabled(False)
-            return
-        self._bookmarks_menu.addSeparator()
-        for raw_path, line, column, label, filename in sorted(
-            entries, key=lambda item: (item[0].casefold(), item[1], item[2])
-        ):
-            action = self._bookmarks_menu.addAction(
-                f"{label} — {filename}:{line}:{column}"
-            )
-            action.setToolTip(raw_path)
-            action.triggered.connect(
-                lambda checked=False, path=raw_path, target=line, col=column: self._activate_bookmark(
-                    path, target, col
-                )
-            )
-
-    def _activate_bookmark(
-        self, path: str, line: int, column: int = 1
-    ) -> None:
-        file_path = Path(path).expanduser().resolve()
-        if not file_path.is_file():
-            self._show_warning(f"Bookmarked file does not exist: {file_path}")
-            return
-        self._open_path(str(file_path), select=True, reveal_in_navigator=True)
-        QTimer.singleShot(
-            0,
-            lambda target=int(line), col=int(column): self._editor_panel.go_to_location(
-                target, col
-            ),
-        )
 
     def _save_session(self) -> None:
         if self._restoring_session:

@@ -19,12 +19,23 @@ class FileSearchThread(QThread):
         fuzzy_threshold: float,
         hierarchical_path_matching: bool = True,
         parent=None,
+        root_path: str | Path | None = None,
+        workspace_root_path: str | Path | None = None,
     ) -> None:
         super().__init__(parent)
 
         self._generation = generation
         self._entries = entries
-        raw_query = str(query)
+        raw_query = str(query).strip()
+        self._raw_query = raw_query
+        self._root_path = (
+            Path(root_path).expanduser() if root_path is not None else None
+        )
+        self._workspace_root_path = (
+            Path(workspace_root_path).expanduser()
+            if workspace_root_path is not None
+            else self._root_path
+        )
         hierarchy_chain = [
             part.strip().casefold()
             for part in raw_query.split(">")
@@ -44,6 +55,10 @@ class FileSearchThread(QThread):
             for token in re.split(r"\s+", self._query)
             if token
         ]
+        self._query_pairs = (
+            tuple(self._query[index:index + 2] for index in range(len(self._query) - 1))
+            if len(self._query) >= 8 else ()
+        )
         self._max_results = max(int(max_results), 1)
         self._fuzzy_threshold = max(
             0.75,
@@ -57,82 +72,106 @@ class FileSearchThread(QThread):
         )
 
     def run(self) -> None:
-        if not self._tokens:
+        """Find literal matches first and use costly fuzzy matching only as fallback."""
+        direct_path = self._find_direct_path()
+        if direct_path is not None:
             self.results_ready.emit(
                 self._generation,
-                [],
+                [{"path": str(direct_path), "is_directory": direct_path.is_dir()}],
                 False,
             )
             return
+        if self._is_absolute_query() or not self._tokens:
+            self.results_ready.emit(self._generation, [], False)
+            return
 
         scored_results: list[tuple[float, int, str]] = []
-
-        for (
-            path_text,
-            name_text,
-            stem_text,
-            normalized_name,
-            normalized_stem,
-            is_directory,
-            relative_path,
-        ) in self._entries:
-            if self.isInterruptionRequested():
-                return
-
-            if self._hierarchy_chain:
-                score = self._score_explicit_hierarchy(
-                    relative_path=relative_path,
-                    name_text=name_text,
-                    stem_text=stem_text,
-                )
-            else:
-                score = self._score_name(
-                    name_text=name_text,
-                    stem_text=stem_text,
-                    name=normalized_name,
-                    stem=normalized_stem,
-                )
-                if (
-                    score is None
-                    and self._hierarchical_path_matching
-                    and not self._strict_filename_query
-                    and len(self._tokens) >= 2
-                ):
-                    score = self._score_hierarchical_path(relative_path)
-            if score is None:
-                continue
-
-            scored_results.append(
-                (
-                    score,
-                    0 if is_directory else 1,
-                    path_text,
-                )
-            )
+        for allow_fuzzy in (False, True):
+            for index, entry in enumerate(self._entries, start=1):
+                if self.isInterruptionRequested():
+                    return
+                score = self._score_entry(entry, allow_fuzzy)
+                if score is not None:
+                    scored_results.append((score, 0 if entry[5] else 1, entry[0]))
+                self._yield_during_search(index)
+            if scored_results:
+                break
 
         if self.isInterruptionRequested():
             return
-
         scored_results.sort(
-            key=lambda item: (
-                -item[0],
-                item[1],
-                len(Path(item[2]).name),
-                item[2].casefold(),
-            )
+            key=lambda item: (-item[0], item[1], len(Path(item[2]).name), item[2].casefold())
         )
-
         truncated = len(scored_results) > self._max_results
-        results = [
-            path
-            for _, _, path in scored_results[:self._max_results]
-        ]
-
         self.results_ready.emit(
             self._generation,
-            results,
+            [path for _, _, path in scored_results[:self._max_results]],
             truncated,
         )
+
+    def _find_direct_path(self) -> Path | None:
+        """Resolve explicit OS, workspace-rooted, and relative paths in the worker."""
+        query = self._raw_query
+        if not query or ("/" not in query and not query.startswith("~")):
+            return None
+        expanded = Path(query).expanduser()
+        candidates: list[Path] = []
+        if query.startswith("/") and self._workspace_root_path is not None:
+            candidates.append(self._workspace_root_path / query.lstrip("/"))
+        if self._root_path is not None:
+            candidates.append(self._root_path / query.lstrip("/"))
+        if expanded.is_absolute():
+            candidates.append(expanded)
+        for path in candidates:
+            try:
+                if path.is_file() or path.is_dir():
+                    return path.resolve()
+            except OSError:
+                continue
+        return None
+
+    def _is_absolute_query(self) -> bool:
+        """Avoid expensive fuzzy scans for incomplete absolute paths."""
+        return self._raw_query.startswith("/") or self._raw_query.startswith("~/")
+
+    def _score_entry(
+        self,
+        entry: tuple[str, str, str, str, str, bool, str],
+        allow_fuzzy: bool,
+    ) -> float | None:
+        """Score one indexed path without filesystem access."""
+        _, name_text, stem_text, normalized_name, normalized_stem, _, relative_path = entry
+        if "/" in self._raw_query:
+            path_query = self._raw_query.casefold().strip("/")
+            if relative_path == path_query:
+                return 5.5
+            if relative_path.endswith("/" + path_query):
+                return 5.2
+            if path_query in relative_path:
+                return 4.2
+            return None
+        if self._hierarchy_chain:
+            return self._score_explicit_hierarchy(
+                relative_path, name_text, stem_text, allow_fuzzy=allow_fuzzy,
+            )
+        score = self._score_name(
+            name_text, stem_text, normalized_name, normalized_stem,
+            allow_fuzzy=allow_fuzzy,
+        )
+        if (
+            score is None
+            and self._hierarchical_path_matching
+            and not self._strict_filename_query
+            and len(self._tokens) >= 2
+        ):
+            score = self._score_hierarchical_path(
+                relative_path, allow_fuzzy=allow_fuzzy,
+            )
+        return score
+
+    def _yield_during_search(self, index: int) -> None:
+        """Hook for cooperative workers without slowing the base scoring loop."""
+        del index
 
     def _score_name(
         self,
@@ -140,6 +179,7 @@ class FileSearchThread(QThread):
         stem_text: str,
         name: str,
         stem: str,
+        allow_fuzzy: bool = True,
     ) -> float | None:
         if not name:
             return None
@@ -152,6 +192,20 @@ class FileSearchThread(QThread):
 
         if self._query in name or self._query in stem:
             return 4.0
+
+        if not allow_fuzzy:
+            literal_scores = [
+                self._score_token(token, name, stem, name_text, stem_text, allow_fuzzy=False)
+                for token in self._tokens
+            ]
+            if all(score is not None for score in literal_scores):
+                return sum(literal_scores) / len(literal_scores)
+            return None
+
+        if self._strict_filename_query:
+            return None
+        if self._query_pairs and not any(pair in name for pair in self._query_pairs):
+            return None
 
         compact_query = self._compact(self._query)
         compact_name = self._compact(name)
@@ -166,9 +220,6 @@ class FileSearchThread(QThread):
                 or compact_query in compact_stem
             ):
                 return 3.5
-
-        if self._strict_filename_query:
-            return None
 
         token_scores: list[float] = []
 
@@ -194,6 +245,7 @@ class FileSearchThread(QThread):
         relative_path: str,
         name_text: str,
         stem_text: str,
+        allow_fuzzy: bool = True,
     ) -> float | None:
         """Score an ordered ``parent > child`` chain without runtime patching."""
         components = [
@@ -211,6 +263,7 @@ class FileSearchThread(QThread):
             stem=stem_text.casefold(),
             name_text=name_text,
             stem_text=stem_text,
+            allow_fuzzy=allow_fuzzy,
         )
         if leaf_score is None:
             return None
@@ -229,8 +282,9 @@ class FileSearchThread(QThread):
                     stem=stem.casefold(),
                     name_text=component,
                     stem_text=stem,
+                    allow_fuzzy=allow_fuzzy,
                 )
-                if score is None:
+                if score is None and allow_fuzzy:
                     score = self._family_prefix_score(
                         token,
                         stem.casefold(),
@@ -248,7 +302,11 @@ class FileSearchThread(QThread):
             3.6 + leaf_score * 0.25 + parent_score * 0.08,
         )
 
-    def _score_hierarchical_path(self, relative_path: str) -> float | None:
+    def _score_hierarchical_path(
+        self, relative_path: str, allow_fuzzy: bool = True,
+    ) -> float | None:
+        if not allow_fuzzy and not all(token in relative_path for token in self._tokens):
+            return None
         components = [
             component
             for component in Path(relative_path).parts
@@ -275,8 +333,9 @@ class FileSearchThread(QThread):
                     stem=stem_text.casefold(),
                     name_text=name_text,
                     stem_text=stem_text,
+                    allow_fuzzy=allow_fuzzy,
                 )
-                if score is None:
+                if score is None and allow_fuzzy:
                     score = self._family_prefix_score(token, stem_text.casefold())
                 if score is not None and (best_score is None or score > best_score):
                     best_score = score
@@ -313,6 +372,7 @@ class FileSearchThread(QThread):
         stem: str,
         name_text: str,
         stem_text: str,
+        allow_fuzzy: bool = True,
     ) -> float | None:
         if token == name or token == stem:
             return 3.3
@@ -322,6 +382,17 @@ class FileSearchThread(QThread):
 
         if token in name or token in stem:
             return 2.8
+
+        if not allow_fuzzy:
+            return None
+
+        # A close match of eight or more characters must share a short
+        # adjacent pair. Reject unrelated names before Python fuzzy scoring.
+        if len(token) >= 8 and not any(
+            token[index:index + 2] in name
+            for index in range(len(token) - 1)
+        ):
+            return None
 
         compact_token = self._compact(token)
         compact_stem = self._compact(stem)

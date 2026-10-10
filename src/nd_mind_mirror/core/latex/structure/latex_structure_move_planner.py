@@ -5,6 +5,9 @@ import re
 from nd_mind_mirror.core.latex.hierarchy.transformer.heading_hierarchy_transformer import (
     HeadingHierarchyTransformer,
 )
+from nd_mind_mirror.core.latex.structure.latex_structure_heading_catalog import (
+    LatexStructureHeadingCatalog,
+)
 from nd_mind_mirror.core.latex.structure.latex_structure_item import (
     LatexStructureItem,
 )
@@ -13,15 +16,7 @@ from nd_mind_mirror.core.latex.structure.latex_structure_item import (
 class LatexStructureMovePlanner:
     """Move complete semantic subtrees without silently reparenting other nodes."""
 
-    _HEADING_KINDS = {
-        "part",
-        "chapter",
-        "section",
-        "subsection",
-        "subsubsection",
-        "paragraph",
-        "subparagraph",
-    }
+    _HEADING_KINDS = frozenset(LatexStructureHeadingCatalog.HEADING_RANKS)
     _DOCUMENT_CLASS_PATTERN = re.compile(
         r"\\documentclass(?:\s*\[[^\]]*\])?\s*\{(?P<name>[^{}]+)\}"
     )

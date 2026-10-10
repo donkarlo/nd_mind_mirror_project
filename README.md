@@ -48,8 +48,11 @@ This README describes the active functional project: desktop Python/PySide6 sour
 ### Structure panel
 
 - LaTeX hierarchy recognizes `\part`, `\chapter`, `\section`, `\subsection`, `\subsubsection`, `\paragraph`, and `\subparagraph`.
+- The **Search heading titles (typos OK)** field filters Structure as you type, including case-insensitive matches and small spelling mistakes in Latin/Persian titles. Matches retain their ancestors as navigable context; press Enter to navigate to the first match, and clear the field to restore the unfiltered tree. Filtering never changes LaTeX text or reruns LaTeX compilation.
+- Extended hierarchy parsing supports the preamble's `deep_structure.tex` commands `\DeepSection{1..10}{Title}`, `\ndsectionfour` through `\ndsectionten`, and the `\subsubsubsection` aliases defined by `extra_subsections.tex` (through level 10). Deep headings appear with their true nesting depth; the parser also retains figure/table descendants under them. Promotion/demotion beyond the standard heading model remains disabled to prevent invalid source rewrites.
 - Structure also lists caption-aware `figure` graphics and `table`/`table*`/`longtable` content, plus standalone `tabular`, `tabular*`, and `tabularx` environments.
 - LaTeX Structure rows are draggable. Dropping before/after another row reorders the complete canonical source span; dropping a heading onto another heading reparents the dragged subtree and shifts its heading levels consistently.
+- Right-click a LaTeX heading in Structure for **Increase Hierarchy** (promote one level) or **Decrease Hierarchy** (demote one level). The selected heading and every nested heading move together; invalid moves at document-class depth boundaries are disabled, and non-heading leaves are unchanged.
 - Figure/image and table rows move their complete owning environment instead of moving only `\includegraphics`, `\caption`, or `tabular` fragments.
 - YAML has a hierarchy-oriented Structure view.
 - `Ctrl+Shift+F` auto-formats `.yaml`/`.yml` indentation using the configured editor indent size while preserving comments, key order, quoting, and block-scalar text.
@@ -61,15 +64,19 @@ This README describes the active functional project: desktop Python/PySide6 sour
 - The Search window has two tabs: **Files & Folders** and **Text in Files**. Double Shift always opens **Files & Folders**.
 - Both tabs have a read-only recursive search-root field backed by a native folder chooser; the initial root is `search.default_path`.
 - The last query and root are persisted independently for each tab in the normal session state and restored on later use.
-- File/folder search keeps the existing exact, prefix, substring, fuzzy, and hierarchical-path matching. `parent > child` queries search an ordered ancestor/descendant hierarchy rather than treating the whole query as one filename.
+- File/folder search supports exact, prefix, substring, fuzzy fallback, and hierarchical-path matching. `parent > child` queries search an ordered ancestor/descendant hierarchy rather than treating the whole query as one filename. Literal matches are evaluated first so common searches do not pay the cost of fuzzy scoring every workspace entry.
+- Pasting an existing full filesystem path or a workspace-root-relative path (e.g. `/nd_math_project/src/file.tex`) shows that file or folder directly, even outside the currently selected search scope. Direct paths can be opened without waiting for background indexing, and each result shows its full path in a tooltip.
+- Double Shift reuses an already built in-memory index and previously displayed results rather than rescanning the entire workspace on every Search reopening.
 - Folder search hits close the Search window and reveal/scroll/highlight the folder in the main Navigator; file hits open the file.
 - Text search runs in a cancellable background worker, respects `search_ignore.yaml`, and searches supported source/text file types recursively without blocking the GUI.
 - Text-search results are grouped as filesystem folders → file → active LaTeX `part`/`chapter`/`section`/`subsection`/`subsubsection`/`paragraph`/`subparagraph` hierarchy → every matching occurrence.
 - Multiple occurrences in one file are preserved as separate result rows. Enter or double-click opens the file and places the editor cursor at the exact matched line and column.
 - Navigator folder context menus expose scoped **Search Files / Folders Here** and **Search Text in Files Here** actions; each opens the matching Search tab with that folder already selected as the recursive root.
 - Up/Down and Enter support keyboard-only navigation.
-- File/folder search rebuilds against the current workspace so external Dropbox/git/terminal changes appear without restarting.
+- Search indexes rebuild after Mind Mirror workspace changes or scope changes. For changes made externally by Dropbox, Git, or a terminal, **Refresh index** explicitly rescans the selected scope without restarting Mind Mirror.
 - Search and rename-reference scanning both use the configured `search_ignore.yaml` rules.
+
+- A canonical LaTeX Source file remains unchanged when simply switching to Visual and back; Visual preserves intentional line breaks and source indentation, including in windowed multi-hundred-kilobyte documents.
 
 ### Tabs and session
 
@@ -113,7 +120,7 @@ This README describes the active functional project: desktop Python/PySide6 sour
 - Clipboard and iPad image insertion use one collision-safe `img_N.png` sequence per folder.
 - Image insertion keeps the complete LaTeX `figure`/`\includegraphics` source visible.
 - The LaTeX toolbar provides grouped Unicode character insertion, an `\iffalse … \fi` helper, and a `_ → \_` action that escapes unescaped underscores in the current Source selection.
-- Standard Source context-menu editing remains available; when text is selected, **Bookmark Selection** records the same canonical source range through the same bookmark toggle path used by the main Bookmarks action.
+- Standard Source context-menu editing remains available without the retired bookmark actions.
 - Ubuntu right-click menus use compact semantic icons for common actions, while the Navigator tree uses slightly wider child indentation for clearer hierarchy.
 - Source and Visual keep native text Copy/Cut/Paste semantics while exposing current-document Open actions such as Open in Files and Pin File in Tabs.
 - Source and Visual provide scroll-past-end breathing room: while typing near the bottom of the viewport, the caret stays above the lower edge and visually empty space remains available below it without adding characters to the canonical source.
@@ -134,7 +141,7 @@ Visual is an editable projection of the same canonical LaTeX source; it is not a
 - Visual normal prose/list blocks use LaTeX-like full justification while preserving the Source as canonical.
 - Visual edits are committed back with a minimal Source diff; a pending Visual edit is flushed before returning to Source, where full formatting can run.
 - Clipboard images pasted in Visual are routed through the same managed-image insertion workflow as Source.
-- Selected Visual text exposes **Bookmark Selection** and replays the captured canonical Source range through the same bookmark action as Source/top-menu bookmarking.
+- Selected Visual text supports native selection and LaTeX source editing without a separate bookmark command.
 - Graphic context actions in Visual can target the represented image for the iPad editing workflow.
 - A raw `\input{tikz.tex}` or `\include{...}` whose target contains `\begin{tikzpicture}` is rendered inline as a TikZ preview while its original input command remains the canonical source when Visual serializes changes back.
 
@@ -156,18 +163,11 @@ Render-related limits that materially affect Source, Visual, or Preview work are
 
 The controller handles Qt standard-key matching and German/Swiss QWERTZ layouts.
 
-## Bookmarks
+## Bookmark interface retirement
 
-- Source and Visual share one persisted bookmark model.
-- Source bookmark ribbons are drawn in the logical line-number gutter.
-- A bookmark created while text is selected stores the selected source range together with readable selected text; ordinary bookmarks continue to work as line anchors.
-- Source/Visual context-menu bookmarking captures the current canonical selection before the menu action fires, restores that same selection, and then executes the same `toggle_bookmark_at_cursor()` path used by the Bookmarks menu/shortcut.
-- Clicking an existing bookmark restores its saved selection in both Source and Visual and requests the corresponding Preview text highlight; clicking an empty gutter location creates a bookmark, while rename/remove remain available from the bookmark context menu.
-- Bookmark labels prefer a custom name, then the saved selected text, then the source anchor, so the Bookmarks menu and **Manage Bookmarks…** show what was highlighted.
-- Bookmarks keep line/column information, can be renamed/removed, are persisted, and relocate when preceding content changes. Saved selection endpoints move with the relocated bookmark anchor.
-- The Bookmarks menu lists bookmarks across files.
-- The Bookmarks menu has one contextual command owner: it shows **Bookmark Selection** when a source range is selected and otherwise **Toggle Bookmark at Cursor**, so duplicate selection actions cannot appear.
-- **Bookmarks → Manage Bookmarks…** provides Go To and Delete operations and preserves the saved selection payload when navigating.
+- The former Bookmarks top menu, its `Ctrl+Shift+B` binding, configurable bookmark shortcut entry, and Source/Visual context-menu creation/removal commands have been retired.
+- Existing persisted range-bookmark data is deliberately retained in session state for possible migration to a future design. Retirement does not alter LaTeX source files or destroy saved bookmark metadata.
+- LaTeX `\label{...}` continues to be the recommended portable identifier for sections and other structural locations. A future selection-anchor system should store arbitrary prose ranges outside canonical LaTeX, with surrounding-text verification to withstand edits.
 
 ## Live PDF Preview
 
@@ -185,7 +185,7 @@ The controller handles Qt standard-key matching and German/Swiss QWERTZ layouts.
 - **Auto Fit** fits the page to the settled Preview width without continuously changing zoom while typing.
 - Normal left-click on the PDF performs reverse SyncTeX and moves Source/Visual to the corresponding source location.
 - Source/Visual cursor movement drives source-position synchronization/scrolling in Preview; when there is no explicit selection, the mapped location can be shown by the persistent Preview caret overlay.
-- An explicit Source/Visual selection requests a PDF text highlight, including a range restored from a selection-aware bookmark.
+- An explicit Source/Visual selection requests a PDF text highlight.
 - Preview zoom limits and the explicit Fit command's low-resolution content-probe size are configurable in `settings.yaml`.
 - Portable leading-slash workspace references in generated Preview source are materialized against `search.default_path` before compilation, so references such as `/nd_language_ai_project/...` remain portable in canonical source/templates while LuaLaTeX receives the actual filesystem path.
 
@@ -215,7 +215,7 @@ Persistent user copy:
 
 **Settings → Keyboard Shortcuts…** validates and applies shortcut changes at runtime.
 
-Shipped configurable actions include Open (`Ctrl+O`), Save (`Ctrl+S`), Close tab (`Ctrl+W`), Auto Format (`Ctrl+Shift+F`), Find (`Ctrl+F`), Replace (`Ctrl+R`), Toggle bookmark (`Ctrl+Shift+B`), Preview toggle (`Ctrl+Alt+P`), Bold (`Ctrl+B`), editor zoom reset (`Ctrl+0`), close Find/Replace (`Escape`), and Navigator Delete (`Delete`). Navigator file clipboard keys are handled by the dedicated Navigator key-event controller because they must coexist with clipboard-image paste.
+Shipped configurable actions include Open (`Ctrl+O`), Save (`Ctrl+S`), Close tab (`Ctrl+W`), Auto Format (`Ctrl+Shift+F`), Find (`Ctrl+F`), Replace (`Ctrl+R`), Preview toggle (`Ctrl+Alt+P`), Bold (`Ctrl+B`), editor zoom reset (`Ctrl+0`), close Find/Replace (`Escape`), and Navigator Delete (`Delete`). Navigator file clipboard keys are handled by the dedicated Navigator key-event controller because they must coexist with clipboard-image paste.
 
 `latex_shortcuts.yaml` remains dedicated to LaTeX snippet/completion expansion.
 

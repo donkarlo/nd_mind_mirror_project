@@ -1,0 +1,70 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+\usepackage{adjustbox}
+\usepackage[active,tightpage]{preview}
+
+\PreviewBorder=4pt
+
+\usetikzlibrary{graphs,graphdrawing,arrows.meta,positioning,calc,fit,shapes.geometric}
+\usegdlibrary{layered}
+
+% for external graphviz
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/external_graphviz.tex}
+
+% for tags
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/part/control_sequence/kind/semtag/semtag.tex}
+
+% for links
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/seehere.tex}
+
+% for nested lists and sections
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/deep_structure.tex}
+
+\title{}
+\date{}
+\author{Mohammad Rahmani}
+
+\begin{document}
+   \maketitle
+
+   \begin{preview}
+\section*{LaTeX Structure Hierarchy, Bookmark UI, and Visual Enter --- 2026-10-10}
+\subsection*{Structure}
+The Structure context menu now provides one-step Increase Hierarchy and Decrease
+Hierarchy actions for LaTeX headings. Each action changes the selected heading
+and every nested heading together, preserving relative levels and starred commands.
+Invalid promotions and demotions are disabled rather than clamping deep descendants.
+The canonical-source rewrite path also serves the new level edits.
+
+\subsection*{Bookmark UI}
+Removed the legacy Bookmark top menu, its Ctrl+Shift+B action, associated keyboard
+shortcut entries, and Source/Visual context-menu bookmarking controls. Existing
+saved range selections are preserved only as archived session metadata pending
+redesign; the UI no longer offers creation or deletion of these bookmarks.
+
+\subsection*{Visual line breaks}
+Ordinary LaTeX source lines now retain their boundaries as separate editable
+Visual blocks. Pressing Enter inside a Visual paragraph survives a source save,
+reopening Visual, and large-document rewindowing. Both Visual serializers now
+preserve leading indentation and heading source formatting rather than stripping
+existing source whitespace when committing another edit.
+
+   \end{preview}
+
+   \bibliographystyle{plainnat}
+   \bibliography{/home/donkarlo/Dropbox/repo/nd_shared_research/bibliography/bibliography.bib}
+\end{document}

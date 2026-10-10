@@ -13,9 +13,6 @@ from nd_mind_mirror.ui.editor.latex.source_tikz_targeted_preview_controller impo
 from nd_mind_mirror.ui.window.main.autosave.existing_file_document_autosave_controller import (
     ExistingFileDocumentAutosaveController,
 )
-from nd_mind_mirror.ui.window.main.bookmark_selection_menu_controller import (
-    BookmarkSelectionMenuController,
-)
 from nd_mind_mirror.ui.window.main.enhanced_main_window_base import (
     EnhancedMainWindow as BaseEnhancedMainWindow,
 )
@@ -51,12 +48,6 @@ class EnhancedMainWindow(BaseEnhancedMainWindow):
         self._renderer.set_workspace_default_path(workspace_root)
         self._search_window.text_location_selected.connect(
             self._open_search_text_location
-        )
-        self._bookmark_selection_menu_controller = BookmarkSelectionMenuController(
-            self._editor_panel,
-            self._bookmarks_menu,
-            self._toggle_bookmark_action,
-            self,
         )
         self._structure_source_rewrite_controller = StructureSourceRewriteController(
             self._structure_panel,

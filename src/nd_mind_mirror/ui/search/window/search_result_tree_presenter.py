@@ -52,6 +52,7 @@ class SearchResultTreePresenter:
                     QStyle.StandardPixmap.SP_DirIcon
                 ),
             )
+            root_item.setToolTip(0, str(root_path))
             self._tree.addTopLevelItem(root_item)
 
             nodes: dict[str, QTreeWidgetItem] = {
@@ -84,6 +85,7 @@ class SearchResultTreePresenter:
                             Qt.ItemDataRole.UserRole,
                             current_key,
                         )
+                        item.setToolTip(0, current_key)
 
                         is_intermediate = index < len(parts) - 1
                         is_directory = directory_flags.get(

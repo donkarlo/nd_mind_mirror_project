@@ -1,0 +1,69 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+\usepackage{adjustbox}
+\usepackage[active,tightpage]{preview}
+
+\PreviewBorder=4pt
+
+\usetikzlibrary{graphs,graphdrawing,arrows.meta,positioning,calc,fit,shapes.geometric}
+\usegdlibrary{layered}
+
+% for external graphviz
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/external_graphviz.tex}
+
+% for tags
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/part/control_sequence/kind/semtag/semtag.tex}
+
+% for links
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/seehere.tex}
+
+% for nested lists and sections
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/deep_structure.tex}
+
+\title{}
+\date{}
+\author{Mohammad Rahmani}
+
+\begin{document}
+   \maketitle
+
+   \begin{preview}
+\section*{Structure title filter and deep LaTeX headings --- 2026-10-10}
+\subsection*{Structure title search}
+Added a debounced search field above the desktop Structure tree. The filter
+accepts partial heading titles and small typographical errors in Latin and
+Persian text. Matching headings retain their ancestor chain and all unrelated
+branches are hidden without modifying LaTeX or YAML. Pressing Enter navigates
+to the first matching heading; clearing the field restores the full tree and
+previous expansion state.
+
+\subsection*{Deep heading detection}
+Recognizes the custom section levels defined in
+\texttt{nd\_language\_ai\_project/.../code\_clips/deep\_structure.tex},
+including \texttt{DeepSection}, \texttt{ndsectionfour} through
+\texttt{ndsectionten}, and long \texttt{sub...section} aliases from
+\texttt{extra\_subsections.tex}. The supplied deep\_structure.tex has
+10 section levels and separately configures 20 \texttt{itemize} levels.
+Deep headings and subordinate images/tables now appear at their correct
+semantic Structure depths. Unsupported deep-heading source rewrites remain
+explicitly blocked rather than emitting invalid LaTeX.
+
+   \end{preview}
+
+   \bibliographystyle{plainnat}
+   \bibliography{/home/donkarlo/Dropbox/repo/nd_shared_research/bibliography/bibliography.bib}
+\end{document}

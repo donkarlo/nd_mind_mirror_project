@@ -1,10 +1,10 @@
-"""Source context menu for canonical range bookmarks and graphic actions."""
+"""Source context menu for spelling and native graphic/TikZ actions."""
 
 from __future__ import annotations
 
 
 class RangeBookmarkSourceContextController:
-    """Expose Add/Remove Bookmark according to the right-clicked canonical range."""
+    """Expose Source editing actions without legacy bookmarking commands."""
 
     def __init__(self, editor) -> None:
         self._editor = editor
@@ -15,8 +15,6 @@ class RangeBookmarkSourceContextController:
         click_position = editor._canonical_offset_for_source_position(
             click_cursor.position()
         )
-        state = editor.range_bookmark_context_at(click_position)
-
         source = editor.toPlainText()
         existing = editor._graphic_manager.find_reference(
             source,
@@ -30,12 +28,6 @@ class RangeBookmarkSourceContextController:
         )
 
         menu = editor.createStandardContextMenu()
-        editor._remove_legacy_bookmark_actions(menu)
-        bookmark_action = None
-        if state["action"] != "none":
-            menu.addSeparator()
-            bookmark_action = menu.addAction(str(state["label"]))
-
         spell_controller = getattr(editor, "_spell_check_controller", None)
         spell_actions = []
         if spell_controller is not None:
@@ -68,9 +60,6 @@ class RangeBookmarkSourceContextController:
             spell_controller is not None
             and spell_controller.execute_context_action(chosen, spell_actions)
         ):
-            return
-        if bookmark_action is not None and chosen == bookmark_action:
-            editor.execute_range_bookmark_state(state)
             return
         if chosen == tikz_action:
             editor._handle_tikz_context_request(click_position, tikz_reference)

@@ -92,7 +92,7 @@ class LatexVisualDocumentSerializer:
 
             close_lists(0)
             if meta.kind == "heading" and meta.command:
-                serialized_title = self._editor._serialize_inline_block(block)
+                serialized_title = self._editor._serialize_inline_block(block).strip()
                 if meta.raw and serialized_title == meta.display:
                     body_lines.append(meta.raw)
                 else:

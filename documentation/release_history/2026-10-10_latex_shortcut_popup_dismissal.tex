@@ -1,0 +1,74 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+\usepackage{adjustbox}
+\usepackage[active,tightpage]{preview}
+
+\PreviewBorder=4pt
+
+\usetikzlibrary{graphs,graphdrawing,arrows.meta,positioning,calc,fit,shapes.geometric}
+\usegdlibrary{layered}
+
+% for external graphviz
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/external_graphviz.tex}
+
+% for tags
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/part/control_sequence/kind/semtag/semtag.tex}
+
+% for links
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/seehere.tex}
+
+% for nested lists and sections
+\input{/nd_language_ai_project/src/nd_language_ai/formal/computer/programming/tex/latex/code_clips/deep_structure.tex}
+
+\title{}
+\date{}
+\author{Mohammad Rahmani}
+
+\begin{document}
+   \maketitle
+
+   \begin{preview}
+\section*{Fix: LaTeX shortcut tooltip remains on screen (2026-10-10)}
+\textbf{Affected component:} Source editor shortcut chooser, labeled
+``Which item did you mean?'' when more than one LaTeX shortcut matches.
+
+\textbf{Cause:} The chooser was implemented as a non-activating top-level
+\texttt{Qt.ToolTip} frame, but dismissal was handled only by selected
+keyboard paths in the Source editor. Mouse navigation, scrolling, losing
+focus, and switching editor modes did not reliably close the top-level
+window. This could strand a shortcut suggestion above unrelated text until
+the application was restarted.
+
+\textbf{Correction:} The popup now installs a short-lived application event
+filter only while visible. Escape, clicks or wheel events outside the popup,
+application/window deactivation, and loss of editor focus dismiss it without
+consuming outside mouse actions. The owning LaTeX editor additionally
+closes the chooser on cursor relocation, vertical scrolling, context-menu
+opening, and Source/Visual mode changes. Selecting a row by mouse now
+activates its shortcut and closes the popup. Ordinary typing and keyboard
+selection continue to work; no document text is changed by dismissal.
+
+\textbf{Verification:} Headless PySide6 regression tests cover Escape on a
+non-editor widget, clicking outside, wheel events, loss of focus, editor
+hiding, mouse selection, real Source editor cursor navigation and mode
+switching, as well as typing and shortcut completion.
+
+   \end{preview}
+
+   \bibliographystyle{plainnat}
+   \bibliography{/home/donkarlo/Dropbox/repo/nd_shared_research/bibliography/bibliography.bib}
+\end{document}

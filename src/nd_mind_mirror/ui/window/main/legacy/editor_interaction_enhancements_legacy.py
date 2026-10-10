@@ -71,7 +71,7 @@ class _FilteredTerminalStream:
 
 
 class EditorInteractionEnhancements:
-    """Patch existing editor hooks for layout, bookmarks, fast Visual sync, and Structure sync."""
+    """Install legacy layout and synchronization hooks without bookmark menus."""
 
     _installed = False
     _SOURCE_PAGES_ABOVE = 5
@@ -86,8 +86,6 @@ class EditorInteractionEnhancements:
         cls._install_preview_search_noise_guard()
         cls._install_source_layout_window()
         cls._install_fast_visual_source_sync()
-        cls._install_source_bookmark_menu()
-        cls._install_visual_bookmark_menu()
         cls._install_visual_layout_fixes()
         cls._install_scroll_structure_sync()
         cls._installed = True
@@ -287,51 +285,6 @@ class EditorInteractionEnhancements:
         old_end = len(old) - suffix
         new_end = len(new) - suffix
         return prefix, old_end, new[prefix:new_end]
-
-    @staticmethod
-    def _append_bookmark_action(menu, editor, line: int, column: int) -> None:
-        """Append one Bookmark Here action that reuses LatexEditor's existing bookmark store."""
-        menu.addSeparator()
-        action = menu.addAction("Bookmark Here")
-        action.triggered.connect(
-            lambda _checked=False, item=editor, row=int(line), col=int(column):
-            item._toggle_bookmark(row, col)
-        )
-
-    @classmethod
-    def _install_source_bookmark_menu(cls) -> None:
-        """Show Bookmark Here in Source only when the user has selected text."""
-        original: Callable = LatexEditor.createStandardContextMenu
-
-        def create_standard_context_menu(editor: LatexEditor):
-            menu = original(editor)
-            cursor = editor.textCursor()
-            if cursor.hasSelection():
-                line, column = editor._source_location_for_position(
-                    cursor.selectionStart()
-                )
-                cls._append_bookmark_action(menu, editor, line, column)
-            return menu
-
-        LatexEditor.createStandardContextMenu = create_standard_context_menu
-
-    @classmethod
-    def _install_visual_bookmark_menu(cls) -> None:
-        """Show Bookmark Here in Visual only when the user has selected text."""
-        original: Callable = LatexVisualEditor.createStandardContextMenu
-
-        def create_standard_context_menu(editor: LatexVisualEditor):
-            menu = original(editor)
-            cursor = editor.textCursor()
-            owner = editor.parentWidget()
-            if cursor.hasSelection() and isinstance(owner, LatexEditor):
-                line, column = editor.source_location_for_position(
-                    cursor.selectionStart()
-                )
-                cls._append_bookmark_action(menu, owner, line, column)
-            return menu
-
-        LatexVisualEditor.createStandardContextMenu = create_standard_context_menu
 
     @classmethod
     def _install_visual_layout_fixes(cls) -> None:

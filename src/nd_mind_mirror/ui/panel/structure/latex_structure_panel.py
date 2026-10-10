@@ -7,10 +7,21 @@ from PySide6.QtGui import QBrush, QColor
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QLabel,
+    QLineEdit,
+    QMenu,
     QSizePolicy,
     QTreeWidgetItem,
 )
 
+from nd_mind_mirror.core.latex.structure.latex_structure_level_planner import (
+    LatexStructureLevelPlanner,
+)
+from nd_mind_mirror.core.latex.structure.latex_structure_title_matcher import (
+    LatexStructureTitleMatcher,
+)
+from nd_mind_mirror.core.latex.structure.latex_structure_heading_catalog import (
+    LatexStructureHeadingCatalog,
+)
 from nd_mind_mirror.core.latex.structure.latex_structure_move_planner import (
     LatexStructureMovePlanner,
 )
@@ -52,6 +63,9 @@ class LatexStructurePanel(Panel):
         "\\subsubsection",
         "\\paragraph",
         "\\subparagraph",
+        "\\DeepSection",
+        "\\ndsection",
+        "\\subsubsub",
         "\\includegraphics",
         "\\caption",
         "\\begin{figure",
@@ -69,6 +83,7 @@ class LatexStructurePanel(Panel):
 
         self._latex_parser = LatexStructureParser()
         self._move_planner = LatexStructureMovePlanner()
+        self._level_planner = LatexStructureLevelPlanner()
         self._yaml_parser = YamlStructureParser()
         self._path: Path | None = None
         self._source = ""
@@ -82,6 +97,7 @@ class LatexStructurePanel(Panel):
         self._applied_generation = -1
         self._latex_worker: LatexStructureParseWorker | None = None
         self._pending_async_rebuild = False
+        self._expanded_before_filter: dict[int, bool] | None = None
 
         self.setMinimumWidth(90)
         self.setSizePolicy(
@@ -90,6 +106,17 @@ class LatexStructurePanel(Panel):
         )
 
         self._label = QLabel("Structure", self)
+        self._filter_input = QLineEdit(self)
+        self._filter_input.setObjectName("structureSearchFilter")
+        self._filter_input.setPlaceholderText("Search heading titles (typos OK)…")
+        self._filter_input.setAccessibleName("Filter Structure headings")
+        self._filter_input.setClearButtonEnabled(True)
+        self._filter_timer = QTimer(self)
+        self._filter_timer.setSingleShot(True)
+        self._filter_timer.setInterval(110)
+        self._filter_timer.timeout.connect(self._apply_title_filter)
+        self._filter_input.textChanged.connect(self._schedule_title_filter)
+        self._filter_input.returnPressed.connect(self._activate_first_filter_match)
         self._tree = LatexStructureTree(self)
         self._tree.setHeaderHidden(True)
         self._tree.setIndentation(self._indent_width)
@@ -103,6 +130,8 @@ class LatexStructurePanel(Panel):
             QAbstractItemView.EditTrigger.NoEditTriggers
         )
         self._tree.itemClicked.connect(self._on_item_clicked)
+        self._tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._tree.customContextMenuRequested.connect(self._show_structure_context_menu)
         self._tree.structure_drop_requested.connect(self._on_structure_drop_requested)
 
         self._refresh_timer = QTimer(self)
@@ -111,6 +140,7 @@ class LatexStructurePanel(Panel):
         self._refresh_timer.timeout.connect(self._rebuild)
 
         self.panel_layout.addWidget(self._label)
+        self.panel_layout.addWidget(self._filter_input)
         self.panel_layout.addWidget(self._tree, 1)
 
     def apply_settings(
@@ -196,6 +226,9 @@ class LatexStructurePanel(Panel):
         self._structure_signature = None
         self._label.setText("Structure")
         self._tree.clear()
+        self._expanded_before_filter = None
+        self._filter_timer.stop()
+        self._filter_input.clear()
         self._tree.setEnabled(True)
 
     def _begin_structure_refresh(self, *, clear_tree: bool) -> None:
@@ -414,10 +447,80 @@ class LatexStructurePanel(Panel):
                 stack.append((node.level, item))
 
             self._tree.expandAll()
+            self._apply_title_filter()
             self._apply_current_line_highlight()
         finally:
             self._tree.setUpdatesEnabled(True)
             self._tree.viewport().update()
+
+    def _schedule_title_filter(self, query: str) -> None:
+        """Apply a cheap view-only filter after short typing bursts."""
+        if not query.strip():
+            self._filter_timer.stop()
+            self._apply_title_filter()
+        else:
+            if self._expanded_before_filter is None:
+                self._expanded_before_filter = {
+                    int(item.data(0, self._SOURCE_POSITION_ROLE)): item.isExpanded()
+                    for item in self._all_items_in_source_order()
+                }
+            self._filter_timer.start()
+
+    def _apply_title_filter(self) -> None:
+        """Retain matched headings plus ancestors; never rewrite the source."""
+        query = self._filter_input.text().strip()
+        latex = bool(self._path is not None and self._path.suffix.lower() == ".tex")
+        self._tree.setUpdatesEnabled(False)
+        try:
+            def filter_branch(item: QTreeWidgetItem) -> bool:
+                child_visible = False
+                for index in range(item.childCount()):
+                    if filter_branch(item.child(index)):
+                        child_visible = True
+                kind = str(item.data(0, self._KIND_ROLE) or "")
+                allowed = not latex or LatexStructureHeadingCatalog.is_heading(kind)
+                matches = allowed and LatexStructureTitleMatcher.matches(
+                    str(item.data(0, self._TITLE_ROLE) or ""), query,
+                )
+                visible = not query or matches or child_visible
+                item.setHidden(not visible)
+                if query and visible:
+                    item.setExpanded(True)
+                return visible
+
+            for index in range(self._tree.topLevelItemCount()):
+                filter_branch(self._tree.topLevelItem(index))
+
+            if not query and self._expanded_before_filter is not None:
+                for item in self._all_items_in_source_order():
+                    key = int(item.data(0, self._SOURCE_POSITION_ROLE))
+                    if key in self._expanded_before_filter:
+                        item.setExpanded(self._expanded_before_filter[key])
+                self._expanded_before_filter = None
+        finally:
+            self._tree.setUpdatesEnabled(True)
+            self._tree.viewport().update()
+
+    def _activate_first_filter_match(self) -> None:
+        """Enter navigates to the first title match, not a context-only ancestor."""
+        query = self._filter_input.text().strip()
+        if not query:
+            return
+        self._filter_timer.stop()
+        self._apply_title_filter()
+        latex = self._path is not None and self._path.suffix.lower() == ".tex"
+        for item in self._all_items_in_source_order():
+            kind = str(item.data(0, self._KIND_ROLE) or "")
+            if latex and not LatexStructureHeadingCatalog.is_heading(kind):
+                continue
+            if LatexStructureTitleMatcher.matches(
+                str(item.data(0, self._TITLE_ROLE) or ""), query,
+            ):
+                self._tree.scrollToItem(item)
+                line = self._activation_line_for_item(item)
+                if line > 0:
+                    self.line_activated.emit(line)
+                return
 
     def _on_structure_drop_requested(
         self,
@@ -445,6 +548,43 @@ class LatexStructurePanel(Panel):
             rewritten,
             max(int(line_number), 1),
         )
+
+    def _show_structure_context_menu(self, point) -> None:
+        """Offer one-step heading promotion/demotion for complete nested subtrees."""
+        item = self._tree.itemAt(point)
+        if (
+            item is None or self._path is None or self._path.suffix.lower() != ".tex"
+            or self._applied_generation != self._parse_generation
+            or item.data(0, self._GENERATION_ROLE) != self._applied_generation
+        ):
+            return
+        position = int(item.data(0, self._SOURCE_POSITION_ROLE) or -1)
+        node = next(
+            (entry for entry in self._structure if entry.source_position == position),
+            None,
+        )
+        if node is None or node.kind not in self._level_planner._HEADING_KINDS:
+            return
+
+        increase = self._level_planner.change(
+            self._source, self._structure, position, -1,
+        )
+        decrease = self._level_planner.change(
+            self._source, self._structure, position, 1,
+        )
+        menu = QMenu(self._tree)
+        promote_action = menu.addAction("Increase Hierarchy")
+        promote_action.setEnabled(increase is not None)
+        demote_action = menu.addAction("Decrease Hierarchy")
+        demote_action.setEnabled(decrease is not None)
+        chosen = menu.exec(self._tree.viewport().mapToGlobal(point))
+        result = increase if chosen == promote_action else decrease if chosen == demote_action else None
+        if result is not None:
+            updated_source, line_number = result
+            if updated_source != self._source:
+                self.source_rewrite_requested.emit(
+                    self._source, updated_source, line_number,
+                )
 
     def set_current_line(self, line_number: int) -> None:
         """Highlight the deepest structure item containing the cursor line."""

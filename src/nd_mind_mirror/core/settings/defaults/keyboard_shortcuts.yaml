@@ -18,9 +18,6 @@ shortcuts:
   replace.current:
     label: Replace in current tab
     keys: Ctrl+R
-  bookmark.toggle:
-    label: Toggle bookmark at cursor
-    keys: Ctrl+Shift+B
   preview.toggle:
     label: Show or hide preview
     keys: Ctrl+Alt+P

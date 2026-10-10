@@ -82,6 +82,9 @@ class SearchWindow(QWidget):
         self._directory_flags: dict[str, bool] = {}
         self._index_ready = False
         self._shutdown_started = False
+        self._active_query: str | None = None
+        self._displayed_query: str | None = None
+        self._displayed_index_generation = -1
 
         self._tabs = QTabWidget(self)
         self._file_tab = self._build_file_search_tab(debounce_ms)
@@ -138,7 +141,7 @@ class SearchWindow(QWidget):
         was_visible = self.isVisible()
 
         if not was_visible:
-            if not self._has_running_index_thread():
+            if not self._index_ready and not self._has_running_index_thread():
                 self.rebuild_index()
             self._center_on_parent()
             self.show()
@@ -164,10 +167,15 @@ class SearchWindow(QWidget):
             if (
                 not was_visible
                 and self._root_path == previous_root
+                and not self._index_ready
                 and not self._has_running_index_thread()
             ):
                 self.rebuild_index()
-        elif not was_visible and not self._has_running_index_thread():
+        elif (
+            not was_visible
+            and not self._index_ready
+            and not self._has_running_index_thread()
+        ):
             self.rebuild_index()
         self._tabs.setCurrentWidget(self._file_tab)
         self._show_window()
@@ -243,6 +251,7 @@ class SearchWindow(QWidget):
         had_index = self._index_ready
 
         self._generation += 1
+        self._displayed_index_generation = -1
         self._debounce_timer.stop()
         self._interrupt_search_threads()
         self._interrupt_index_threads()
@@ -330,7 +339,7 @@ class SearchWindow(QWidget):
 
         self._search_edit = QLineEdit(tab)
         self._search_edit.setPlaceholderText(
-            "Type part of a file/folder name; small spelling mistakes are tolerated..."
+            "Search file/folder names or paste a full file path..."
         )
         self._search_edit.setText(self._load_file_query())
         self._search_edit.textChanged.connect(self._schedule_search)
@@ -357,8 +366,16 @@ class SearchWindow(QWidget):
 
         layout = QVBoxLayout(tab)
         layout.setContentsMargins(0, 0, 0, 0)
+        self._refresh_button = QPushButton("Refresh index", tab)
+        self._refresh_button.setToolTip("Rescan folders for external file changes")
+        self._refresh_button.clicked.connect(self.rebuild_index)
+        scope_layout = QHBoxLayout()
+        scope_layout.setContentsMargins(0, 0, 0, 0)
+        scope_layout.addWidget(self._file_scope_picker, 1)
+        scope_layout.addWidget(self._refresh_button)
+
         layout.addWidget(self._search_edit)
-        layout.addWidget(self._file_scope_picker)
+        layout.addLayout(scope_layout)
         layout.addWidget(self._tree, 1)
         layout.addWidget(self._status_label)
 
@@ -399,13 +416,19 @@ class SearchWindow(QWidget):
         self.move(frame.topLeft())
 
     def _schedule_search(self) -> None:
-        """Debounce a non-empty file/folder query."""
+        """Debounce changed queries while reusing already displayed valid results."""
         query = self._search_edit.text().strip()
         if not query:
             self._debounce_timer.stop()
             self._show_idle_state()
             return
-        if not self._index_ready:
+        if (
+            query == self._displayed_query
+            and self._displayed_index_generation == self._index_generation
+        ):
+            self._debounce_timer.stop()
+            return
+        if not self._index_ready and "/" not in query:
             self._status_label.setText("Indexing search root...")
             return
 
@@ -413,20 +436,23 @@ class SearchWindow(QWidget):
         if legacy_index_thread is not None and legacy_index_thread.isRunning():
             legacy_index_thread.requestInterruption()
 
+        self._generation += 1
+        self._interrupt_search_threads()
         self._status_label.setText("Searching...")
         self._debounce_timer.start()
 
     def _start_search(self) -> None:
-        """Start a cancellable indexed file/folder search."""
+        """Start a cancellable search; explicit full paths work before indexing."""
         query = self._search_edit.text().strip()
         if not query:
             self._show_idle_state()
             return
-        if not self._index_ready:
+        if not self._index_ready and "/" not in query:
             return
 
         self._generation += 1
         generation = self._generation
+        self._active_query = query
         self._interrupt_search_threads()
 
         thread = CooperativeFileSearchThread(
@@ -437,6 +463,8 @@ class SearchWindow(QWidget):
             fuzzy_threshold=self._fuzzy_threshold,
             hierarchical_path_matching=self._hierarchical_path_matching,
             parent=self,
+            root_path=self._root_path,
+            workspace_root_path=self._default_root_path,
         )
         self._threads.append(thread)
         thread.results_ready.connect(self._apply_results)
@@ -474,15 +502,32 @@ class SearchWindow(QWidget):
 
     def _apply_results(self, generation: int, results: object, truncated: bool) -> None:
         """Render the newest file/folder search results."""
-        if generation != self._generation:
+        if (
+            generation != self._generation
+            or self._active_query != self._search_edit.text().strip()
+        ):
             return
 
-        paths = [Path(value) for value in results]
+        paths = [
+            Path(value["path"] if isinstance(value, dict) else value)
+            for value in results
+        ]
+        directory_flags = self._directory_flags
+        if any(isinstance(value, dict) for value in results):
+            directory_flags = self._directory_flags.copy()
+            for value in results:
+                if isinstance(value, dict):
+                    directory_flags[str(value["path"])] = bool(value["is_directory"])
+        display_root = self._root_path
+        if paths and any(not path.is_relative_to(display_root) for path in paths):
+            display_root = paths[0].parent
         self._result_presenter.populate(
-            root_path=self._root_path,
+            root_path=display_root,
             paths=paths,
-            directory_flags=self._directory_flags,
+            directory_flags=directory_flags,
         )
+        self._displayed_query = self._active_query
+        self._displayed_index_generation = self._index_generation
         if not paths:
             self._status_label.setText("No matches")
             return
@@ -543,6 +588,7 @@ class SearchWindow(QWidget):
     def _show_idle_state(self) -> None:
         """Clear file results and display index readiness."""
         self._generation += 1
+        self._displayed_query = None
         self._tree.clear()
         if self._index_ready:
             self._status_label.setText(
@@ -567,6 +613,7 @@ class SearchWindow(QWidget):
         self._search_index = []
         self._directory_flags = {}
         self._index_ready = False
+        self._displayed_query = None
         self.rebuild_index()
 
     def _forward_text_location(self, path_text: str, line: int, column: int) -> None:

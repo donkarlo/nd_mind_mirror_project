@@ -758,7 +758,7 @@ class LatexVisualEditor(QTextEdit):
             close_lists(0)
 
             if meta.kind == "heading" and meta.command:
-                serialized_title = self._serialize_inline_block(block)
+                serialized_title = self._serialize_inline_block(block).strip()
                 if meta.raw and serialized_title == meta.display:
                     body_lines.append(meta.raw)
                 else:
@@ -895,8 +895,6 @@ class LatexVisualEditor(QTextEdit):
 
         text = event.text()
         cursor_before = self.textCursor()
-        data_before = cursor_before.block().userData()
-        was_heading = isinstance(data_before, _BlockMeta) and data_before.kind == "heading"
 
         text_insertion = bool(text) and key not in {
             Qt.Key.Key_Return,
@@ -910,9 +908,9 @@ class LatexVisualEditor(QTextEdit):
         super().keyPressEvent(event)
 
         if key in {Qt.Key.Key_Return, Qt.Key.Key_Enter}:
-            self._normalize_new_block_after_enter(was_heading=was_heading)
+            self._normalize_new_block_after_enter()
 
-    def _normalize_new_block_after_enter(self, *, was_heading: bool) -> None:
+    def _normalize_new_block_after_enter(self) -> None:
         cursor = self.textCursor()
         block = cursor.block()
         text_list = block.textList()
@@ -920,15 +918,17 @@ class LatexVisualEditor(QTextEdit):
         # Keep list continuation semantics, but never continue inline bold,
         # italic, highlight, raw-token or visual-heading character formatting.
         clean = QTextCharFormat()
-        clean.setFontFamily(self.font().family())
+        clean.setFontFamilies([self.font().family()])
         clean.setFontPointSize(self.font().pointSizeF())
         self.setCurrentCharFormat(clean)
 
         if text_list is not None:
             return
 
-        if was_heading or not isinstance(block.userData(), _BlockMeta):
-            block.setUserData(_BlockMeta(kind="paragraph"))
+        # QTextDocument may copy the original block metadata when split.
+        # The new block must serialize its own text, not stale raw/heading
+        # metadata from the block above.
+        block.setUserData(_BlockMeta(kind="paragraph"))
 
         block_format = block.blockFormat()
         block_format.setIndent(0)
@@ -1556,46 +1556,21 @@ class LatexVisualEditor(QTextEdit):
                 index += 1
                 continue
 
-            paragraph_start = index
-            paragraph: list[str] = []
-            source_segments: list[tuple[int, str]] = []
-            while index < len(lines):
-                candidate = lines[index]
-                candidate_stripped = candidate.strip()
-                if (
-                    not candidate_stripped
-                    or candidate.lstrip().startswith("\\")
-                    or candidate.lstrip().startswith("%")
-                ):
-                    break
-                paragraph.append(candidate_stripped)
-                source_segments.append((source_line(index), candidate_stripped))
-                index += 1
-
-            # Inline LaTeX at the beginning of a paragraph is accepted by the
-            # parser, so make sure the first line is consumed even when the
-            # loop above did not run for an unusual construct.
-            if not paragraph:
-                paragraph.append(line.strip())
-                source_segments.append((line_number, line.strip()))
-                index = max(index, paragraph_start + 1)
-
+            # One canonical source line is one editable Visual block. Joining
+            # adjacent lines with spaces makes an Enter-created line break
+            # disappear the next time Visual is projected from saved LaTeX.
             result.append(
                 (
                     "paragraph",
-                    " ".join(paragraph),
-                    source_line(paragraph_start),
-                    source_segments,
+                    line,
+                    line_number,
+                    [(line_number, line)],
                 )
             )
+            index += 1
 
-        # Collapse repeated blank visual blocks while keeping paragraph gaps.
-        collapsed: list[tuple] = []
-        for item in result:
-            if item[0] == "blank" and collapsed and collapsed[-1][0] == "blank":
-                continue
-            collapsed.append(item)
-        return collapsed
+        # Preserve intentional multiple blank source lines as editable blocks.
+        return result
 
     @classmethod
     def _parse_heading_line(cls, line: str) -> tuple[str, str, str] | None:
@@ -1638,7 +1613,7 @@ class LatexVisualEditor(QTextEdit):
             trailing,
         ):
             return None
-        return command, cls._heading_display_title(title_source), stripped
+        return command, cls._heading_display_title(title_source), line
 
     @staticmethod
     def _skip_balanced(text: str, start: int, opener: str, closer: str) -> int:
@@ -2170,4 +2145,7 @@ class LatexVisualEditor(QTextEdit):
                 text = f"\\colorbox{{{highlight}}}{{{text}}}"
             parts.append(text)
             iterator += 1
-        return "".join(parts).strip()
+        # Ordinary LaTeX source indentation belongs to the canonical file.
+        # Stripping this text rewrites thousands of existing lines when a
+        # Visual window is committed after a single Enter key.
+        return "".join(parts)

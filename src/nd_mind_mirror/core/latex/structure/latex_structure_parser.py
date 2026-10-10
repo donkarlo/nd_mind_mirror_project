@@ -5,6 +5,9 @@ from dataclasses import replace
 from pathlib import Path
 import re
 
+from nd_mind_mirror.core.latex.structure.latex_structure_heading_catalog import (
+    LatexStructureHeadingCatalog,
+)
 from nd_mind_mirror.core.latex.structure.latex_structure_item import (
     LatexStructureItem,
 )
@@ -13,19 +16,8 @@ from nd_mind_mirror.core.latex.structure.latex_structure_item import (
 class LatexStructureParser:
     """Extract source-ordered LaTeX nodes with explicit parents and movable spans."""
 
-    _HEADING_ORDER = {
-        "part": 0,
-        "chapter": 1,
-        "section": 2,
-        "subsection": 3,
-        "subsubsection": 4,
-        "paragraph": 5,
-        "subparagraph": 6,
-    }
-    _HEADING_PATTERN = re.compile(
-        r"\\(?P<kind>part|chapter|section|subsection|subsubsection|"
-        r"paragraph|subparagraph)(?P<star>\*)?(?![A-Za-z@])"
-    )
+    _HEADING_ORDER = LatexStructureHeadingCatalog.HEADING_RANKS
+    _HEADING_PATTERN = LatexStructureHeadingCatalog.COMMAND_PATTERN
     _IMAGE_PATTERN = re.compile(
         r"\\includegraphics(?:\s*\[[^\]]*\])?\s*\{(?P<path>[^{}]+)\}"
     )
@@ -119,6 +111,25 @@ class LatexStructureParser:
 
         for match in self._HEADING_PATTERN.finditer(structural):
             cursor = self._skip_space(structural, match.end())
+            command = match.group("kind")
+            if command == "DeepSection":
+                # deep_structure.tex uses \DeepSection{1..10}{title}.
+                if cursor >= len(structural) or structural[cursor] != "{":
+                    continue
+                level_argument = self._balanced_argument(structural, cursor, "{", "}")
+                if level_argument is None:
+                    continue
+                raw_level, cursor = level_argument
+                if not raw_level.strip().isdigit():
+                    continue
+                level_number = int(raw_level.strip())
+                if not 1 <= level_number <= 10:
+                    continue
+                kind = f"DeepSection:{level_number}"
+                cursor = self._skip_space(structural, cursor)
+            else:
+                kind = command
+
             optional_title = None
             if cursor < len(structural) and structural[cursor] == "[":
                 parsed = self._balanced_argument(structural, cursor, "[", "]")
@@ -134,7 +145,6 @@ class LatexStructureParser:
 
             required_title, _ = parsed
             title = optional_title if optional_title and optional_title.strip() else required_title
-            kind = match.group("kind")
             rank = self._HEADING_ORDER[kind]
 
             while (
@@ -191,10 +201,8 @@ class LatexStructureParser:
             kind=kind,
             title=title,
             line_number=line_number,
-            # Leaves are never structural parents. Keep them below every
-            # heading rank so the legacy stack renderer always pops a leaf
-            # before attaching the next heading.
-            level=7,
+            # Deep custom headings may extend beyond the standard level 6.
+            level=max(7, parent.level + 1 if parent is not None else 7),
             source_position=source_position,
             source_end=source_end,
             parent_source_position=(

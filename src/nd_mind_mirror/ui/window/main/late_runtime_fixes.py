@@ -109,7 +109,6 @@ class LateRuntimeFixes:
 
     _class_patches_installed = False
     _original_visual_insert_from_mime: Callable | None = None
-    _original_activate_bookmark: Callable | None = None
     _original_compile_pending_source: Callable | None = None
     _original_preview_target_for_cursor: Callable | None = None
     _original_find_graphic_reference: Callable | None = None
@@ -119,7 +118,6 @@ class LateRuntimeFixes:
         if cls._class_patches_installed:
             return
         cls._install_visual_clipboard_image_paste()
-        cls._install_bookmark_navigation_retry()
         cls._install_responsive_live_preview()
         cls._install_contextual_preview_target()
         cls._install_existing_png_sidecar_seed()
@@ -152,42 +150,6 @@ class LateRuntimeFixes:
             editor.setFocus()
 
         LatexVisualEditor.insertFromMimeData = insert_from_mime_data
-
-    @classmethod
-    def _install_bookmark_navigation_retry(cls) -> None:
-        """Wait until an asynchronously opened bookmark tab is active before moving its cursor."""
-        original = MainWindow._activate_bookmark
-        cls._original_activate_bookmark = original
-
-        def activate_bookmark(window: MainWindow, path: str, line: int, column: int = 1) -> None:
-            file_path = Path(path).expanduser().resolve()
-            if not file_path.is_file():
-                window._show_warning(f"Bookmarked file does not exist: {file_path}")
-                return
-            window._open_path(str(file_path), select=True, reveal_in_navigator=True)
-            target_line = max(int(line), 1)
-            target_column = max(int(column), 1)
-            attempts = (0, 20, 50, 100, 180, 300)
-
-            def try_go(index: int = 0) -> None:
-                current = window._editor_panel.current_path()
-                editor = window._editor_panel.current_editor()
-                current_path = None
-                if current is not None:
-                    try:
-                        current_path = Path(current).expanduser().resolve()
-                    except OSError:
-                        current_path = None
-                if editor is not None and current_path == file_path:
-                    window._editor_panel.go_to_location(target_line, target_column)
-                    return
-                next_index = index + 1
-                if next_index < len(attempts):
-                    QTimer.singleShot(attempts[next_index], lambda attempt=next_index: try_go(attempt))
-
-            QTimer.singleShot(0, try_go)
-
-        MainWindow._activate_bookmark = activate_bookmark
 
     @classmethod
     def _install_responsive_live_preview(cls) -> None:

@@ -79,6 +79,7 @@ class LatexEditor(TextEditor):
         self._shortcut_min_prefix_length = 2
         self._active_shortcut_prefix = ""
         self._shortcut_popup = LatexShortcutPopup(self)
+        self._shortcut_popup.shortcut_selected.connect(self._insert_shortcut)
         self._syncing_cursor_views = False
         self._bookmarks: list[dict[str, object]] = []
         self._bookmark_relocator = BookmarkAnchorRelocator()
@@ -400,6 +401,7 @@ class LatexEditor(TextEditor):
         return self._edit_mode
 
     def set_edit_mode(self, mode: str) -> None:
+        self._shortcut_popup.hide()
         requested = "visual" if str(mode).strip().lower() == "visual" else "source"
         if requested == self._edit_mode:
             if requested == "visual":
@@ -495,6 +497,7 @@ class LatexEditor(TextEditor):
 
     def contextMenuEvent(self, event: QContextMenuEvent) -> None:
         """Expose Insert/Edit in iPad directly from the source context click."""
+        self._shortcut_popup.hide()
         click_cursor = self.cursorForPosition(event.pos())
         click_position = click_cursor.position()
         existing = self._graphic_manager.find_reference(
@@ -726,6 +729,7 @@ class LatexEditor(TextEditor):
         return super().first_visible_source_position()
 
     def _on_source_cursor_changed(self) -> None:
+        self._shortcut_popup.hide()
         if self._syncing_cursor_views:
             return
         if self._edit_mode == "source":
@@ -754,6 +758,7 @@ class LatexEditor(TextEditor):
         self.active_cursor_changed.emit()
 
     def _on_source_view_changed(self) -> None:
+        self._shortcut_popup.hide()
         if self._edit_mode == "source":
             if hasattr(self, "_source_bookmark_gutter"):
                 self._source_bookmark_gutter.update()

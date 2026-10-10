@@ -17,7 +17,7 @@ class SearchTypingController(QObject):
         self.apply()
 
     def eventFilter(self, watched, event) -> bool:
-        if watched is self._search_window and event.type() in {
+        if watched is getattr(self, "_search_window", None) and event.type() in {
             QEvent.Type.Show,
             QEvent.Type.ShowToParent,
         }:

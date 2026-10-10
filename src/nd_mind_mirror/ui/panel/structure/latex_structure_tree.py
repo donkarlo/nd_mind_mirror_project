@@ -4,6 +4,10 @@ from PySide6.QtCore import QByteArray, QPoint, Qt, Signal
 from PySide6.QtGui import QDrag, QMouseEvent
 from PySide6.QtWidgets import QApplication, QAbstractItemView, QTreeWidget
 
+from nd_mind_mirror.core.latex.structure.latex_structure_heading_catalog import (
+    LatexStructureHeadingCatalog,
+)
+
 
 class LatexStructureTree(QTreeWidget):
     """Emit semantic Structure drops without mutating tree rows directly."""
@@ -13,15 +17,7 @@ class LatexStructureTree(QTreeWidget):
     _SOURCE_POSITION_ROLE = Qt.ItemDataRole.UserRole + 1
     _KIND_ROLE = Qt.ItemDataRole.UserRole + 3
     _MIME_TYPE = "application/x-nd-mind-mirror-latex-structure-node"
-    _HEADING_KINDS = {
-        "part",
-        "chapter",
-        "section",
-        "subsection",
-        "subsubsection",
-        "paragraph",
-        "subparagraph",
-    }
+    _HEADING_KINDS = frozenset(LatexStructureHeadingCatalog.HEADING_RANKS)
 
     def __init__(self, parent=None) -> None:
         """Configure a tree whose drag gesture is independent of Qt selection state."""

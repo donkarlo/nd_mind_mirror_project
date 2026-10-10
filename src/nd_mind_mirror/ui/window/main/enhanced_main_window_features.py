@@ -297,7 +297,6 @@ class EnhancedMainWindow(MainWindow):
             "latex.format": self._format_action,
             "find.current": self._find_in_tab_action,
             "replace.current": self._replace_in_tab_action,
-            "bookmark.toggle": self._toggle_bookmark_action,
             "preview.toggle": self._show_preview_action,
             "editor.bold": self._editor_panel._bold_shortcut,
             "editor.reset_zoom": self._editor_panel._reset_zoom_shortcut,

@@ -18,8 +18,6 @@ class EditorInteractionEnhancements(LegacyEditorInteractionEnhancements):
         cls._install_terminal_noise_filter()
         cls._install_preview_search_noise_guard()
         cls._install_source_layout_window()
-        cls._install_source_bookmark_menu()
-        cls._install_visual_bookmark_menu()
         cls._install_visual_layout_fixes()
         cls._install_scroll_structure_sync()
         cls._installed = True

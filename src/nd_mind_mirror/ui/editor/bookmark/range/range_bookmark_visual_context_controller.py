@@ -1,4 +1,4 @@
-"""Visual context menu for the same canonical range-bookmark model."""
+"""Visual context menu for native LaTeX, spelling, and image actions."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from PySide6.QtCore import QEvent, QObject
 
 
 class RangeBookmarkVisualContextController(QObject):
-    """Mirror Source Add/Remove Bookmark behavior inside Visual mode."""
+    """Provide Visual editing actions without legacy bookmark commands."""
 
     _INSTALLED_PROPERTY = "nd_range_bookmark_visual_context"
 
@@ -27,8 +27,6 @@ class RangeBookmarkVisualContextController(QObject):
         click_cursor = watched.cursorForPosition(event.pos())
         click_location = watched.source_location_for_position(click_cursor.position())
         click_position = self._editor._canonical_offset_for_location(click_location)
-        state = self._editor.range_bookmark_context_at(click_position)
-
         source_position = self._editor._source_position_for_location(click_location)
         source = self._editor._range_bookmark_source_text()
         graphic_reference = self._editor._graphic_manager.find_reference(
@@ -43,12 +41,6 @@ class RangeBookmarkVisualContextController(QObject):
         )
 
         menu = watched.createStandardContextMenu()
-        self._editor._remove_legacy_bookmark_actions(menu)
-        bookmark_action = None
-        if state["action"] != "none":
-            menu.addSeparator()
-            bookmark_action = menu.addAction(str(state["label"]))
-
         spell_controller = getattr(self._editor, "_spell_check_controller", None)
         spell_actions = []
         if spell_controller is not None:
@@ -93,9 +85,7 @@ class RangeBookmarkVisualContextController(QObject):
         ):
             event.accept()
             return True
-        if bookmark_action is not None and chosen == bookmark_action:
-            self._editor.execute_range_bookmark_state(state)
-        elif chosen == graphic_action:
+        if chosen == graphic_action:
             if graphic_reference is not None:
                 self._editor._edit_graphic_image_in_ipad(
                     graphic_reference.image_path

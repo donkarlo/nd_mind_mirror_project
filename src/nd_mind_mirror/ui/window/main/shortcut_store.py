@@ -58,6 +58,8 @@ class ShortcutStore:
         user = self._normalize_entries(self._read_yaml(self.path))
         merged = {key: dict(value) for key, value in self._load_defaults().items()}
         for key, value in user.items():
+            if key == "bookmark.toggle":
+                continue
             if key in merged:
                 merged[key].update(value)
             else:

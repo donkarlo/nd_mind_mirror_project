@@ -1,11 +1,13 @@
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QEvent, Qt, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QApplication,
     QFrame,
     QLabel,
     QListWidget,
     QListWidgetItem,
     QVBoxLayout,
+    QWidget,
 )
 
 from nd_mind_mirror.core.completion.latex.latex_shortcut_provider import (
@@ -14,7 +16,9 @@ from nd_mind_mirror.core.completion.latex.latex_shortcut_provider import (
 
 
 class LatexShortcutPopup(QFrame):
-    """Non-focus-stealing shortcut chooser shown under the editor cursor."""
+    """Non-focus-stealing chooser with explicit outside-event dismissal."""
+
+    shortcut_selected = Signal(object)
 
     def __init__(self, editor) -> None:
         super().__init__(
@@ -58,6 +62,7 @@ class LatexShortcutPopup(QFrame):
         self._list.setSelectionMode(
             QAbstractItemView.SelectionMode.SingleSelection
         )
+        self._list.itemClicked.connect(self._select_clicked_shortcut)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
@@ -65,6 +70,73 @@ class LatexShortcutPopup(QFrame):
         layout.addWidget(self._label)
         layout.addWidget(self._list)
 
+        self.hide()
+
+    def showEvent(self, event: QEvent) -> None:
+        """Watch global dismissal events only while the popup is displayed."""
+        super().showEvent(event)
+        application = QApplication.instance()
+        if application is not None:
+            application.installEventFilter(self)
+
+    def hideEvent(self, event: QEvent) -> None:
+        """Avoid per-event overhead for inactive editors and closed tabs."""
+        application = QApplication.instance()
+        if application is not None:
+            application.removeEventFilter(self)
+        super().hideEvent(event)
+
+    def eventFilter(self, watched, event: QEvent) -> bool:
+        """Dismiss the tooltip on actions outside it, including Esc elsewhere.
+
+        A Qt ToolTip does not have the automatic outside-click lifecycle of a
+        QMenu. Watching only the editor's keyPressEvent leaves a separate top-
+        level popup stranded when focus, tabs, or the scroll position changes.
+        """
+        if not self.isVisible():
+            return False
+
+        event_type = event.type()
+        if event_type == QEvent.Type.KeyPress:
+            if event.key() == Qt.Key.Key_Escape:
+                self.hide()
+                return True
+            return False
+
+        if event_type in (
+            QEvent.Type.MouseButtonPress,
+            QEvent.Type.MouseButtonDblClick,
+            QEvent.Type.Wheel,
+            QEvent.Type.TouchBegin,
+        ):
+            if isinstance(watched, QWidget) and (
+                watched is self or self.isAncestorOf(watched)
+            ):
+                return False
+            self.hide()
+            return False
+
+        if event_type == QEvent.Type.FocusOut and watched is self._editor:
+            self.hide()
+        elif event_type in (
+            QEvent.Type.Hide,
+            QEvent.Type.Close,
+        ) and watched in (self._editor, self._editor.window()):
+            self.hide()
+        elif (
+            event_type == QEvent.Type.WindowDeactivate
+            and watched is self._editor.window()
+        ):
+            self.hide()
+        elif event_type == QEvent.Type.ApplicationDeactivate:
+            self.hide()
+        return False
+
+    def _select_clicked_shortcut(self, item: QListWidgetItem) -> None:
+        """Apply a mouse-selected shortcut and dismiss its floating chooser."""
+        row = self._list.row(item)
+        if 0 <= row < len(self._matches):
+            self.shortcut_selected.emit(self._matches[row])
         self.hide()
 
     def set_matches(
