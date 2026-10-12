@@ -1,6 +1,6 @@
 // Supported connector stroke patterns.
 
-enum TikZLinePattern: String, CaseIterable, Identifiable {
+enum TikZLinePattern: String, CaseIterable, Identifiable, Codable {
     case solid
     case dashed
 

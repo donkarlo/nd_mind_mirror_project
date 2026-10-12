@@ -249,8 +249,10 @@ struct QuickDrawingToolPaletteView: View {
 
             let minimumY = halfHeight + edgeMargin
             let maximumY = max(minimumY, containerSize.height - halfHeight - edgeMargin)
-            let preferredAboveY = anchor.y - pencilGap - halfHeight
-            let y = min(max(preferredAboveY, minimumY), maximumY)
+            let above = anchor.y - pencilGap - halfHeight
+            let below = anchor.y + pencilGap + halfHeight
+            let preferredY = above >= minimumY ? above : below
+            let y = min(max(preferredY, minimumY), maximumY)
 
             return CGPoint(x: x, y: y)
         }

@@ -15,8 +15,12 @@ enum TikZSourceEditor {
         to source: String
     ) -> String {
         let name = nextNodeName(in: source)
+        let resolvedShape = shape
+        let storedSize = TikZRoundShapeGeometry.normalizedSize(
+            size, shape: resolvedShape
+        )
         var prepared = source
-        if shape == .ellipse {
+        if resolvedShape == .ellipse || resolvedShape == .triangle {
             prepared = TikZSourceDependencyManager
                 .ensuringShapesGeometric(
                     in: prepared
@@ -28,16 +32,18 @@ enum TikZSourceEditor {
             style,
             to: &options
         )
-        options.setFlag(
-            shape.rawValue,
-            enabled: true
-        )
+        if resolvedShape == .triangle {
+            options.setFlag("regular polygon", enabled: true)
+            options.setValue("3", for: "regular polygon sides")
+        } else {
+            options.setFlag(resolvedShape.rawValue, enabled: true)
+        }
         options.setValue(
-            "\(mapper.number(max(Double(size.width), 0.2)))cm",
+            "\(mapper.number(max(Double(storedSize.width), 0.2)))cm",
             for: "minimum width"
         )
         options.setValue(
-            "\(mapper.number(max(Double(size.height), 0.2)))cm",
+            "\(mapper.number(max(Double(storedSize.height), 0.2)))cm",
             for: "minimum height"
         )
 
@@ -78,6 +84,7 @@ enum TikZSourceEditor {
         named name: String,
         center: CGPoint,
         size: CGSize,
+        displayCanvasSize: CGSize? = nil,
         in source: String
     ) -> String {
         replacingNode(
@@ -93,12 +100,27 @@ enum TikZSourceEditor {
             var options = TikZOptionList(
                 rawOptions
             )
+            let isRound = options.containsFlag("circle")
+                || options.containsFlag("ellipse")
+            var storedSize = size
+            if isRound {
+                let canvas = displayCanvasSize
+                    ?? CGSize(width: 1600, height: 1100)
+                let resultingShape = TikZRoundShapeGeometry.shape(
+                    for: size, on: canvas
+                )
+                options.setFlag("circle", enabled: resultingShape == .circle)
+                options.setFlag("ellipse", enabled: resultingShape == .ellipse)
+                storedSize = TikZRoundShapeGeometry.normalizedSize(
+                    size, shape: resultingShape
+                )
+            }
             options.setValue(
-                "\(mapper.number(max(Double(size.width), 0.2)))cm",
+                "\(mapper.number(max(Double(storedSize.width), 0.2)))cm",
                 for: "minimum width"
             )
             options.setValue(
-                "\(mapper.number(max(Double(size.height), 0.2)))cm",
+                "\(mapper.number(max(Double(storedSize.height), 0.2)))cm",
                 for: "minimum height"
             )
 

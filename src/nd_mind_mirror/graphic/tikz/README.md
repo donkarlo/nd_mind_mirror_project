@@ -23,7 +23,10 @@ graphic:
 
 The gear menu provides **Canvas size…**, **Auto layout**, and **Source**. There is no manual Render button.
 
-- Rectangle/Ellipse are created by dragging on the canvas.
+- Rectangle and Triangle have their own tools. Circle/Ellipse share one icon-only tool: drawing or resizing a round shape selects circle versus ellipse automatically from its visible proportions. Dragging a circle's resize handle into a non-round proportion turns it into an ellipse, while restoring equal visible dimensions turns it back into a circle. Both use one saved style. A new shape immediately opens an inline Pencil Scribble text editor.
+- The **Styles** menu saves reusable, named node and connector styles between iPad sessions, reapplies them to new elements, and allows removal. Colors, stroke width, line pattern, and connector arrowhead styling are preserved. The last-used style is retained per shape or connector tool.
+- **Undo / Redo** has an independent 200-step history of TikZ source revisions. Consecutive changes made while dragging a single item are grouped; commands also support Command-Z and Command-Shift-Z.
+- **Auto layout** uses actual node sizes plus compact gaps rather than spreading nodes to the drawing area's entire width. The main toolbar scrolls on narrow screens.
 - Single Pencil/finger tap always selects a shape or connector.
 - Double tap selects the element and opens a compact floating label editor at the top of the canvas. Pencil Scribble and keyboard input update the selected element without inserting a toolbar row or moving the drawing surface. Tapping elsewhere commits the draft; pressing Enter/Done is optional.
 - The TikZ workspace ignores the keyboard safe-area inset. iPadOS may still show its own system input assistant, but that system overlay no longer pushes the Mind Mirror canvas upward.

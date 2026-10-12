@@ -68,11 +68,27 @@ enum TikZGraphParser {
                 let label = nsSource.substring(
                     with: match.range(at: 5)
                 )
-                let shape: TikZNodeShape =
-                    options.containsFlag("ellipse")
-                    || options.containsFlag("circle")
-                    ? .ellipse
-                    : .rectangle
+                let shape: TikZNodeShape
+                if options.containsFlag("regular polygon")
+                    && options.value(for: "regular polygon sides") == "3" {
+                    shape = .triangle
+                } else if options.containsFlag("circle") {
+                    shape = .circle
+                } else if options.containsFlag("ellipse") {
+                    shape = .ellipse
+                } else {
+                    shape = .rectangle
+                }
+
+                let rawWidth = optionMeasurement(
+                    "minimum width",
+                    options: options
+                ) ?? (shape == .circle ? 1.5 : shape == .ellipse ? 1.8 : 2.0)
+                let rawHeight = optionMeasurement(
+                    "minimum height",
+                    options: options
+                ) ?? (shape == .circle ? 1.5 : shape == .ellipse ? 1.1 : 1.0)
+                let diameter = max(rawWidth, rawHeight)
 
                 return TikZNode(
                     name: name,
@@ -81,18 +97,8 @@ enum TikZGraphParser {
                         x: x,
                         y: y
                     ),
-                    width:
-                        optionMeasurement(
-                            "minimum width",
-                            options: options
-                        )
-                        ?? (shape == .ellipse ? 1.8 : 2.0),
-                    height:
-                        optionMeasurement(
-                            "minimum height",
-                            options: options
-                        )
-                        ?? (shape == .ellipse ? 1.1 : 1.0),
+                    width: shape == .circle ? diameter : rawWidth,
+                    height: shape == .circle ? diameter : rawHeight,
                     shape: shape,
                     fillColor:
                         TikZColorValue.fromTikZ(

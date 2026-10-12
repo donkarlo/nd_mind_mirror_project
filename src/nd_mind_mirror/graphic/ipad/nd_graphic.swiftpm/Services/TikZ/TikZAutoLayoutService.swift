@@ -1,163 +1,123 @@
-// Deterministic layered and tree layouts for editable named-node TikZ graphs.
+// Compact graph layouts based on actual node dimensions, never canvas width.
 
 import CoreGraphics
 import Foundation
 
 final class TikZAutoLayoutService {
+    private let horizontalGap: Double = 0.75
+    private let verticalGap: Double = 0.65
+
     func positions(
         for graph: TikZGraph,
         direction: TikZAutoLayoutDirection = .topToBottom
     ) -> [String: CGPoint] {
         guard !graph.nodes.isEmpty else { return [:] }
         let names = graph.nodes.map(\.name).sorted()
-        let topology = layeredTopology(graph: graph, names: names)
-        guard topology.acyclic else {
-            return circularPositions(names)
+        let groups = layerGroups(graph: graph, names: names)
+        guard let groups else {
+            return circularPositions(for: graph.nodes)
         }
 
-        switch direction {
-        case .rightTree, .leftTree:
-            return treePositions(
-                graph: graph,
-                topology: topology,
-                direction: direction
-            )
-        default:
-            return layeredPositions(
-                topology: topology,
-                direction: direction
-            )
+        let horizontalDirections: Set<TikZAutoLayoutDirection> = [
+            .leftToRight, .rightToLeft, .rightTree, .leftTree
+        ]
+        let horizontal = horizontalDirections.contains(direction)
+        let forward = direction == .leftToRight
+            || direction == .rightTree
+            || direction == .bottomToTop
+        let byName = Dictionary(uniqueKeysWithValues: graph.nodes.map { ($0.name, $0) })
+        let levels = groups.keys.sorted()
+        let primarySizes: [Double] = levels.map { level in
+            (groups[level] ?? []).compactMap { byName[$0] }
+                .map { horizontal ? max($0.width, 0.2) : max($0.height, 0.2) }
+                .max() ?? 1
         }
+        let primaryGap = horizontal ? horizontalGap : verticalGap
+        let totalPrimary = primarySizes.reduce(0, +)
+            + Double(max(levels.count - 1, 0)) * primaryGap
+        let mainCenter = horizontal ? 8.0 : 5.5
+        let crossCenter = horizontal ? 5.5 : 8.0
+        var primaryCursor = -totalPrimary / 2
+        var result: [String: CGPoint] = [:]
+
+        for (index, level) in levels.enumerated() {
+            let primarySize = primarySizes[index]
+            let primary = mainCenter
+                + (forward ? 1.0 : -1.0)
+                * (primaryCursor + primarySize / 2)
+
+            let members = (groups[level] ?? []).sorted()
+            let crossSizes: [Double] = members.map { name in
+                guard let node = byName[name] else { return 1 }
+                return horizontal ? max(node.height, 0.2) : max(node.width, 0.2)
+            }
+            let crossGap = horizontal ? verticalGap : horizontalGap
+            let crossTotal = crossSizes.reduce(0, +)
+                + Double(max(members.count - 1, 0)) * crossGap
+            var crossCursor = -crossTotal / 2
+
+            for (memberIndex, name) in members.enumerated() {
+                let cross = crossCenter + crossCursor + crossSizes[memberIndex] / 2
+                // Vertical layers are ordered in view coordinates, hence inverted
+                // on TikZ's upward-positive Y axis.
+                result[name] = horizontal
+                    ? CGPoint(x: primary, y: crossCenter * 2 - cross)
+                    : CGPoint(x: cross, y: primary)
+                crossCursor += crossSizes[memberIndex] + crossGap
+            }
+            primaryCursor += primarySize + primaryGap
+        }
+        return result
     }
 
-    private func layeredTopology(
+    private func layerGroups(
         graph: TikZGraph,
         names: [String]
-    ) -> (layers: [String: Int], grouped: [Int: [String]], maximum: Int, roots: [String], acyclic: Bool) {
-        var outgoing: [String: [String]] = [:]
+    ) -> [Int: [String]]? {
         var indegree = Dictionary(uniqueKeysWithValues: names.map { ($0, 0) })
-        for edge in graph.edges where indegree[edge.source] != nil && indegree[edge.target] != nil {
-            outgoing[edge.source, default: []].append(edge.target)
+        var adjacency: [String: [String]] = [:]
+        for edge in graph.edges
+        where indegree[edge.source] != nil && indegree[edge.target] != nil {
             indegree[edge.target, default: 0] += 1
+            adjacency[edge.source, default: []].append(edge.target)
         }
 
-        let roots = names.filter { indegree[$0] == 0 }
-        var queue = roots
-        var layer = Dictionary(uniqueKeysWithValues: roots.map { ($0, 0) })
-        var visited: [String] = []
+        var queue = names.filter { indegree[$0] == 0 }
+        var layers = Dictionary(uniqueKeysWithValues: queue.map { ($0, 0) })
+        var visited = 0
         while !queue.isEmpty {
-            let current = queue.removeFirst()
-            visited.append(current)
-            for target in (outgoing[current] ?? []).sorted() {
-                layer[target] = max(layer[target] ?? 0, (layer[current] ?? 0) + 1)
+            let name = queue.removeFirst()
+            visited += 1
+            for target in (adjacency[name] ?? []).sorted() {
+                layers[target] = max(layers[target] ?? 0, (layers[name] ?? 0) + 1)
                 indegree[target, default: 0] -= 1
                 if indegree[target] == 0 { queue.append(target) }
             }
         }
 
-        let maximum = max(layer.values.max() ?? 0, 0)
-        var grouped: [Int: [String]] = [:]
+        guard visited == names.count else { return nil }
+        var groups: [Int: [String]] = [:]
         for name in names {
-            grouped[layer[name] ?? 0, default: []].append(name)
+            groups[layers[name] ?? 0, default: []].append(name)
         }
-        return (layer, grouped, maximum, roots, visited.count == names.count)
+        return groups
     }
 
-    private func layeredPositions(
-        topology: (layers: [String: Int], grouped: [Int: [String]], maximum: Int, roots: [String], acyclic: Bool),
-        direction: TikZAutoLayoutDirection
-    ) -> [String: CGPoint] {
+    private func circularPositions(for nodes: [TikZNode]) -> [String: CGPoint] {
+        let ordered = nodes.sorted { $0.name < $1.name }
+        guard ordered.count > 1 else {
+            return [ordered[0].name: CGPoint(x: 8, y: 5.5)]
+        }
+        let largest = ordered.map { max($0.width, $0.height) }.max() ?? 1
+        let circumference = Double(ordered.count) * (largest + horizontalGap)
+        let radius = circumference / (2 * Double.pi)
         var result: [String: CGPoint] = [:]
-        for level in 0...topology.maximum {
-            let members = (topology.grouped[level] ?? []).sorted()
-            for (index, name) in members.enumerated() {
-                let memberFraction = members.count <= 1
-                    ? 0.5
-                    : Double(index) / Double(members.count - 1)
-                let layerFraction = topology.maximum == 0
-                    ? 0.5
-                    : Double(level) / Double(topology.maximum)
-
-                switch direction {
-                case .topToBottom:
-                    result[name] = CGPoint(
-                        x: 2 + 12 * memberFraction,
-                        y: 9.5 - 8 * layerFraction
-                    )
-                case .bottomToTop:
-                    result[name] = CGPoint(
-                        x: 2 + 12 * memberFraction,
-                        y: 1.5 + 8 * layerFraction
-                    )
-                case .leftToRight:
-                    result[name] = CGPoint(
-                        x: 2 + 12 * layerFraction,
-                        y: 9.5 - 8 * memberFraction
-                    )
-                case .rightToLeft:
-                    result[name] = CGPoint(
-                        x: 14 - 12 * layerFraction,
-                        y: 9.5 - 8 * memberFraction
-                    )
-                case .rightTree, .leftTree:
-                    break
-                }
-            }
-        }
-        return result
-    }
-
-    private func treePositions(
-        graph: TikZGraph,
-        topology: (layers: [String: Int], grouped: [Int: [String]], maximum: Int, roots: [String], acyclic: Bool),
-        direction: TikZAutoLayoutDirection
-    ) -> [String: CGPoint] {
-        var outgoing: [String: [String]] = [:]
-        for edge in graph.edges {
-            outgoing[edge.source, default: []].append(edge.target)
-        }
-        var order: [String] = []
-        var seen: Set<String> = []
-        func visit(_ name: String) {
-            guard seen.insert(name).inserted else { return }
-            order.append(name)
-            for child in (outgoing[name] ?? []).sorted() { visit(child) }
-        }
-        for root in topology.roots.sorted() { visit(root) }
-        for name in topology.layers.keys.sorted() { visit(name) }
-        let rank = Dictionary(uniqueKeysWithValues: order.enumerated().map { ($1, $0) })
-
-        var result: [String: CGPoint] = [:]
-        for level in 0...topology.maximum {
-            let members = (topology.grouped[level] ?? []).sorted {
-                (rank[$0] ?? 0) < (rank[$1] ?? 0)
-            }
-            for (index, name) in members.enumerated() {
-                let vertical = members.count <= 1
-                    ? 5.5
-                    : 9.5 - 8 * Double(index) / Double(members.count - 1)
-                let horizontal = topology.maximum == 0
-                    ? 8.0
-                    : 2 + 12 * Double(level) / Double(topology.maximum)
-                result[name] = CGPoint(
-                    x: direction == .rightTree ? horizontal : 16 - horizontal,
-                    y: vertical
-                )
-            }
-        }
-        return result
-    }
-
-    private func circularPositions(_ names: [String]) -> [String: CGPoint] {
-        guard names.count > 1 else {
-            return [names[0]: CGPoint(x: 8, y: 5.5)]
-        }
-        var result: [String: CGPoint] = [:]
-        for (index, name) in names.enumerated() {
-            let angle = (Double(index) / Double(names.count)) * 2 * Double.pi - Double.pi / 2
-            result[name] = CGPoint(
-                x: 8 + 5.5 * cos(angle),
-                y: 5.5 + 4.0 * sin(angle)
+        for (index, node) in ordered.enumerated() {
+            let angle = Double(index) * 2 * Double.pi / Double(ordered.count)
+                - Double.pi / 2
+            result[node.name] = CGPoint(
+                x: 8 + radius * cos(angle),
+                y: 5.5 + radius * sin(angle)
             )
         }
         return result

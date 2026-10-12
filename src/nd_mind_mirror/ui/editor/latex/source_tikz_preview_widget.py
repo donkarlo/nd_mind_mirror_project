@@ -2,24 +2,42 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QImage, QPixmap
-from PySide6.QtWidgets import QLabel
+from PySide6.QtWidgets import QLabel, QMenu
 
 
 class SourceTikZPreviewWidget(QLabel):
-    """Display one immutable TikZ render below its input/include source line."""
+    """Display an inline render with a context menu targeting its source file."""
+
+    edit_requested = Signal(str)
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self._cache_key: tuple[int, int] | None = None
+        self._source_path: str | None = None
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
         self.setStyleSheet(
             "QLabel { background: #ffffff; border: 1px solid #cfd4da; "
             "border-radius: 3px; padding: 2px; }"
         )
         self.hide()
+
+    def set_tikz_source(self, source_path: str | None) -> None:
+        """Associate the visible render with its canonical editable source."""
+        self._source_path = str(source_path) if source_path else None
+
+    def contextMenuEvent(self, event) -> None:
+        if not self._source_path:
+            event.ignore()
+            return
+        menu = QMenu(self)
+        edit = menu.addAction("Edit TikZ in iPad…")
+        selected = menu.exec(event.globalPos())
+        if selected == edit:
+            self.edit_requested.emit(self._source_path)
+        event.accept()
 
     def display_image(
         self,

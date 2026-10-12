@@ -7,6 +7,7 @@ struct TikZWorkspaceView: View {
 
     @State private var activeTool: TikZCanvasTool = .select
     @State private var lastConnectorTool: TikZCanvasTool = .straightConnector
+    @State private var lastNodeTool: TikZCanvasTool = .rectangle
     @State private var pendingConnectorDrop: TikZPendingConnectorDrop?
 
     @State private var selectedNodeName: String?
@@ -23,6 +24,9 @@ struct TikZWorkspaceView: View {
     @State private var canvasHeightText = "980"
     @State private var logicalCanvasSize = TikZCanvasMetadata.defaultSize
 
+    @StateObject private var stylePresets = TikZStylePresetStore()
+    @State private var savingStyleName = ""
+    @State private var showSaveStyleAlert = false
     @State private var nodeStyle = TikZNodeStyle()
     @State private var edgeStyle = TikZEdgeStyle()
     @State private var lastStyleMode: TikZStyleToolbarView.Mode = .node
@@ -61,7 +65,7 @@ struct TikZWorkspaceView: View {
     private var styleMode: TikZStyleToolbarView.Mode {
         if selectedNode != nil { return .node }
         if selectedEdge != nil { return .edge }
-        if activeTool == .rectangle || activeTool == .ellipse { return .node }
+        if activeTool.nodeShape != nil { return .node }
         if activeTool.connectorKind != nil { return .edge }
         return lastStyleMode
     }
@@ -71,13 +75,18 @@ struct TikZWorkspaceView: View {
             get: { nodeStyle },
             set: { style in
                 nodeStyle = style
+                if let shape = selectedNode?.shape ?? activeTool.nodeShape
+                    ?? lastNodeTool.nodeShape {
+                    stylePresets.remember(style, for: shape)
+                }
                 guard let node = selectedNode else { return }
                 router.updateTikZSource(
                     TikZSourceEditor.updateNodeStyle(
                         named: node.name,
                         style: style,
                         in: router.tikzSource
-                    )
+                    ),
+                    historyGroup: "node-style:\(node.name)"
                 )
             }
         )
@@ -88,13 +97,15 @@ struct TikZWorkspaceView: View {
             get: { edgeStyle },
             set: { style in
                 edgeStyle = style
+                stylePresets.remember(style, for: activeConnectorStyleTool)
                 guard let edge = selectedEdge else { return }
                 router.updateTikZSource(
                     TikZSourceEditor.updateEdgeStyle(
                         edgeID: edge.id,
                         style: style,
                         in: router.tikzSource
-                    )
+                    ),
+                    historyGroup: "edge-style:\(edge.id)"
                 )
             }
         )
@@ -189,6 +200,9 @@ struct TikZWorkspaceView: View {
             Button("Connect to Ellipse") {
                 connectPendingDrop(to: .ellipse)
             }
+            Button("Connect to Triangle") {
+                connectPendingDrop(to: .triangle)
+            }
             Button("Delete Connector", role: .destructive) {
                 pendingConnectorDrop = nil
             }
@@ -196,6 +210,20 @@ struct TikZWorkspaceView: View {
             Text(
                 "The Pencil was lifted on empty canvas. Choose a new target shape or discard the connector."
             )
+        }
+        .alert("Save TikZ style", isPresented: $showSaveStyleAlert) {
+            TextField("Style name", text: $savingStyleName)
+            Button("Save") {
+                stylePresets.save(
+                    name: savingStyleName,
+                    tool: currentStyleTool,
+                    nodeStyle: nodeStyle,
+                    edgeStyle: edgeStyle
+                )
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Saved styles remain available for future TikZ documents.")
         }
         .onAppear {
             normalizeSourceDependencies()
@@ -264,16 +292,26 @@ struct TikZWorkspaceView: View {
     }
 
     private var drawingToolbar: some View {
-        HStack(spacing: 8) {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
             toolButton(
                 title: "Rectangle",
                 systemImage: "rectangle",
                 tool: .rectangle
             )
+            Button {
+                chooseTool(.ellipse)
+            } label: {
+                Image(systemName: "circle")
+                    .frame(width: 30, height: 30)
+            }
+            .buttonStyle(.bordered)
+            .tint(activeTool == .ellipse ? Color.accentColor : Color.secondary)
+            .accessibilityLabel("Circle or ellipse")
             toolButton(
-                title: "Ellipse",
-                systemImage: "circle",
-                tool: .ellipse
+                title: "Triangle",
+                systemImage: "triangle",
+                tool: .triangle
             )
             toolButton(
                 title: "Straight",
@@ -290,11 +328,105 @@ struct TikZWorkspaceView: View {
                 systemImage: "point.3.connected.trianglepath.dotted",
                 tool: .polylineConnector
             )
-            Spacer()
+            Spacer(minLength: 4)
+            Menu {
+                Button {
+                    savingStyleName = currentStyleTool.rawValue.capitalized
+                    showSaveStyleAlert = true
+                } label: {
+                    Label("Save current style…", systemImage: "plus")
+                }
+                .disabled(currentStyleTool == .select)
+
+                if !stylePresets.presets.isEmpty {
+                    Divider()
+                    ForEach(stylePresets.presets) { preset in
+                        Button("\(preset.name) (\(preset.tool.rawValue))") {
+                            applyPreset(preset)
+                        }
+                    }
+                    Menu("Delete saved style") {
+                        ForEach(stylePresets.presets) { preset in
+                            Button(preset.name, role: .destructive) {
+                                stylePresets.delete(preset.id)
+                            }
+                        }
+                    }
+                }
+            } label: {
+                Label("Styles", systemImage: "paintpalette")
+            }
+            .buttonStyle(.bordered)
+
+            Button(action: undoTikZEdit) {
+                Image(systemName: "arrow.uturn.backward")
+            }
+            .disabled(!router.canUndoTikZ)
+            .keyboardShortcut("z", modifiers: [.command])
+            .accessibilityLabel("Undo TikZ edit")
+            Button(action: redoTikZEdit) {
+                Image(systemName: "arrow.uturn.forward")
+            }
+            .disabled(!router.canRedoTikZ)
+            .keyboardShortcut("z", modifiers: [.command, .shift])
+            .accessibilityLabel("Redo TikZ edit")
+            }
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
         .background(.bar)
+    }
+
+    private var currentStyleTool: TikZCanvasTool {
+        if let node = selectedNode {
+            switch node.shape {
+            case .rectangle: return .rectangle
+            case .ellipse, .circle: return .ellipse
+            case .triangle: return .triangle
+            }
+        }
+        if selectedEdge != nil { return activeConnectorStyleTool }
+        if activeTool != .select { return activeTool }
+        return lastStyleMode == .node ? lastNodeTool : activeConnectorStyleTool
+    }
+
+    private var activeConnectorStyleTool: TikZCanvasTool {
+        guard let edge = selectedEdge else { return lastConnectorTool }
+        switch edge.geometry.kind {
+        case .straight: return .straightConnector
+        case .curve: return .curveConnector
+        case .polyline: return .polylineConnector
+        }
+    }
+
+    private func applyPreset(_ preset: TikZSavedStylePreset) {
+        commitInlineLabelIfNeeded()
+        activeTool = preset.tool
+        if preset.tool.nodeShape != nil { lastNodeTool = preset.tool }
+        if preset.tool.connectorKind != nil {
+            lastConnectorTool = preset.tool
+        }
+        updateLastStyleMode(for: preset.tool)
+        clearSelection(resetTool: false, commitLabel: false)
+        if let shape = preset.tool.nodeShape {
+            nodeStyle = preset.nodeStyle
+            stylePresets.remember(nodeStyle, for: shape)
+        } else {
+            edgeStyle = preset.edgeStyle
+            stylePresets.remember(edgeStyle, for: preset.tool)
+        }
+    }
+
+    private func undoTikZEdit() {
+        clearSelection(resetTool: false)
+        router.undoTikZ()
+        syncCanvasSizeFromSource()
+    }
+
+    private func redoTikZEdit() {
+        clearSelection(resetTool: false)
+        router.redoTikZ()
+        syncCanvasSizeFromSource()
     }
 
     private var statusBar: some View {
@@ -361,6 +493,12 @@ struct TikZWorkspaceView: View {
             lastConnectorTool = tool
         }
         activeTool = activeTool == tool ? .select : tool
+        if let shape = activeTool.nodeShape {
+            lastNodeTool = activeTool
+            nodeStyle = stylePresets.nodeStyle(for: shape)
+        } else if activeTool.connectorKind != nil {
+            edgeStyle = stylePresets.edgeStyle(for: activeTool)
+        }
         updateLastStyleMode(for: activeTool)
         clearSelection(resetTool: false, commitLabel: false)
     }
@@ -370,6 +508,7 @@ struct TikZWorkspaceView: View {
             lastConnectorTool = .straightConnector
         }
         activeTool = lastConnectorTool
+        edgeStyle = stylePresets.edgeStyle(for: lastConnectorTool)
         lastStyleMode = .edge
         clearSelection(resetTool: false, commitLabel: false)
     }
@@ -378,7 +517,13 @@ struct TikZWorkspaceView: View {
         commitInlineLabelIfNeeded()
         activeTool = .select
         lastStyleMode = .node
+        switch node.shape {
+        case .rectangle: lastNodeTool = .rectangle
+        case .ellipse, .circle: lastNodeTool = .ellipse
+        case .triangle: lastNodeTool = .triangle
+        }
         nodeStyle = node.style
+        stylePresets.remember(node.style, for: node.shape)
         labelDraft = node.label
         selectedNodeName = node.name
         selectedEdgeID = nil
@@ -398,6 +543,7 @@ struct TikZWorkspaceView: View {
         edgeStyle = edge.style
         labelDraft = edge.label
         selectedEdgeID = edge.id
+        stylePresets.remember(edge.style, for: activeConnectorStyleTool)
         selectedNodeName = nil
         editingNodeName = nil
         editingEdgeID = nil
@@ -414,7 +560,8 @@ struct TikZWorkspaceView: View {
                 named: node.name,
                 to: point,
                 in: router.tikzSource
-            )
+            ),
+            historyGroup: "node-move:\(node.name)"
         )
     }
 
@@ -428,8 +575,10 @@ struct TikZWorkspaceView: View {
                 named: node.name,
                 center: center,
                 size: size,
+                displayCanvasSize: logicalCanvasSize,
                 in: router.tikzSource
-            )
+            ),
+            historyGroup: "node-resize:\(node.name)"
         )
     }
 
@@ -580,9 +729,12 @@ struct TikZWorkspaceView: View {
         }
 
         let targetName = nodeNameAllocator.nextName(in: router.tikzSource)
-        let targetSize = shape == .ellipse
-            ? CGSize(width: 2.0, height: 1.2)
-            : CGSize(width: 2.2, height: 1.2)
+        let targetSize: CGSize
+        switch shape {
+        case .circle: targetSize = CGSize(width: 1.5, height: 1.5)
+        case .ellipse: targetSize = CGSize(width: 2.0, height: 1.2)
+        case .rectangle, .triangle: targetSize = CGSize(width: 2.2, height: 1.2)
+        }
         let kind = activeTool.connectorKind
             ?? lastConnectorTool.connectorKind
             ?? .straight
@@ -591,7 +743,7 @@ struct TikZWorkspaceView: View {
             shape: shape,
             center: request.point,
             size: targetSize,
-            style: nodeStyle,
+            style: stylePresets.nodeStyle(for: shape),
             label: "",
             to: router.tikzSource
         )
@@ -660,7 +812,8 @@ struct TikZWorkspaceView: View {
                 edgeID: edge.id,
                 geometry: geometry,
                 in: router.tikzSource
-            )
+            ),
+            historyGroup: "edge-geometry:\(edge.id)"
         )
         selectedEdgeID = edge.id
         selectedNodeName = nil
@@ -672,18 +825,37 @@ struct TikZWorkspaceView: View {
         center: CGPoint,
         size: CGSize
     ) {
-        router.updateTikZSource(
-            TikZSourceEditor.addNode(
-                shape: shape,
-                center: center,
-                size: size,
-                style: nodeStyle,
-                label: "",
-                to: router.tikzSource
-            )
+        let oldNames = Set(graph.nodes.map(\.name))
+        let style = stylePresets.nodeStyle(for: shape)
+        let resolvedShape = shape == .ellipse
+            ? TikZRoundShapeGeometry.shape(for: size, on: logicalCanvasSize)
+            : shape
+        let source = TikZSourceEditor.addNode(
+            shape: resolvedShape,
+            center: center,
+            size: size,
+            style: style,
+            label: "",
+            to: router.tikzSource
         )
+        let created = TikZGraphParser.parseNodes(source).first {
+            !oldNames.contains($0.name)
+        }
+        router.updateTikZSource(source)
         lastStyleMode = .node
+        switch shape {
+        case .rectangle: lastNodeTool = .rectangle
+        case .ellipse, .circle: lastNodeTool = .ellipse
+        case .triangle: lastNodeTool = .triangle
+        }
         activeTool = .select
+        nodeStyle = style
+        selectedNodeName = created?.name
+        selectedEdgeID = nil
+        labelDraft = ""
+        // SwiftUI's inline label editor becomes Pencil Scribble's input surface.
+        editingNodeName = created?.name
+        editingEdgeID = nil
     }
 
     private func commitSelectedLabel() {
@@ -802,7 +974,7 @@ struct TikZWorkspaceView: View {
     private func updateLastStyleMode(for tool: TikZCanvasTool) {
         if tool.connectorKind != nil {
             lastStyleMode = .edge
-        } else if tool == .rectangle || tool == .ellipse {
+        } else if tool.nodeShape != nil {
             lastStyleMode = .node
         }
     }

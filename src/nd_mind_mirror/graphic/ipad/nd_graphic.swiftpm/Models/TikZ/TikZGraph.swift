@@ -3,9 +3,11 @@
 import CoreGraphics
 import Foundation
 
-enum TikZNodeShape: String, CaseIterable, Identifiable {
+enum TikZNodeShape: String, CaseIterable, Identifiable, Codable {
     case rectangle
     case ellipse
+    case circle
+    case triangle
     var id: String { rawValue }
 }
 

@@ -36,9 +36,9 @@ from nd_mind_mirror.ui.window.main.tikz_update_event_controller import (
 class EnhancedMainWindow(BaseEnhancedMainWindow):
     """Compose search-aware desktop features over the shared image/TikZ bridge."""
 
-    _TIKZ_LIVE_INTERVAL_MS = 180
-    _TIKZ_FALLBACK_IDLE_MS = 1200
-    _TIKZ_PDF_AFTER_FALLBACK_MS = 1500
+    _TIKZ_LIVE_INTERVAL_MS = 80
+    _TIKZ_FALLBACK_IDLE_MS = 650
+    _TIKZ_PDF_AFTER_FALLBACK_MS = 1000
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)

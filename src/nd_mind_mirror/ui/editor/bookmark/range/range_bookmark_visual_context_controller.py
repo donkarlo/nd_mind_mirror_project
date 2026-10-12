@@ -40,6 +40,16 @@ class RangeBookmarkVisualContextController(QObject):
             source_position,
         )
 
+        click_meta = click_cursor.block().userData()
+        raw = str(getattr(click_meta, "raw", "") or "")
+        if tikz_reference is None and (
+            "\\input{" in raw or "\\include{" in raw
+        ):
+            tikz_reference = self._editor._tikz_document_manager.find_reference(
+                raw,
+                self._editor.source_path,
+                0,
+            )
         menu = watched.createStandardContextMenu()
         spell_controller = getattr(self._editor, "_spell_check_controller", None)
         spell_actions = []
@@ -52,8 +62,6 @@ class RangeBookmarkVisualContextController(QObject):
             )
 
         menu.addSeparator()
-        click_meta = click_cursor.block().userData()
-        raw = str(getattr(click_meta, "raw", "") or "")
         is_existing_graphic = graphic_reference is not None or (
             str(getattr(click_meta, "kind", "") or "") == "graphic"
             or "\\includegraphics" in raw

@@ -1,9 +1,10 @@
 // Editing tools available on the direct-manipulation TikZ canvas.
 
-enum TikZCanvasTool: Hashable {
+enum TikZCanvasTool: String, Hashable, Codable {
     case select
     case rectangle
     case ellipse
+    case triangle
     case straightConnector
     case curveConnector
     case polylineConnector
@@ -14,6 +15,8 @@ enum TikZCanvasTool: Hashable {
             return .rectangle
         case .ellipse:
             return .ellipse
+        case .triangle:
+            return .triangle
         case .select,
              .straightConnector,
              .curveConnector,
@@ -30,7 +33,7 @@ enum TikZCanvasTool: Hashable {
             return .curve
         case .polylineConnector:
             return .polyline
-        case .select, .rectangle, .ellipse:
+        case .select, .rectangle, .ellipse, .triangle:
             return nil
         }
     }

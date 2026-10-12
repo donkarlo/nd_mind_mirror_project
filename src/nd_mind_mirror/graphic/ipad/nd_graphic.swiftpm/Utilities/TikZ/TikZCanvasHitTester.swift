@@ -129,42 +129,11 @@ struct TikZCanvasHitTester {
                 in: canvasSize
             )
 
-        if node.shape == .rectangle {
-            return rect
-                .insetBy(
-                    dx: -tolerance,
-                    dy: -tolerance
-                )
-                .contains(
-                    point
-                )
-        }
-
-        let center = CGPoint(
-            x: rect.midX,
-            y: rect.midY
+        return nodeGeometry.contains(
+            point,
+            in: rect,
+            shape: node.shape,
+            tolerance: tolerance
         )
-        let radiusX = max(
-            rect.width / 2
-                + tolerance,
-            1
-        )
-        let radiusY = max(
-            rect.height / 2
-                + tolerance,
-            1
-        )
-        let normalizedX =
-            (point.x - center.x)
-            / radiusX
-        let normalizedY =
-            (point.y - center.y)
-            / radiusY
-
-        return normalizedX
-            * normalizedX
-            + normalizedY
-            * normalizedY
-            <= 1
     }
 }

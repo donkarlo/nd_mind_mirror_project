@@ -346,7 +346,27 @@ struct TikZCanvasView: View {
 
     @ViewBuilder
     private func draftShape(in rect: CGRect) -> some View {
-        if activeTool == .ellipse {
+        if activeTool == .triangle {
+            TikZTriangleShape()
+                .fill(draftNodeStyle.fillColor.color.opacity(0.75))
+                .overlay(
+                    TikZTriangleShape().stroke(
+                        draftNodeStyle.strokeColor.color,
+                        lineWidth: max(CGFloat(draftNodeStyle.lineWidth), 0.8)
+                    )
+                )
+                .frame(width: rect.width, height: rect.height)
+                .position(x: rect.midX, y: rect.midY)
+        } else if activeTool == .circle {
+            Circle()
+                .fill(draftNodeStyle.fillColor.color.opacity(0.75))
+                .overlay(Circle().stroke(
+                    draftNodeStyle.strokeColor.color,
+                    lineWidth: max(CGFloat(draftNodeStyle.lineWidth), 0.8)
+                ))
+                .frame(width: rect.width, height: rect.height)
+                .position(x: rect.midX, y: rect.midY)
+        } else if activeTool == .ellipse {
             Ellipse()
                 .fill(draftNodeStyle.fillColor.color.opacity(0.75))
                 .overlay(

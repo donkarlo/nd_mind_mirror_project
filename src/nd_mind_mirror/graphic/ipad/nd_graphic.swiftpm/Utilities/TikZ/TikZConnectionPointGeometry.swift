@@ -12,10 +12,14 @@ struct TikZConnectionPointGeometry {
     ) -> [CGPoint] {
         let count = max(count, TikZConnectionPointMetadata.defaultCount)
         let rect = nodeGeometry.rect(for: node, in: canvasSize)
-        if node.shape == .ellipse {
+        switch node.shape {
+        case .ellipse, .circle:
             return ellipsePoints(in: rect, count: count)
+        case .triangle:
+            return trianglePoints(in: rect, count: count)
+        case .rectangle:
+            return rectanglePoints(in: rect, count: count)
         }
-        return rectanglePoints(in: rect, count: count)
     }
 
     func nearest(
@@ -87,6 +91,40 @@ struct TikZConnectionPointGeometry {
         }
         distance -= rect.width
         return CGPoint(x: rect.minX, y: rect.maxY - distance)
+    }
+
+    private func trianglePoints(
+        in rect: CGRect,
+        count: Int
+    ) -> [CGPoint] {
+        let vertices = [
+            CGPoint(x: rect.midX, y: rect.minY),
+            CGPoint(x: rect.maxX, y: rect.maxY),
+            CGPoint(x: rect.minX, y: rect.maxY),
+        ]
+        let sides: [CGFloat] = (0..<3).map { index in
+            let start = vertices[index]
+            let end = vertices[(index + 1) % 3]
+            return hypot(end.x - start.x, end.y - start.y)
+        }
+        let perimeter = sides.reduce(0, +)
+        guard perimeter > 0 else { return vertices }
+        return (0..<count).map { index in
+            var distance = perimeter * CGFloat(index) / CGFloat(count)
+            for side in 0..<3 {
+                if distance <= sides[side] || side == 2 {
+                    let start = vertices[side]
+                    let end = vertices[(side + 1) % 3]
+                    let fraction = min(max(distance / max(sides[side], 1), 0), 1)
+                    return CGPoint(
+                        x: start.x + fraction * (end.x - start.x),
+                        y: start.y + fraction * (end.y - start.y)
+                    )
+                }
+                distance -= sides[side]
+            }
+            return vertices[0]
+        }
     }
 
     private func ellipsePoints(

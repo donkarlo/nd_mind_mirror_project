@@ -9,7 +9,8 @@ struct PencilContactToolPreviewView: View {
     let anchor: CGPoint
 
     var body: some View {
-        Image(systemName: symbolName)
+        GeometryReader { proxy in
+            Image(systemName: symbolName)
             .font(.system(size: 19, weight: .semibold))
             .foregroundStyle(iconColor)
             .frame(width: 34, height: 34)
@@ -18,8 +19,13 @@ struct PencilContactToolPreviewView: View {
                 Circle().stroke(Color.secondary.opacity(0.28), lineWidth: 0.8)
             }
             .shadow(radius: 3, y: 1)
-            .position(x: anchor.x + 30, y: anchor.y - 24)
+            .position(
+                x: min(max(anchor.x + 34, 21), max(proxy.size.width - 21, 21)),
+                y: min(max(anchor.y - 38, 21), max(proxy.size.height - 21, 21))
+            )
             .allowsHitTesting(false)
+        }
+        .allowsHitTesting(false)
     }
 
     private var symbolName: String {

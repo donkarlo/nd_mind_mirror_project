@@ -22,6 +22,13 @@ final class GraphicEditorSessionRouter: ObservableObject {
     private var sendCommand: (([String: Any]) -> Void)?
     private var nextRevision = 1
     private var latestRevision = 0
+    @Published private(set) var canUndoTikZ = false
+    @Published private(set) var canRedoTikZ = false
+    private var undoTikZSources: [String] = []
+    private var redoTikZSources: [String] = []
+    private var previousHistoryGroup: String?
+    private var lastGroupedEditAt = -Double.greatestFiniteMagnitude
+    private let maximumHistoryDepth = 200
     private let tikzSourceSyncScheduler = TikZSourceSyncScheduler(
         updateRateHz: 20.0
     )
@@ -44,6 +51,10 @@ final class GraphicEditorSessionRouter: ObservableObject {
     ) {
         tikzSourceSyncScheduler.cancel()
         latestRevision = 0
+        undoTikZSources.removeAll()
+        redoTikZSources.removeAll()
+        previousHistoryGroup = nil
+        refreshHistoryAvailability()
         tikzPath = path
         tikzSource = source
         applyPreview(previewPNGBase64)
@@ -51,14 +62,48 @@ final class GraphicEditorSessionRouter: ObservableObject {
         workspace = .tikz
     }
 
-    func updateTikZSource(_ source: String) {
-        guard tikzPath?.isEmpty == false else {
-            return
+    func updateTikZSource(_ source: String, historyGroup: String? = nil) {
+        guard tikzPath?.isEmpty == false, source != tikzSource else { return }
+        let now = ProcessInfo.processInfo.systemUptime
+        let isContinuation = historyGroup != nil
+            && historyGroup == previousHistoryGroup
+            && now - lastGroupedEditAt < 0.55
+        if !isContinuation {
+            undoTikZSources.append(tikzSource)
+            if undoTikZSources.count > maximumHistoryDepth {
+                undoTikZSources.removeFirst()
+            }
         }
+        redoTikZSources.removeAll()
+        previousHistoryGroup = historyGroup
+        lastGroupedEditAt = now
+        refreshHistoryAvailability()
+        applyLocalTikZSource(source)
+    }
 
-        // The vector canvas is local and updates immediately. Only the canonical
-        // Ubuntu upload is rate-limited, so rapid Pencil drags stay smooth while
-        // the bridge receives at most one newest source revision every 50 ms.
+    func undoTikZ() {
+        guard let prior = undoTikZSources.popLast() else { return }
+        redoTikZSources.append(tikzSource)
+        previousHistoryGroup = nil
+        refreshHistoryAvailability()
+        applyLocalTikZSource(prior)
+    }
+
+    func redoTikZ() {
+        guard let next = redoTikZSources.popLast() else { return }
+        undoTikZSources.append(tikzSource)
+        previousHistoryGroup = nil
+        refreshHistoryAvailability()
+        applyLocalTikZSource(next)
+    }
+
+    private func refreshHistoryAvailability() {
+        canUndoTikZ = !undoTikZSources.isEmpty
+        canRedoTikZ = !redoTikZSources.isEmpty
+    }
+
+    private func applyLocalTikZSource(_ source: String) {
+        // Update the vector canvas synchronously; throttle only Ubuntu uploads.
         tikzSource = source
         tikzStatus = "Saving TikZ…"
         tikzSourceSyncScheduler.submit { [weak self] in
@@ -119,6 +164,10 @@ final class GraphicEditorSessionRouter: ObservableObject {
     func closeTikZ() {
         tikzSourceSyncScheduler.flush()
         workspace = .image
+        undoTikZSources.removeAll()
+        redoTikZSources.removeAll()
+        previousHistoryGroup = nil
+        refreshHistoryAvailability()
         tikzPath = nil
         tikzSource = ""
         tikzPreviewImage = nil

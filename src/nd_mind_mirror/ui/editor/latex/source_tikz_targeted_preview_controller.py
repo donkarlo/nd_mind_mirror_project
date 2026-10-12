@@ -87,6 +87,7 @@ class SourceTikZTargetedPreviewController(SourceTikZPreviewController):
             replacement = {
                 "block_position": block_position,
                 "anchor_position": anchor_position,
+                "source_path": str(target),
                 "image": QImage(image),
                 "width": width,
                 "height": height,

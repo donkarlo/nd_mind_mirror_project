@@ -3,7 +3,7 @@
 import SwiftUI
 import UIKit
 
-struct TikZColorValue: Hashable {
+struct TikZColorValue: Hashable, Codable {
     var red: Double
     var green: Double
     var blue: Double

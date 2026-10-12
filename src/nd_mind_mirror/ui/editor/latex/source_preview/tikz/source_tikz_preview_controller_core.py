@@ -126,6 +126,7 @@ class SourceTikZPreviewController(QObject):
                 continue
 
             widget = self._widget(used, viewport)
+            widget.set_tikz_source(str(item.get("source_path", "")))
             width = int(item["width"])
             available = max(viewport.width() - 32, 120)
             x = max((available - (width + 6)) // 2 + 16 - horizontal, 0)
@@ -202,6 +203,9 @@ class SourceTikZPreviewController(QObject):
                 {
                     "block_position": block_position,
                     "anchor_position": anchor_position,
+                    "source_path": str(
+                        self._service.target_for_input(raw, editor.source_path) or ""
+                    ),
                     "image": QImage(image),
                     "width": width,
                     "height": height,
@@ -392,14 +396,27 @@ class SourceTikZPreviewController(QObject):
 
     def _widget(self, index: int, parent) -> SourceTikZPreviewWidget:
         while len(self._widgets) <= index:
-            self._widgets.append(SourceTikZPreviewWidget(parent))
+            widget = SourceTikZPreviewWidget(parent)
+            widget.edit_requested.connect(self._open_tikz_preview_in_ipad)
+            self._widgets.append(widget)
         widget = self._widgets[index]
         if not isValid(widget):
             widget = SourceTikZPreviewWidget(parent)
+            widget.edit_requested.connect(self._open_tikz_preview_in_ipad)
             self._widgets[index] = widget
         elif widget.parent() is not parent:
             widget.setParent(parent)
         return widget
+
+    def _open_tikz_preview_in_ipad(self, source_path: str) -> None:
+        """Route rendered-canvas right-clicks to the owning LaTeX editor."""
+        editor = self._current_live_editor()
+        if editor is None or not source_path:
+            return
+        target = Path(source_path).expanduser().resolve(strict=False)
+        if not editor._tikz_document_manager.is_tikz_file(target):
+            return
+        editor._tikz_bridge_notifier.open_on_ipad(target)
 
     def _hide_unused(self, used: int) -> None:
         for widget in self._widgets[max(int(used), 0):]:

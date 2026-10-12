@@ -1,6 +1,6 @@
 // Supported directed connector arrow-head styles.
 
-enum TikZArrowHeadStyle: String, CaseIterable, Identifiable {
+enum TikZArrowHeadStyle: String, CaseIterable, Identifiable, Codable {
     case filled
     case open
 

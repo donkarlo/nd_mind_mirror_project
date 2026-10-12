@@ -245,7 +245,8 @@ struct ContentView: View {
                 isVisible: showMeasurementRulers,
                 zoomScale: zoomScale
             ) {
-                ZStack(alignment: .topLeading) {
+                GeometryReader { viewport in
+                    ZStack(alignment: .topLeading) {
                     PencilCanvasView(
                         drawing: localDrawing,
                         backgroundImage: backgroundImage,
@@ -300,10 +301,15 @@ struct ContentView: View {
                             onAddImage: openQuickPhotoPicker
                         )
                     }
-                }
-                .clipped()
-                .onAppear {
-                    bindToolRuntime()
+                    }
+                    .frame(
+                        width: viewport.size.width,
+                        height: viewport.size.height
+                    )
+                    .clipped()
+                    .onAppear {
+                        bindToolRuntime()
+                    }
                 }
             }
         }

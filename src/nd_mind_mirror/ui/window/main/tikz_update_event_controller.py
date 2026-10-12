@@ -7,17 +7,13 @@ from pathlib import Path
 
 from PySide6.QtCore import QObject, QTimer, Signal
 
-from nd_mind_mirror.graphic.core.bridge_process_manager import (
-    GraphicBridgeProcessManager,
-)
-
 
 class TikZUpdateEventController(QObject):
-    """Poll quickly only while the shared iPad bridge is actually running."""
+    """Observe canonical TikZ events even when the bridge runs externally."""
 
     updated = Signal(str)
     _ACTIVE_POLL_MS = 45
-    _IDLE_POLL_MS = 1000
+    _IDLE_POLL_MS = 60
     _COALESCE_MS = 55
 
     def __init__(self, workspace_root: str | Path, parent=None) -> None:
@@ -41,10 +37,8 @@ class TikZUpdateEventController(QObject):
         self._emit_timer.timeout.connect(self._emit_pending)
 
     def _poll(self) -> None:
-        if not GraphicBridgeProcessManager.managed_bridge_is_running():
-            self._set_poll_interval(self._IDLE_POLL_MS)
-            return
-
+        # A healthy external bridge need not be owned/adopted by this window.
+        # Always observe the tiny event file; a filesystem stat is inexpensive.
         self._set_poll_interval(self._ACTIVE_POLL_MS)
         signature = self._file_signature()
         if signature is None or signature == self._signature:

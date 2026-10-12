@@ -1,0 +1,32 @@
+\documentclass[a4paper]{article}
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage{natbib}
+\usepackage{adjustbox}
+\usepackage[active,tightpage]{preview}
+\PreviewBorder=4pt
+
+\begin{document}
+\begin{preview}
+\section{iPad Image and TikZ Editing Corrections --- 12 October 2026}
+\begin{itemize}
+\item Anchored the image Pencil quick palette and contact-tool indicator to the current visible viewport rather than the potentially enlarged logical canvas, keeping both in view when the canvas becomes taller.
+\item Added fallback palette placement below the Pencil contact point when insufficient space is available above.
+\item Added source-backed TikZ Undo/Redo, saved shape/connector style presets, remembered per-tool styles, and immediate Scribble input on newly drawn nodes.
+\item Added editable triangle nodes and a single icon-only Circle/Ellipse drawing tool. Rounded nodes automatically switch between \texttt{circle} and \texttt{ellipse} syntax when resized with their handles, based on their visible proportions; both shapes share one saved style.
+\item Replaced canvas-stretched TikZ auto-layout coordinates with compact sizing based on individual nodes and spacing.
+\item Added a direct Edit TikZ context menu to rendered Source-mode TikZ previews and improved canonical TikZ source discovery in Source and Visual.
+\item Corrected an event-watcher bug in which a healthy iPad bridge running outside Mind Mirror's process ownership was ignored, preventing some live Ubuntu TikZ updates.
+\item Reduced default desktop live-projection throttling from 180~ms to 80~ms and shortened idle fallback delays while preserving asynchronous PDF compilation.
+\end{itemize}
+\end{preview}
+\end{document}

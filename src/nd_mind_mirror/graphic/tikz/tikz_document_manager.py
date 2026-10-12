@@ -67,6 +67,14 @@ class TikZDocumentManager:
         """Return the TikZ input represented by a source position or its line."""
         parent_source = Path(source_path).expanduser().resolve()
         position = max(0, min(int(position), len(source)))
+        # A standalone TikZ source is itself the editable target.
+        if self.is_tikz_file(parent_source) and self._TIKZ_MARKER in source:
+            return TikZReference(
+                source_path=parent_source,
+                tex_reference=parent_source.name,
+                start=0,
+                end=len(source),
+            )
         matches = list(self._INPUT.finditer(source))
         if not matches:
             return None

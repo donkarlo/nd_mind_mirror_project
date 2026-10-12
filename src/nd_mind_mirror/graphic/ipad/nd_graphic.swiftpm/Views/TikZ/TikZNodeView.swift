@@ -8,15 +8,12 @@ struct TikZNodeView: View {
     let editingLabel: Binding<String>?
     let onCommitLabel: () -> Void
 
-    private let mapper = TikZCoordinateMapper()
+    private let nodeGeometry = TikZNodeGeometry()
 
     var body: some View {
-        let center = mapper.viewPoint(for: node.position, in: canvasSize)
-        let size = mapper.viewSize(
-            width: node.width,
-            height: node.height,
-            in: canvasSize
-        )
+        let rect = nodeGeometry.rect(for: node, in: canvasSize)
+        let center = CGPoint(x: rect.midX, y: rect.midY)
+        let size = rect.size
 
         ZStack {
             shapeBody
@@ -56,7 +53,22 @@ struct TikZNodeView: View {
 
     @ViewBuilder
     private var shapeBody: some View {
-        if node.shape == .ellipse {
+        if node.shape == .triangle {
+            TikZTriangleShape()
+                .fill(node.fillColor.color)
+                .overlay(
+                    TikZTriangleShape().stroke(
+                        node.strokeColor.color,
+                        lineWidth: max(CGFloat(node.lineWidth), 0.7)
+                    )
+                )
+        } else if node.shape == .circle {
+            Circle()
+                .fill(node.fillColor.color)
+                .overlay(
+                    Circle().stroke(node.strokeColor.color, lineWidth: max(CGFloat(node.lineWidth), 0.7))
+                )
+        } else if node.shape == .ellipse {
             Ellipse()
                 .fill(node.fillColor.color)
                 .overlay(

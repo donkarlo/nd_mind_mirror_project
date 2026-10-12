@@ -8,7 +8,7 @@ enum TikZSourceDependencyManager {
     ) -> String {
         var result = source
 
-        if result.contains("ellipse") {
+        if result.contains("ellipse") || result.contains("regular polygon") {
             result = ensuringLibrary(
                 "shapes.geometric",
                 in: result
