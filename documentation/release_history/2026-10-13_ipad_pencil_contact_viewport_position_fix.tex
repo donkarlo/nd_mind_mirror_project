@@ -1,0 +1,47 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+\usepackage{adjustbox}
+\usepackage[active,tightpage]{preview}
+
+\PreviewBorder=4pt
+
+\title{Pencil Contact Overlay Position in the iPad Image Editor}
+\date{2026-10-13}
+
+\begin{document}
+   \maketitle
+
+   \begin{preview}
+      \section*{Fix}
+      The raster Image editor previously passed Pencil touch coordinates
+      directly from a centered or panned \texttt{UIScrollView} to a SwiftUI
+      overlay covering the visible viewport. The scroll view has a
+      nonzero \texttt{bounds.origin} when a small image, such as
+      \(760 \times 500\) pixels, is centered on the iPad. The preview
+      tool icon could consequently appear far above the actual Pencil tip.
+
+      The owning Pencil quick-tool gesture controller now translates all
+      Pencil touch and tap anchors from the scroll view's bounds coordinate
+      system to visible viewport coordinates by subtracting
+      \texttt{bounds.origin}. This normalization applies to first
+      contact, double-tap palette placement, and dismissal taps, regardless
+      of canvas dimensions, centering insets, zoom, or panning.
+
+      Added a regression test for negative and positive scroll offsets
+      and rebuilt the transfer archive as version 0.31.61 (build 88).
+   \end{preview}
+\end{document}

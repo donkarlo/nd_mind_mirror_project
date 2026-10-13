@@ -20,7 +20,10 @@ struct TikZCanvasInteractionOverlay: UIViewRepresentable {
     let onConnectorDragChanged: (String, CGPoint) -> Void
     let onConnectorDragEnded: (String, String?, CGPoint) -> Void
     let onShapeDragChanged: (CGPoint, CGPoint) -> Void
+    let onPencilTraceChanged: ([CGPoint]) -> Void
     let onShapeDragEnded: (TikZNodeShape, CGPoint, CGPoint) -> Void
+    let onPencilShapeRecognized: (TikZNodeShape, CGRect) -> Void
+    let onPencilDoubleTap: (CGPoint) -> Void
 
     let onNodeEditLabel: (String) -> Void
     let onNodeDuplicate: (String) -> Void
@@ -63,7 +66,10 @@ struct TikZCanvasInteractionOverlay: UIViewRepresentable {
             onConnectorDragChanged: onConnectorDragChanged,
             onConnectorDragEnded: onConnectorDragEnded,
             onShapeDragChanged: onShapeDragChanged,
+            onPencilTraceChanged: onPencilTraceChanged,
             onShapeDragEnded: onShapeDragEnded,
+            onPencilShapeRecognized: onPencilShapeRecognized,
+            onPencilDoubleTap: onPencilDoubleTap,
             onNodeEditLabel: onNodeEditLabel,
             onNodeDuplicate: onNodeDuplicate,
             onNodeBringToFront: onNodeBringToFront,

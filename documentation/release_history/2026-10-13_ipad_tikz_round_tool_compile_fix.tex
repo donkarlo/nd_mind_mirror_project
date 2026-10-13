@@ -1,0 +1,43 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+\usepackage{adjustbox}
+\usepackage[active,tightpage]{preview}
+
+\PreviewBorder=4pt
+
+\title{TikZ Round Tool Compile Fix}
+\date{2026-10-13}
+
+\begin{document}
+   \maketitle
+
+   \begin{preview}
+      \section*{Fix}
+      \begin{itemize}
+         \item Removed the obsolete circle tool comparison from
+               \texttt{TikZCanvasView.swift}. The single rounded shape tool
+               now renders a live ellipse preview, which becomes circular
+               when its drag rectangle is square.
+         \item Fixed the Swift compile error where the removed enum case
+               \texttt{TikZCanvasTool.circle} was interpreted as
+               \texttt{ButtonBorderShape.circle}.
+         \item Added a regression assertion to ensure the obsolete
+               canvas tool reference cannot reappear.
+         \item Raised the iPad app version to 0.31.60 (build 87).
+      \end{itemize}
+   \end{preview}
+\end{document}

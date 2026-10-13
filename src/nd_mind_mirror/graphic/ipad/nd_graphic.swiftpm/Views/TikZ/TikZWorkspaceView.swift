@@ -25,8 +25,6 @@ struct TikZWorkspaceView: View {
     @State private var logicalCanvasSize = TikZCanvasMetadata.defaultSize
 
     @StateObject private var stylePresets = TikZStylePresetStore()
-    @State private var savingStyleName = ""
-    @State private var showSaveStyleAlert = false
     @State private var nodeStyle = TikZNodeStyle()
     @State private var edgeStyle = TikZEdgeStyle()
     @State private var lastStyleMode: TikZStyleToolbarView.Mode = .node
@@ -142,6 +140,11 @@ struct TikZWorkspaceView: View {
                 connectionPointCounts: connectionPointCounts,
                 draftNodeStyle: nodeStyle,
                 draftEdgeStyle: edgeStyle,
+                savedStylePresets: stylePresets.presets,
+                onToolChosen: chooseTool,
+                onPresetChosen: applyPreset,
+                onSaveStyle: saveAppearance,
+                onDeleteStyle: stylePresets.delete,
                 selectedNodeName: selectedNodeName,
                 selectedEdgeID: selectedEdgeID,
                 editingNodeName: editingNodeName,
@@ -211,20 +214,6 @@ struct TikZWorkspaceView: View {
                 "The Pencil was lifted on empty canvas. Choose a new target shape or discard the connector."
             )
         }
-        .alert("Save TikZ style", isPresented: $showSaveStyleAlert) {
-            TextField("Style name", text: $savingStyleName)
-            Button("Save") {
-                stylePresets.save(
-                    name: savingStyleName,
-                    tool: currentStyleTool,
-                    nodeStyle: nodeStyle,
-                    edgeStyle: edgeStyle
-                )
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("Saved styles remain available for future TikZ documents.")
-        }
         .onAppear {
             normalizeSourceDependencies()
             syncCanvasSizeFromSource()
@@ -293,101 +282,62 @@ struct TikZWorkspaceView: View {
 
     private var drawingToolbar: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-            toolButton(
-                title: "Rectangle",
-                systemImage: "rectangle",
-                tool: .rectangle
-            )
-            Button {
-                chooseTool(.ellipse)
-            } label: {
-                Image(systemName: "circle")
-                    .frame(width: 30, height: 30)
-            }
-            .buttonStyle(.bordered)
-            .tint(activeTool == .ellipse ? Color.accentColor : Color.secondary)
-            .accessibilityLabel("Circle or ellipse")
-            toolButton(
-                title: "Triangle",
-                systemImage: "triangle",
-                tool: .triangle
-            )
-            toolButton(
-                title: "Straight",
-                systemImage: "arrow.right",
-                tool: .straightConnector
-            )
-            toolButton(
-                title: "Curve",
-                systemImage: "scribble.variable",
-                tool: .curveConnector
-            )
-            toolButton(
-                title: "Polyline",
-                systemImage: "point.3.connected.trianglepath.dotted",
-                tool: .polylineConnector
-            )
-            Spacer(minLength: 4)
-            Menu {
-                Button {
-                    savingStyleName = currentStyleTool.rawValue.capitalized
-                    showSaveStyleAlert = true
-                } label: {
-                    Label("Save current style…", systemImage: "plus")
+            HStack(spacing: 7) {
+                ForEach(TikZToolStyleStripView.tools, id: \.self) { tool in
+                    TikZToolStyleStripView(
+                        tool: tool,
+                        activeTool: activeTool,
+                        presets: stylePresets.presets,
+                        onChooseTool: chooseTool,
+                        onChoosePreset: applyPreset,
+                        onSave: saveAppearance,
+                        onDelete: stylePresets.delete
+                    )
+                    Divider().frame(height: 30)
                 }
-                .disabled(currentStyleTool == .select)
 
-                if !stylePresets.presets.isEmpty {
-                    Divider()
-                    ForEach(stylePresets.presets) { preset in
-                        Button("\(preset.name) (\(preset.tool.rawValue))") {
-                            applyPreset(preset)
-                        }
-                    }
-                    Menu("Delete saved style") {
-                        ForEach(stylePresets.presets) { preset in
-                            Button(preset.name, role: .destructive) {
-                                stylePresets.delete(preset.id)
-                            }
-                        }
-                    }
+                Button(action: undoTikZEdit) {
+                    Image(systemName: "arrow.uturn.backward")
                 }
-            } label: {
-                Label("Styles", systemImage: "paintpalette")
-            }
-            .buttonStyle(.bordered)
+                .disabled(!router.canUndoTikZ)
+                .keyboardShortcut("z", modifiers: [.command])
+                .accessibilityLabel("Undo TikZ edit")
 
-            Button(action: undoTikZEdit) {
-                Image(systemName: "arrow.uturn.backward")
+                Button(action: redoTikZEdit) {
+                    Image(systemName: "arrow.uturn.forward")
+                }
+                .disabled(!router.canRedoTikZ)
+                .keyboardShortcut("z", modifiers: [.command, .shift])
+                .accessibilityLabel("Redo TikZ edit")
             }
-            .disabled(!router.canUndoTikZ)
-            .keyboardShortcut("z", modifiers: [.command])
-            .accessibilityLabel("Undo TikZ edit")
-            Button(action: redoTikZEdit) {
-                Image(systemName: "arrow.uturn.forward")
-            }
-            .disabled(!router.canRedoTikZ)
-            .keyboardShortcut("z", modifiers: [.command, .shift])
-            .accessibilityLabel("Redo TikZ edit")
-            }
+            .padding(.horizontal, 8)
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
+        .frame(height: 48)
         .background(.bar)
     }
 
-    private var currentStyleTool: TikZCanvasTool {
-        if let node = selectedNode {
+    private func saveAppearance(_ tool: TikZCanvasTool) {
+        let name = "\(tool.rawValue)-\(stylePresets.presets.filter { $0.tool == tool }.count + 1)"
+        let selectedShape = selectedNode.map { node -> TikZCanvasTool in
             switch node.shape {
             case .rectangle: return .rectangle
             case .ellipse, .circle: return .ellipse
             case .triangle: return .triangle
             }
         }
-        if selectedEdge != nil { return activeConnectorStyleTool }
-        if activeTool != .select { return activeTool }
-        return lastStyleMode == .node ? lastNodeTool : activeConnectorStyleTool
+        let shape = tool.nodeShape
+        let chosenNodeStyle = (activeTool == tool || selectedShape == tool)
+            ? nodeStyle
+            : (shape.map { stylePresets.nodeStyle(for: $0) } ?? nodeStyle)
+        let chosenEdgeStyle = (activeTool == tool || activeConnectorStyleTool == tool)
+            ? edgeStyle
+            : stylePresets.edgeStyle(for: tool)
+        stylePresets.save(
+            name: name,
+            tool: tool,
+            nodeStyle: chosenNodeStyle,
+            edgeStyle: chosenEdgeStyle
+        )
     }
 
     private var activeConnectorStyleTool: TikZCanvasTool {
@@ -471,20 +421,6 @@ struct TikZWorkspaceView: View {
                     }
                 }
         }
-    }
-
-    private func toolButton(
-        title: String,
-        systemImage: String,
-        tool: TikZCanvasTool
-    ) -> some View {
-        Button {
-            chooseTool(tool)
-        } label: {
-            Label(title, systemImage: systemImage)
-        }
-        .buttonStyle(.bordered)
-        .tint(activeTool == tool ? Color.accentColor : Color.secondary)
     }
 
     private func chooseTool(_ tool: TikZCanvasTool) {

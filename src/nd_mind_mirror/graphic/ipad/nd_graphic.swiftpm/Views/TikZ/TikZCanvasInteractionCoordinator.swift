@@ -19,11 +19,14 @@ final class TikZCanvasInteractionCoordinator:
     private weak var hostView: UIView?
     private var singleTap: UITapGestureRecognizer?
     private var doubleTap: UITapGestureRecognizer?
+    private var pencilDoubleTap: UITapGestureRecognizer?
     private var connectorPan: UIPanGestureRecognizer?
     private var shapePan: UIPanGestureRecognizer?
 
     private var connectorSourceName: String?
     private var shapeStartPoint: CGPoint?
+    private var shapeSamples: [CGPoint] = []
+    private let pencilShapeRecognizer = TikZPencilShapeRecognizer()
 
     private var onNodeSingleTap: ((String) -> Void)?
     private var onNodeDoubleTap: ((String) -> Void)?
@@ -35,7 +38,10 @@ final class TikZCanvasInteractionCoordinator:
     private var onConnectorDragChanged: ((String, CGPoint) -> Void)?
     private var onConnectorDragEnded: ((String, String?, CGPoint) -> Void)?
     private var onShapeDragChanged: ((CGPoint, CGPoint) -> Void)?
+    private var onPencilTraceChanged: (([CGPoint]) -> Void)?
     private var onShapeDragEnded: ((TikZNodeShape, CGPoint, CGPoint) -> Void)?
+    private var onPencilShapeRecognized: ((TikZNodeShape, CGRect) -> Void)?
+    private var onPencilDoubleTap: ((CGPoint) -> Void)?
 
     private var onNodeEditLabel: ((String) -> Void)?
     private var onNodeDuplicate: ((String) -> Void)?
@@ -59,20 +65,36 @@ final class TikZCanvasInteractionCoordinator:
         )
         doubleTap.numberOfTapsRequired = 2
         doubleTap.allowedTouchTypes = [
-            NSNumber(value: UITouch.TouchType.direct.rawValue),
-            NSNumber(value: UITouch.TouchType.pencil.rawValue),
+            NSNumber(value: UITouch.TouchType.direct.rawValue)
         ]
         doubleTap.delegate = self
         view.addGestureRecognizer(doubleTap)
         self.doubleTap = doubleTap
+
+        let pencilDoubleTap = UITapGestureRecognizer(
+            target: self,
+            action: #selector(handlePencilDoubleTap(_:))
+        )
+        pencilDoubleTap.numberOfTapsRequired = 2
+        pencilDoubleTap.allowedTouchTypes = [
+            NSNumber(value: UITouch.TouchType.pencil.rawValue)
+        ]
+        pencilDoubleTap.cancelsTouchesInView = false
+        pencilDoubleTap.delegate = self
+        view.addGestureRecognizer(pencilDoubleTap)
+        self.pencilDoubleTap = pencilDoubleTap
 
         let singleTap = UITapGestureRecognizer(
             target: self,
             action: #selector(handleSingleTap(_:))
         )
         singleTap.numberOfTapsRequired = 1
-        singleTap.allowedTouchTypes = doubleTap.allowedTouchTypes
+        singleTap.allowedTouchTypes = [
+            NSNumber(value: UITouch.TouchType.direct.rawValue),
+            NSNumber(value: UITouch.TouchType.pencil.rawValue)
+        ]
         singleTap.require(toFail: doubleTap)
+        singleTap.require(toFail: pencilDoubleTap)
         singleTap.delegate = self
         view.addGestureRecognizer(singleTap)
         self.singleTap = singleTap
@@ -96,7 +118,9 @@ final class TikZCanvasInteractionCoordinator:
         )
         shapePan.minimumNumberOfTouches = 1
         shapePan.maximumNumberOfTouches = 1
-        shapePan.allowedTouchTypes = doubleTap.allowedTouchTypes
+        shapePan.allowedTouchTypes = [
+            NSNumber(value: UITouch.TouchType.pencil.rawValue)
+        ]
         shapePan.delegate = self
         view.addGestureRecognizer(shapePan)
         self.shapePan = shapePan
@@ -120,7 +144,10 @@ final class TikZCanvasInteractionCoordinator:
         onConnectorDragChanged: @escaping (String, CGPoint) -> Void,
         onConnectorDragEnded: @escaping (String, String?, CGPoint) -> Void,
         onShapeDragChanged: @escaping (CGPoint, CGPoint) -> Void,
+        onPencilTraceChanged: @escaping ([CGPoint]) -> Void,
         onShapeDragEnded: @escaping (TikZNodeShape, CGPoint, CGPoint) -> Void,
+        onPencilShapeRecognized: @escaping (TikZNodeShape, CGRect) -> Void,
+        onPencilDoubleTap: @escaping (CGPoint) -> Void,
         onNodeEditLabel: @escaping (String) -> Void,
         onNodeDuplicate: @escaping (String) -> Void,
         onNodeBringToFront: @escaping (String) -> Void,
@@ -149,7 +176,10 @@ final class TikZCanvasInteractionCoordinator:
         self.onConnectorDragChanged = onConnectorDragChanged
         self.onConnectorDragEnded = onConnectorDragEnded
         self.onShapeDragChanged = onShapeDragChanged
+        self.onPencilTraceChanged = onPencilTraceChanged
         self.onShapeDragEnded = onShapeDragEnded
+        self.onPencilShapeRecognized = onPencilShapeRecognized
+        self.onPencilDoubleTap = onPencilDoubleTap
         self.onNodeEditLabel = onNodeEditLabel
         self.onNodeDuplicate = onNodeDuplicate
         self.onNodeBringToFront = onNodeBringToFront
@@ -182,6 +212,11 @@ final class TikZCanvasInteractionCoordinator:
         case .edge(let id): onEdgeDoubleTap?(id)
         case .none: break
         }
+    }
+
+    @objc private func handlePencilDoubleTap(_ recognizer: UITapGestureRecognizer) {
+        guard recognizer.state == .ended, let view = hostView else { return }
+        onPencilDoubleTap?(recognizer.location(in: view))
     }
 
     @objc private func handleConnectorPan(_ recognizer: UIPanGestureRecognizer) {
@@ -238,29 +273,50 @@ final class TikZCanvasInteractionCoordinator:
     }
 
     @objc private func handleShapePan(_ recognizer: UIPanGestureRecognizer) {
-        guard let shape = activeTool.nodeShape, let view = hostView else { return }
+        guard let view = hostView else { return }
         let point = recognizer.location(in: view)
         switch recognizer.state {
         case .began:
             shapeStartPoint = point
+            shapeSamples = [point]
+            onPencilTraceChanged?(shapeSamples)
             onShapeDragChanged?(point, point)
         case .changed:
             guard let start = shapeStartPoint else { return }
+            appendShapeSample(point)
+            onPencilTraceChanged?(shapeSamples)
             onShapeDragChanged?(start, point)
         case .ended:
             guard let start = shapeStartPoint else { return }
+            appendShapeSample(point)
+            let samples = shapeSamples
             shapeStartPoint = nil
-            onShapeDragEnded?(shape, start, point)
+            shapeSamples = []
+            onPencilTraceChanged?([])
+            onShapeDragChanged?(point, point)
+            if let recognized = pencilShapeRecognizer.recognize(samples) {
+                onPencilShapeRecognized?(recognized.shape, recognized.bounds)
+            } else if let shape = activeTool.nodeShape {
+                onShapeDragEnded?(shape, start, point)
+            }
         case .cancelled, .failed:
             shapeStartPoint = nil
+            shapeSamples = []
+            onPencilTraceChanged?([])
         default:
             break
         }
     }
 
+    private func appendShapeSample(_ point: CGPoint) {
+        if let last = shapeSamples.last,
+           hypot(point.x - last.x, point.y - last.y) < 2 { return }
+        shapeSamples.append(point)
+    }
+
     private func updateGestureAvailability() {
         connectorPan?.isEnabled = activeTool.connectorKind != nil || activeTool == .select
-        shapePan?.isEnabled = activeTool.nodeShape != nil
+        shapePan?.isEnabled = true
         singleTap?.isEnabled = true
         doubleTap?.isEnabled = true
     }
@@ -279,7 +335,17 @@ final class TikZCanvasInteractionCoordinator:
             ) != nil
         }
         if gestureRecognizer === shapePan {
-            return activeTool.nodeShape != nil
+            let point = gestureRecognizer.location(in: view)
+            guard hitTester.target(at: point, in: graph, canvasSize: canvasSize) == nil else {
+                return false
+            }
+            return connectionGeometry.nearest(
+                to: point,
+                in: graph,
+                counts: connectionPointCounts,
+                canvasSize: canvasSize,
+                tolerance: 28
+            ) == nil
         }
         return true
     }

@@ -70,11 +70,18 @@ def test_circle_and_ellipse_share_one_icon_only_tool() -> None:
     workspace = read("Views/TikZ/TikZWorkspaceView.swift")
     assert "case circle" not in tools
     assert "case circle" in model
-    assert 'Image(systemName: "circle")' in workspace
-    assert 'chooseTool(.ellipse)' in workspace
+    strip = read("Views/TikZ/TikZToolStyleStripView.swift")
+    assert 'case .ellipse: return "circle"' in strip
+    assert "TikZToolStyleStripView.tools" in workspace
+    assert 'Label("Styles"' not in workspace
+    assert '"Save current style' not in workspace
     assert 'title: "Ellipse"' not in workspace
     assert 'title: "Circle"' not in workspace
     assert "tool: .circle" not in workspace
+    canvas = read("Views/TikZ/TikZCanvasView.swift")
+    assert "activeTool == .circle" not in canvas
+    assert "activeTool == .ellipse" in canvas
+    assert "Ellipse()" in canvas
 
 
 def test_circle_and_ellipse_morph_when_resized_in_display_coordinates() -> None:

@@ -13,6 +13,11 @@ struct TikZCanvasView: View {
     let connectionPointCounts: [String: Int]
     let draftNodeStyle: TikZNodeStyle
     let draftEdgeStyle: TikZEdgeStyle
+    let savedStylePresets: [TikZSavedStylePreset]
+    let onToolChosen: (TikZCanvasTool) -> Void
+    let onPresetChosen: (TikZSavedStylePreset) -> Void
+    let onSaveStyle: (TikZCanvasTool) -> Void
+    let onDeleteStyle: (UUID) -> Void
     let selectedNodeName: String?
     let selectedEdgeID: String?
     let editingNodeName: String?
@@ -46,6 +51,8 @@ struct TikZCanvasView: View {
     let onConnectorDrop: (TikZNode, TikZNode?, CGPoint) -> Void
     let onShapeCreate: (TikZNodeShape, CGPoint, CGSize) -> Void
 
+    @State private var pencilPalettePoint: CGPoint?
+    @State private var pencilTrace: [CGPoint] = []
     @State private var shapeDragStart: CGPoint?
     @State private var shapeDragCurrent: CGPoint?
     @State private var connectorSourceName: String?
@@ -96,7 +103,10 @@ struct TikZCanvasView: View {
                                 onEdgeDoubleTap(edge)
                             }
                         },
-                        onClearSelection: onClearSelection,
+                        onClearSelection: {
+                            pencilPalettePoint = nil
+                            onClearSelection()
+                        },
                         onConnectorAutoActivated: onConnectorAutoActivated,
                         onConnectorDragChanged: { sourceName, point in
                             connectorSourceName = sourceName
@@ -118,9 +128,15 @@ struct TikZCanvasView: View {
                             )
                         },
                         onShapeDragChanged: { start, current in
-                            shapeDragStart = start
-                            shapeDragCurrent = current
+                            if start == current {
+                                shapeDragStart = nil
+                                shapeDragCurrent = nil
+                            } else {
+                                shapeDragStart = start
+                                shapeDragCurrent = current
+                            }
                         },
+                        onPencilTraceChanged: { pencilTrace = $0 },
                         onShapeDragEnded: { shape, start, end in
                             defer {
                                 shapeDragStart = nil
@@ -144,6 +160,29 @@ struct TikZCanvasView: View {
                                 height: abs(first.y - second.y)
                             )
                             onShapeCreate(shape, center, size)
+                        },
+                        onPencilShapeRecognized: { shape, bounds in
+                            pencilPalettePoint = nil
+                            shapeDragStart = nil
+                            shapeDragCurrent = nil
+                            let first = mapper.tikzPoint(
+                                for: CGPoint(x: bounds.minX, y: bounds.minY),
+                                in: canvas
+                            )
+                            let second = mapper.tikzPoint(
+                                for: CGPoint(x: bounds.maxX, y: bounds.maxY),
+                                in: canvas
+                            )
+                            onShapeCreate(
+                                shape,
+                                CGPoint(x: (first.x + second.x) / 2,
+                                        y: (first.y + second.y) / 2),
+                                CGSize(width: abs(second.x - first.x),
+                                       height: abs(second.y - first.y))
+                            )
+                        },
+                        onPencilDoubleTap: { point in
+                            pencilPalettePoint = point
                         },
                         onNodeEditLabel: { name in
                             if let node = node(named: name) {
@@ -309,8 +348,41 @@ struct TikZCanvasView: View {
                         )
                     }
 
-                    if let previewRect = draftViewRect {
+                    if pencilTrace.count > 1 {
+                        Path { path in
+                            path.addLines(pencilTrace)
+                        }
+                        .stroke(
+                            Color.accentColor.opacity(0.85),
+                            style: StrokeStyle(
+                                lineWidth: 2,
+                                lineCap: .round,
+                                lineJoin: .round
+                            )
+                        )
+                        .allowsHitTesting(false)
+                    } else if let previewRect = draftViewRect,
+                              activeTool.nodeShape != nil {
                         draftShape(in: previewRect)
+                    }
+
+                    if let pencilPalettePoint {
+                        TikZPencilToolPaletteView(
+                            anchor: pencilPalettePoint,
+                            activeTool: activeTool,
+                            presets: savedStylePresets,
+                            onChooseTool: { tool in
+                                onToolChosen(tool)
+                                self.pencilPalettePoint = nil
+                            },
+                            onChoosePreset: { preset in
+                                onPresetChosen(preset)
+                                self.pencilPalettePoint = nil
+                            },
+                            onSave: onSaveStyle,
+                            onDelete: onDeleteStyle,
+                            onDismiss: { self.pencilPalettePoint = nil }
+                        )
                     }
                 }
                 .frame(width: canvas.width, height: canvas.height)
@@ -355,15 +427,6 @@ struct TikZCanvasView: View {
                         lineWidth: max(CGFloat(draftNodeStyle.lineWidth), 0.8)
                     )
                 )
-                .frame(width: rect.width, height: rect.height)
-                .position(x: rect.midX, y: rect.midY)
-        } else if activeTool == .circle {
-            Circle()
-                .fill(draftNodeStyle.fillColor.color.opacity(0.75))
-                .overlay(Circle().stroke(
-                    draftNodeStyle.strokeColor.color,
-                    lineWidth: max(CGFloat(draftNodeStyle.lineWidth), 0.8)
-                ))
                 .frame(width: rect.width, height: rect.height)
                 .position(x: rect.midX, y: rect.midY)
         } else if activeTool == .ellipse {

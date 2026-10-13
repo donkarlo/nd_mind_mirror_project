@@ -122,7 +122,10 @@ final class PencilQuickToolPaletteGestureController: NSObject, UIGestureRecogniz
             return
         }
         clearTapSequence()
-        onSinglePencilTap(gesture.location(in: coordinateView))
+        onSinglePencilTap(viewportPoint(
+            for: gesture.location(in: coordinateView),
+            in: coordinateView
+        ))
     }
 
     func gestureRecognizer(
@@ -135,19 +138,26 @@ final class PencilQuickToolPaletteGestureController: NSObject, UIGestureRecogniz
 
         if gestureRecognizer === doubleTapGesture,
            let coordinateView {
+            let point = viewportPoint(
+                for: touch.location(in: coordinateView),
+                in: coordinateView
+            )
             if touch.tapCount <= 1 {
-                firstTapPoint = touch.location(in: coordinateView)
+                firstTapPoint = point
                 firstTapTimestamp = ProcessInfo.processInfo.systemUptime
                 secondTapPoint = nil
                 secondTapTimestamp = nil
-                onPencilContactBegan(firstTapPoint ?? touch.location(in: coordinateView))
+                onPencilContactBegan(point)
             } else {
-                secondTapPoint = touch.location(in: coordinateView)
+                secondTapPoint = point
                 secondTapTimestamp = ProcessInfo.processInfo.systemUptime
             }
         } else if gestureRecognizer === dismissTapGesture,
                   let coordinateView {
-            onPencilContactBegan(touch.location(in: coordinateView))
+            onPencilContactBegan(viewportPoint(
+                for: touch.location(in: coordinateView),
+                in: coordinateView
+            ))
         }
         return true
     }
@@ -157,6 +167,19 @@ final class PencilQuickToolPaletteGestureController: NSObject, UIGestureRecogniz
         shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
     ) -> Bool {
         true
+    }
+
+    /// UIKit reports touch locations in the scroll view's scrolled bounds.
+    /// SwiftUI overlays use the visible viewport, whose origin is (0, 0).
+    /// Subtracting bounds.origin handles centering insets, panning, and zoom.
+    private func viewportPoint(
+        for location: CGPoint,
+        in coordinateView: UIView
+    ) -> CGPoint {
+        CGPoint(
+            x: location.x - coordinateView.bounds.minX,
+            y: location.y - coordinateView.bounds.minY
+        )
     }
 
     private func clearTapSequence() {
