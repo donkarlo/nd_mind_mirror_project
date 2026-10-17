@@ -117,16 +117,13 @@ class LatexShortcutPopup(QFrame):
             return False
 
         if event_type == QEvent.Type.FocusOut and watched is self._editor:
-            self.hide()
+            focused = QApplication.focusWidget()
+            if focused is not None and focused is not self._editor and not self.isAncestorOf(focused):
+                self.hide()
         elif event_type in (
             QEvent.Type.Hide,
             QEvent.Type.Close,
         ) and watched in (self._editor, self._editor.window()):
-            self.hide()
-        elif (
-            event_type == QEvent.Type.WindowDeactivate
-            and watched is self._editor.window()
-        ):
             self.hide()
         elif event_type == QEvent.Type.ApplicationDeactivate:
             self.hide()

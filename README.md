@@ -462,3 +462,11 @@ New and modified implementation files begin with a concise module description. N
 - Navigator keyboard file Copy/Cut/Paste uses direct tree key-event routing so `Ctrl+C`/`Ctrl+X`/`Ctrl+V` follows the same multi-path operations as the right-click menu; clipboard-image paste remains the fallback when no file/folder clipboard is active.
 - Managed raster deletion removes its `.ndgraphic` companion, and rename/move can replace a valid stale orphan sidecar when the destination raster itself no longer exists.
 <!-- ND_IPAD_CURRENT_FEATURES_END -->
+
+### Unsaved LaTeX documents
+
+Press **Ctrl+Shift+N** to open the default LaTeX template in a new, unsaved tab. No file is created and periodic autosave does not write this tab. **Ctrl+S** opens Save As, initially in the most recent directory chosen by this workflow. Closing the unsaved tab prompts to save, discard, or cancel. Once saved, the tab becomes a normal file and uses the existing autosave behavior. Existing files and their autosave behavior are unchanged.
+
+### Preview PDF search
+
+When focus is inside the Preview panel, **Ctrl+F** opens a separate PDF-text search field with previous/next buttons. Source and Visual continue to use their existing editor search.

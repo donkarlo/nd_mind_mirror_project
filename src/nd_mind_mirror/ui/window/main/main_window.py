@@ -23,6 +23,9 @@ from PySide6.QtWidgets import (
     QSplitter,
 )
 
+from nd_mind_mirror.ui.window.main.temporary_latex_document_controller import (
+    TemporaryLatexDocumentController,
+)
 from nd_mind_mirror.core.completion.latex.latex_completion_provider import (
     LatexCompletionProvider,
 )
@@ -323,6 +326,7 @@ class MainWindow(Window):
 
         self._graphic_bridge_manager = GraphicBridgeProcessManager(self)
 
+        self._temporary_latex_documents = TemporaryLatexDocumentController(self)
         self._create_actions()
         self._connect_signals()
         self._configure_autosave()
@@ -342,6 +346,11 @@ class MainWindow(Window):
         )
 
     def _create_actions(self) -> None:
+        self._new_latex_action = QAction("New LaTeX Document", self)
+        self._new_latex_action.setShortcut(QKeySequence("Ctrl+Shift+N"))
+        self._new_latex_action.triggered.connect(
+            self._temporary_latex_documents.create
+        )
         self._open_action = QAction(
             "Open...",
             self,
@@ -471,6 +480,7 @@ class MainWindow(Window):
         file_menu = self.menuBar().addMenu(
             "File"
         )
+        file_menu.addAction(self._new_latex_action)
         file_menu.addAction(
             self._open_action
         )
@@ -814,10 +824,14 @@ class MainWindow(Window):
     def _save_current_document(self) -> None:
         path = self._editor_panel.current_path()
 
-        if (
-            path is None
-            or not self._editor_panel.is_current_modified()
-        ):
+        if path is None:
+            return
+        if self._temporary_latex_documents.contains(path):
+            self._temporary_latex_documents.save(
+                path, self._editor_panel.current_content()
+            )
+            return
+        if not self._editor_panel.is_current_modified():
             return
 
         content = (
@@ -834,6 +848,7 @@ class MainWindow(Window):
         self._editor_panel.mark_saved(
             path
         )
+        self._temporary_latex_documents.remember_directory(path)
         self._save_action.setEnabled(
             False
         )
@@ -949,6 +964,8 @@ class MainWindow(Window):
             path,
             content,
         ) in self._editor_panel.modified_documents():
+            if self._temporary_latex_documents.contains(path):
+                continue
             # ND_MIGRATION4_SHORTCUT_AUTOSAVE_GUARD
             # latex_shortcuts.yaml is a configuration dictionary, not a normal
             # prose document. Never persist a half-typed transient buffer from
@@ -1213,7 +1230,8 @@ class MainWindow(Window):
     ) -> None:
         path = Path(path_text)
 
-        if modified:
+        temporary = self._temporary_latex_documents.contains(path)
+        if modified or temporary:
             decision = QMessageBox.question(
                 self,
                 "Unsaved changes",
@@ -1240,13 +1258,17 @@ class MainWindow(Window):
                     )
                 )
 
-                if not self._save_document(
+                if temporary:
+                    if not self._temporary_latex_documents.save(path, content):
+                        return
+                elif not self._save_document(
                     path,
                     content,
                     show_error=True,
                 ):
                     return
 
+        self._temporary_latex_documents.forget(path)
         self._editor_panel.close_tab(
             index
         )
@@ -1585,7 +1607,8 @@ class MainWindow(Window):
         path: str,
         content: str,
     ) -> None:
-        self._touch_recent_file(path)
+        if not self._temporary_latex_documents.contains(Path(path)):
+            self._touch_recent_file(path)
         self._structure_panel.set_document(
             path,
             content,
@@ -2251,6 +2274,7 @@ class MainWindow(Window):
                 str(path)
                 for path in self._recent_file_paths
                 if path in self._editor_panel.open_paths()
+                and not self._temporary_latex_documents.contains(path)
             ],
         )
         current = (
@@ -2262,6 +2286,7 @@ class MainWindow(Window):
             (
                 str(current)
                 if current is not None
+                and not self._temporary_latex_documents.contains(current)
                 else ""
             ),
         )
@@ -2294,6 +2319,10 @@ class MainWindow(Window):
             path,
             content,
         ) in documents:
+            if self._temporary_latex_documents.contains(path):
+                if not self._temporary_latex_documents.save(path, content):
+                    return False
+                continue
             if not self._save_document(
                 path,
                 content,

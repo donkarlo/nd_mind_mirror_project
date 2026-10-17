@@ -1,5 +1,8 @@
 # Dedicated Mind Mirror keyboard shortcuts; edit in Settings > Keyboard Shortcuts and press Apply.
 shortcuts:
+  file.new_latex:
+    label: New unsaved LaTeX document
+    keys: Ctrl+Shift+N
   file.open:
     label: Open file
     keys: Ctrl+O

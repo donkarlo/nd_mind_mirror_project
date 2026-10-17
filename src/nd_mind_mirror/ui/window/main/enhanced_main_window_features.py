@@ -4,7 +4,7 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction, QKeySequence, QShortcut
-from PySide6.QtWidgets import QMenu
+from PySide6.QtWidgets import QApplication, QMenu
 
 from nd_mind_mirror.ui.editor.latex.source_graphic_preview_controller import (
     SourceGraphicPreviewController,
@@ -18,6 +18,7 @@ from nd_mind_mirror.ui.window.main.navigator_context_controller import Navigator
 from nd_mind_mirror.ui.window.main.stable_pinned_tab_controller import (
     StablePinnedTabController,
 )
+from nd_mind_mirror.ui.window.main.preview.preview_find_controller import PreviewFindController
 from nd_mind_mirror.ui.window.main.preview_auto_fit_controller import PreviewAutoFitController
 from nd_mind_mirror.ui.window.main.preview_render_policy_controller import (
     PreviewRenderPolicyController,
@@ -116,8 +117,21 @@ class EnhancedMainWindow(MainWindow):
             self,
         )
         self._install_navigator_rename_shortcut()
+        self._preview_find_controller = PreviewFindController(self._preview_panel)
+        self._find_in_tab_action.triggered.disconnect()
+        self._find_in_tab_action.triggered.connect(self._find_in_focused_panel)
         self._install_shortcut_settings()
         self._sync_auto_format_action(self._editor_panel.current_path())
+
+    def _find_in_focused_panel(self) -> None:
+        """Route Ctrl+F by focus without changing Source/Visual search."""
+        focused = QApplication.focusWidget()
+        while focused is not None:
+            if focused is self._preview_panel:
+                self._preview_find_controller.show()
+                return
+            focused = focused.parentWidget()
+        self._editor_panel.show_find_replace(False)
 
     def _autosave_modified_documents(self) -> None:
         """Use immutable editor snapshots so autosave never blocks Source typing."""
@@ -292,6 +306,7 @@ class EnhancedMainWindow(MainWindow):
         self._shortcut_store.reload()
         bindings = {
             "file.open": self._open_action,
+            "file.new_latex": self._new_latex_action,
             "file.save": self._save_action,
             "tab.close": self._close_tab_action,
             "latex.format": self._format_action,
