@@ -470,3 +470,16 @@ Press **Ctrl+Shift+N** to open the default LaTeX template in a new, unsaved tab.
 ### Preview PDF search
 
 When focus is inside the Preview panel, **Ctrl+F** opens a separate PDF-text search field with previous/next buttons. Source and Visual continue to use their existing editor search.
+
+The PDF Preview search also highlights all text occurrences in yellow and distinguishes the active result with an orange outline; Source and Visual searches remain independent.
+
+### Mouse selection and copying in PDF Preview
+
+- **Double-click** any selectable PDF word to highlight the entire word, including Unicode words such as `Mädchen`. Press **Ctrl+C** to copy exactly that word.
+- **Left-click and drag** to select arbitrary PDF text; release and press **Ctrl+C** to copy that selection. The PDF viewer does not steal a left-drag for scrolling while text is being selected.
+- **Middle-button drag** or **Ctrl + left-drag** pans the page. Scroll wheel/touchpad scrolling and Ctrl+wheel zooming remain available. Word selection is cleared when a new drag begins or another PDF is loaded.
+- Selecting text is separate from **Ctrl+F PDF search** and does not change Source/Visual search behavior.
+
+### Multiple PDF previews
+
+Click **Pin Preview** to open an independent PDF snapshot in a separate window. Switch to a different source document and click **Pin Preview** again: both windows remain available side by side. Each pinned Preview supports the same double-click selection, drag selection, Ctrl+C, scrolling and zooming as the main PDF Preview. Closing one never closes another. Pinned PDFs are frozen snapshots: edits made afterward appear in the live Preview but do not change already-pinned copies. Close or re-pin a window when a new snapshot is desired.

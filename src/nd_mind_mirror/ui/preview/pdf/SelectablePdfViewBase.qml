@@ -42,6 +42,17 @@ Rectangle {
     property real reverseClickPdfX: 0
     property real reverseClickPdfY: 0
     property string editHighlightText: ""
+    property string findQuery: ""
+    property int findResultIndex: -1
+    // Explicit double-click word selection is independent of PDF search and
+    // drag selection. Coordinates stay in PDF points as the user scrolls/zooms.
+    property string selectedWordText: ""
+    property int selectedWordPage: -1
+    property var selectedWordRects: []
+    readonly property string dragSelectedText: pdfView.selectedText
+    property bool mouseSelectionHeld: false
+    property int wordOverlayRevision: 0
+    signal copyWordRequested(string text)
     property int highlightSearchAttempts: 0
     property bool resetPositionOnReload: false
     property bool restorePositionPending: false
@@ -72,6 +83,31 @@ Rectangle {
         return Math.max(root.minSafeZoomScale,
                         Math.min(root.maxSafeZoomScale, value))
     }
+
+    function projectedWordRect(rect, revision) {
+        // Revision is intentionally read as a dependency: the timer updates
+        // the highlight coordinates while the PDF is scrolled or resized.
+        var refresh = revision
+        if (root.selectedWordPage < 0 || !root.documentIsReady())
+            return null
+        var paper = root.findPagePaper(pdfView, root.selectedWordPage)
+        if (!paper || !paper.pageScale || paper.pageScale <= 0)
+            return null
+        var topLeft = paper.mapToItem(root, rect[0] * paper.pageScale, rect[1] * paper.pageScale)
+        var bottomRight = paper.mapToItem(root, (rect[0] + rect[2]) * paper.pageScale,
+                                             (rect[1] + rect[3]) * paper.pageScale)
+        return {"x": Math.min(topLeft.x, bottomRight.x),
+                "y": Math.min(topLeft.y, bottomRight.y),
+                "width": Math.abs(bottomRight.x - topLeft.x),
+                "height": Math.abs(bottomRight.y - topLeft.y)}
+    }
+
+    function toggleNativeMouseFlicking() {
+        var scroller = root.findBestScrollable(pdfView)
+        if (scroller && scroller.interactive !== undefined)
+            scroller.interactive = !root.mouseSelectionHeld
+    }
+    onMouseSelectionHeldChanged: toggleNativeMouseFlicking()
 
     function documentIsBusy() {
         return pdfDocument.status === PdfDocument.Loading
@@ -677,8 +713,8 @@ Rectangle {
             for (var i = 0; i < candidates.length; ++i) {
                 var candidate = candidates[i]
                 if (candidate && candidate.pageSearchResultsColor !== undefined) {
-                    candidate.pageSearchResultsColor = "transparent"
-                    candidate.currentSearchResultStrokeColor = "#ff9800"
+                    candidate.pageSearchResultsColor = root.findQuery ? "#66ffeb3b" : "transparent"
+                    candidate.currentSearchResultStrokeColor = root.findQuery ? "#e65100" : "#ff9800"
                     candidate.currentSearchResultStrokeWidth = 3
                     break
                 }
@@ -749,15 +785,33 @@ Rectangle {
     onSyncTokenChanged: {
         if (root.documentIsReady()) {
             sourceLocationRetry.restart()
-            scheduleHighlightResultChoice()
+            if (!root.findQuery) scheduleHighlightResultChoice()
         }
     }
     onReverseClickTokenChanged: mapReverseClick()
     onEditHighlightTextChanged: scheduleHighlightResultChoice()
+    onFindQueryChanged: { configureEditHighlightStyle(); if (root.findQuery) findResultRetry.restart() }
+    onFindResultIndexChanged: { if (root.findQuery) findResultRetry.restart() }
     onFitTokenChanged: fitToPanel()
     onZoomScaleChanged: scrollBarRefresh.restart()
     onWidthChanged: scrollBarRefresh.restart()
     onHeightChanged: scrollBarRefresh.restart()
+
+    Timer {
+        id: findResultRetry
+        interval: 100
+        repeat: true
+        property int attempts: 0
+        onTriggered: {
+            attempts += 1
+            root.configureEditHighlightStyle()
+            if (pdfView.searchModel && pdfView.searchModel.count > root.findResultIndex && root.findResultIndex >= 0) {
+                pdfView.searchModel.currentResult = root.findResultIndex
+                attempts = 0
+                stop()
+            } else if (attempts > 12) { attempts = 0; stop() }
+        }
+    }
 
     Timer {
         id: highlightResultRetry
@@ -792,8 +846,8 @@ Rectangle {
 
                 scrollBarRefresh.restart()
                 viewRestore.restart()
-                if (root.editHighlightText)
-                    root.scheduleHighlightResultChoice()
+                if (root.findQuery) findResultRetry.restart()
+                else if (root.editHighlightText) root.scheduleHighlightResultChoice()
             } else if (
                 pdfDocument.status === PdfDocument.Error
                 || pdfDocument.status === PdfDocument.Null
@@ -809,19 +863,54 @@ Rectangle {
         anchors.fill: parent
         document: pdfDocument
         clip: true
-        searchString: root.editHighlightText
+        searchString: root.findQuery || root.editHighlightText
 
         Component.onCompleted: root.configureEditHighlightStyle()
 
         Shortcut {
             sequence: "Ctrl+C"
-            onActivated: pdfView.copySelectionToClipboard()
+            onActivated: {
+                if (root.selectedWordText)
+                    root.copyWordRequested(root.selectedWordText)
+                else
+                    pdfView.copySelectionToClipboard()
+            }
         }
 
         Shortcut {
             sequence: "Ctrl+A"
             onActivated: pdfView.selectAll()
         }
+    }
+
+    // Do not intercept PDF pointer input. Unlike a screenshot overlay, the
+    // translucent highlight remains attached to the glyph when scrolling.
+    Item {
+        id: doubleClickedWordHighlight
+        anchors.fill: parent
+        clip: true
+        z: 100
+        enabled: false
+        Repeater {
+            model: root.selectedWordRects
+            delegate: Rectangle {
+                required property var modelData
+                property var projected: root.projectedWordRect(modelData, root.wordOverlayRevision)
+                x: projected ? projected.x : 0
+                y: projected ? projected.y : 0
+                width: projected ? projected.width : 0
+                height: projected ? projected.height : 0
+                color: "#669bcfff"
+                border.width: 0
+                visible: projected !== null
+            }
+        }
+    }
+    Timer {
+        interval: 80
+        running: root.selectedWordText.length > 0
+        repeat: true
+        onTriggered: root.wordOverlayRevision++
     }
 
     ScrollBar {

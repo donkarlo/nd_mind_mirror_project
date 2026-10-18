@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QEvent, QObject, QTimer, Qt
-from PySide6.QtWidgets import QMainWindow, QPushButton
+from PySide6.QtWidgets import QMainWindow, QPushButton, QMessageBox
+from pathlib import Path
+from nd_mind_mirror.ui.window.main.preview.pinned_pdf_preview_window import PinnedPdfPreviewWindow
 
 
 class PreviewDetachController(QObject):
@@ -15,6 +17,7 @@ class PreviewDetachController(QObject):
         self._action = action
         self._panel = window._preview_panel
         self._splitter = window._splitter
+        self._pinned_windows = []
         self._detached = False
         self._main_collapsed = False
         self._preview_width = max(self._panel.width(), 360)
@@ -32,6 +35,10 @@ class PreviewDetachController(QObject):
         controls = getattr(self._panel, "_controls_layout", None)
         if controls is not None:
             controls.insertWidget(2, self._detach_button)
+            self._pin_button = QPushButton("Pin Preview", self._panel)
+            self._pin_button.setToolTip("Keep an independent snapshot of the current PDF open")
+            self._pin_button.clicked.connect(self.pin_current_preview)
+            controls.insertWidget(3, self._pin_button)
 
         try:
             self._action.toggled.disconnect(self._window._set_preview_enabled)
@@ -48,6 +55,28 @@ class PreviewDetachController(QObject):
             self._action.setChecked(False)
             return True
         return super().eventFilter(watched, event)
+
+    def pin_current_preview(self) -> None:
+        """Open a new independent window without moving the live preview."""
+        pdf_path = self._panel.preview.current_pdf_path
+        if pdf_path is None or not Path(pdf_path).is_file():
+            QMessageBox.information(self._panel, "Pin Preview", "No rendered PDF is available.")
+            return
+        source = self._window._editor_panel.current_path()
+        name = source.name if source is not None else "Document"
+        try:
+            preview = PinnedPdfPreviewWindow(Path(pdf_path), name, self._window)
+        except OSError as exc:
+            QMessageBox.warning(self._panel, "Pin Preview", str(exc))
+            return
+        preview.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        preview.destroyed.connect(lambda: self._forget_pinned_preview(preview))
+        self._pinned_windows.append(preview)
+        preview.show()
+
+    def _forget_pinned_preview(self, preview) -> None:
+        if preview in self._pinned_windows:
+            self._pinned_windows.remove(preview)
 
     def toggle_detached(self) -> None:
         if self._detached:

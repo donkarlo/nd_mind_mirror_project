@@ -46,6 +46,7 @@ class PreviewFindController:
 
     def hide(self):
         self._bar.hide()
+        self._set_find_state("", -1)
         self._panel.preview._pdf_view.setFocus()
 
     def _search(self, query: str):
@@ -93,13 +94,21 @@ class PreviewFindController:
         total = len(self._matches)
         self._status.setText(f"{self._position + 1 if total else 0}/{total}")
         if not total:
+            self._set_find_state("", -1)
             return
         page, _ = self._matches[self._position]
         root = self._panel.preview._pdf_view.rootObject()
         if root is None:
             return
+        self._set_find_state(self._input.text(), self._position)
         root.setProperty("syncPage", page)
         root.setProperty("syncX", 0.0)
         root.setProperty("syncY", 0.0)
         self._sync_token += 1
         root.setProperty("syncToken", self._sync_token)
+
+    def _set_find_state(self, query: str, index: int) -> None:
+        root = self._panel.preview._pdf_view.rootObject()
+        if root is not None:
+            root.setProperty("findQuery", query)
+            root.setProperty("findResultIndex", index)

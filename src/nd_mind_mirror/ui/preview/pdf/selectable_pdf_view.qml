@@ -38,6 +38,39 @@ Item {
     property bool syncRecenterHorizontal: false
 
     property string editHighlightText: ""
+    property string findQuery: ""
+    property int findResultIndex: -1
+    property string selectedWordText: ""
+    property int selectedWordPage: -1
+    property var selectedWordRects: []
+    property bool mouseSelectionHeld: false
+    property real reverseClickX: 0
+    property real reverseClickY: 0
+    property real reverseClickPdfX: 0
+    property real reverseClickPdfY: 0
+    property int reverseClickPage: -1
+    signal copyWordRequested(string text)
+
+    function mapReverseClick() {
+        var view = root.activeView
+        root.reverseClickPage = -1
+        if (!view || !view.documentIsReady())
+            return
+        view.reverseClickX = root.reverseClickX
+        view.reverseClickY = root.reverseClickY
+        view.mapReverseClick()
+        root.reverseClickPage = view.reverseClickPage
+        root.reverseClickPdfX = view.reverseClickPdfX
+        root.reverseClickPdfY = view.reverseClickPdfY
+    }
+
+    function applyWordSelection(view) {
+        if (!view) return
+        view.selectedWordText = root.selectedWordText
+        view.selectedWordPage = root.selectedWordPage
+        view.selectedWordRects = root.selectedWordRects
+        view.mouseSelectionHeld = root.mouseSelectionHeld
+    }
     property bool resetPositionOnReload: false
 
     // Lifecycle state for the double-buffered generation handoff.
@@ -137,6 +170,9 @@ Item {
         view.fitContentWidthPoints = root.fitContentWidthPoints
         view.fitContentCenterRatioX = root.fitContentCenterRatioX
         view.editHighlightText = root.editHighlightText
+        view.findQuery = root.findQuery
+        view.findResultIndex = root.findResultIndex
+        root.applyWordSelection(view)
     }
 
     function transferViewState(fromView, toView, resetPosition) {
@@ -286,6 +322,20 @@ Item {
     onPanTokenChanged: root.forwardPanRequest()
     onSyncTokenChanged: root.forwardSyncRequest()
 
+    onSelectedWordTextChanged: root.applyWordSelection(root.activeView)
+    onSelectedWordPageChanged: root.applyWordSelection(root.activeView)
+    onSelectedWordRectsChanged: root.applyWordSelection(root.activeView)
+    onMouseSelectionHeldChanged: root.applyWordSelection(root.activeView)
+
+    onFindQueryChanged: {
+        if (root.activeView) root.activeView.findQuery = root.findQuery
+        if (root.loadingView) root.loadingView.findQuery = root.findQuery
+    }
+    onFindResultIndexChanged: {
+        if (root.activeView) root.activeView.findResultIndex = root.findResultIndex
+        if (root.loadingView) root.loadingView.findResultIndex = root.findResultIndex
+    }
+
     onEditHighlightTextChanged: {
         if (root.activeView)
             root.activeView.editHighlightText = root.editHighlightText
@@ -319,6 +369,7 @@ Item {
     Connections {
         target: root.activeView
         ignoreUnknownSignals: true
+        function onCopyWordRequested(text) { root.copyWordRequested(text) }
 
         function onZoomScaleChanged() {
             if (!root.activeView)

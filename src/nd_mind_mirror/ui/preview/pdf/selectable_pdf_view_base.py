@@ -5,6 +5,9 @@ from PySide6.QtCore import QSize, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QImage, QMouseEvent, QWheelEvent
 from PySide6.QtPdf import QPdfDocument
 from PySide6.QtQuickWidgets import QQuickWidget
+from PySide6.QtWidgets import QApplication
+
+from nd_mind_mirror.ui.preview.pdf.pdf_word_selection import word_at_pdf_point
 
 
 class SelectablePdfView(QQuickWidget):
@@ -42,6 +45,9 @@ class SelectablePdfView(QQuickWidget):
         self.setSource(
             QUrl.fromLocalFile(str(qml_path))
         )
+        root = self.rootObject()
+        if root is not None:
+            root.copyWordRequested.connect(self._copy_selected_word)
 
         self._status_timer = QTimer(self)
         self._status_timer.setInterval(250)
@@ -129,7 +135,56 @@ class SelectablePdfView(QQuickWidget):
             event.accept()
             return
 
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._clear_word_selection()
+            self._set_selection_dragging(True)
         super().mousePressEvent(event)
+
+    def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:
+        # Allow Qt Quick's normal tap recognizers and hyperlinks to receive
+        # their events, then select the complete PDF word at the hit position.
+        super().mouseDoubleClickEvent(event)
+        self._set_selection_dragging(False)
+        if event.button() != Qt.MouseButton.LeftButton:
+            return
+        root = self.rootObject()
+        if root is None or self._fit_document.pageCount() <= 0:
+            return
+        point = event.position()
+        root.setProperty("reverseClickX", float(point.x()))
+        root.setProperty("reverseClickY", float(point.y()))
+        root.mapReverseClick()
+        page = int(root.property("reverseClickPage"))
+        if page < 0:
+            return
+        result = word_at_pdf_point(
+            self._fit_document, page,
+            float(root.property("reverseClickPdfX")),
+            float(root.property("reverseClickPdfY")),
+        )
+        if result is None:
+            return
+        text, rectangles = result
+        root.setProperty("selectedWordPage", page)
+        root.setProperty("selectedWordRects", rectangles)
+        root.setProperty("selectedWordText", text)
+        event.accept()
+
+    @staticmethod
+    def _copy_selected_word(text: str) -> None:
+        QApplication.clipboard().setText(str(text))
+
+    def _clear_word_selection(self) -> None:
+        root = self.rootObject()
+        if root is not None:
+            root.setProperty("selectedWordText", "")
+            root.setProperty("selectedWordRects", [])
+            root.setProperty("selectedWordPage", -1)
+
+    def _set_selection_dragging(self, value: bool) -> None:
+        root = self.rootObject()
+        if root is not None:
+            root.setProperty("mouseSelectionHeld", bool(value))
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
         if (
@@ -177,6 +232,8 @@ class SelectablePdfView(QQuickWidget):
                 event.accept()
                 return
 
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._set_selection_dragging(False)
         super().mouseReleaseEvent(event)
 
     def fit_to_panel(self, width_percent: int | float = 95) -> None:
@@ -483,6 +540,8 @@ class SelectablePdfView(QQuickWidget):
             flush=True,
         )
 
+        self._clear_word_selection()
+        self._set_selection_dragging(False)
         root.setProperty(
             "resetPositionOnReload",
             bool(reset_position),
