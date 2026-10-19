@@ -2,10 +2,10 @@ from pathlib import Path
 import time
 
 from PySide6.QtCore import QSize, Qt, QTimer, QUrl, Signal
-from PySide6.QtGui import QImage, QMouseEvent, QWheelEvent
+from PySide6.QtGui import QContextMenuEvent, QImage, QKeySequence, QMouseEvent, QShortcut, QWheelEvent
 from PySide6.QtPdf import QPdfDocument
 from PySide6.QtQuickWidgets import QQuickWidget
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QMenu
 
 from nd_mind_mirror.ui.preview.pdf.pdf_word_selection import word_at_pdf_point
 
@@ -48,6 +48,11 @@ class SelectablePdfView(QQuickWidget):
         root = self.rootObject()
         if root is not None:
             root.copyWordRequested.connect(self._copy_selected_word)
+
+        self._copy_shortcut = QShortcut(QKeySequence.StandardKey.Copy, self)
+        self._copy_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        self._copy_shortcut.activated.connect(self.copy_selection)
+        self._copy_context_menu_enabled = False
 
         self._status_timer = QTimer(self)
         self._status_timer.setInterval(250)
@@ -173,6 +178,45 @@ class SelectablePdfView(QQuickWidget):
     @staticmethod
     def _copy_selected_word(text: str) -> None:
         QApplication.clipboard().setText(str(text))
+
+    def selected_text(self) -> str:
+        """Return the word selection or the native PDF drag selection."""
+        root = self.rootObject()
+        if root is None:
+            return ""
+        word = root.property("selectedWordText")
+        if word:
+            return str(word)
+        active_view = root.property("activeView")
+        if active_view is None:
+            return ""
+        return str(active_view.property("dragSelectedText") or "")
+
+    def copy_selection(self) -> None:
+        """Copy the complete selected PDF text through the native clipboard."""
+        text = self.selected_text()
+        if text:
+            QApplication.clipboard().setText(text)
+
+    def enable_copy_context_menu(self) -> None:
+        """Expose Copy on independently pinned PDF previews."""
+        self._copy_context_menu_enabled = True
+
+    def build_copy_context_menu(self) -> QMenu:
+        """Build a menu whose Copy action reads the current PDF selection."""
+        menu = QMenu(self)
+        action = menu.addAction("Copy")
+        action.setEnabled(bool(self.selected_text()))
+        action.triggered.connect(self.copy_selection)
+        return menu
+
+    def contextMenuEvent(self, event: QContextMenuEvent) -> None:
+        if not self._copy_context_menu_enabled:
+            super().contextMenuEvent(event)
+            return
+        menu = self.build_copy_context_menu()
+        menu.exec(event.globalPos())
+        event.accept()
 
     def _clear_word_selection(self) -> None:
         root = self.rootObject()

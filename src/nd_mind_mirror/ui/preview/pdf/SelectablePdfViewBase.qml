@@ -868,16 +868,6 @@ Rectangle {
         Component.onCompleted: root.configureEditHighlightStyle()
 
         Shortcut {
-            sequence: "Ctrl+C"
-            onActivated: {
-                if (root.selectedWordText)
-                    root.copyWordRequested(root.selectedWordText)
-                else
-                    pdfView.copySelectionToClipboard()
-            }
-        }
-
-        Shortcut {
             sequence: "Ctrl+A"
             onActivated: pdfView.selectAll()
         }

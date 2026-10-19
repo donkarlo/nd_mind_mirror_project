@@ -1,6 +1,7 @@
 """Independent text search for the rendered PDF preview."""
 
 from pathlib import Path
+from typing import Callable
 
 from PySide6.QtCore import Qt
 from PySide6.QtPdf import QPdfDocument
@@ -8,8 +9,23 @@ from PySide6.QtWidgets import QHBoxLayout, QLabel, QLineEdit, QPushButton, QWidg
 
 
 class PreviewFindController:
-    def __init__(self, panel):
+    """Search and navigate any PDF viewer without sharing state between windows."""
+
+    def __init__(
+        self,
+        panel,
+        *,
+        viewer=None,
+        pdf_path_provider: Callable[[], Path | None] | None = None,
+        insert_layout=None,
+        insert_index: int = 2,
+    ):
         self._panel = panel
+        self._viewer = viewer if viewer is not None else panel.preview._pdf_view
+        self._pdf_path_provider = (
+            pdf_path_provider if pdf_path_provider is not None
+            else lambda: panel.preview.current_pdf_path
+        )
         self._document = QPdfDocument(panel)
         self._loaded_path: Path | None = None
         self._loaded_signature: tuple[int, int] | None = None
@@ -30,13 +46,17 @@ class PreviewFindController:
         layout.addWidget(following)
         layout.addWidget(self._status)
         layout.addWidget(close)
-        panel.panel_layout.insertWidget(2, self._bar)
+        (insert_layout or panel.panel_layout).insertWidget(insert_index, self._bar)
         self._bar.hide()
         self._input.textChanged.connect(self._search)
         self._input.returnPressed.connect(self.next)
         previous.clicked.connect(self.previous)
         following.clicked.connect(self.next)
         close.clicked.connect(self.hide)
+
+    def close_document(self) -> None:
+        """Release the search document before its snapshot is removed."""
+        self._document.close()
 
     def show(self):
         self._bar.show()
@@ -47,14 +67,15 @@ class PreviewFindController:
     def hide(self):
         self._bar.hide()
         self._set_find_state("", -1)
-        self._panel.preview._pdf_view.setFocus()
+        self._viewer.setFocus()
 
     def _search(self, query: str):
-        path = self._panel.preview.current_pdf_path
-        if path is None or not path.is_file():
+        path = self._pdf_path_provider()
+        if path is None or not Path(path).is_file():
             self._matches = []
             self._status.setText("No PDF")
             return
+        path = Path(path)
         stat = path.stat()
         signature = (stat.st_mtime_ns, stat.st_size)
         if path != self._loaded_path or signature != self._loaded_signature:
@@ -97,7 +118,7 @@ class PreviewFindController:
             self._set_find_state("", -1)
             return
         page, _ = self._matches[self._position]
-        root = self._panel.preview._pdf_view.rootObject()
+        root = self._viewer.rootObject()
         if root is None:
             return
         self._set_find_state(self._input.text(), self._position)
@@ -108,7 +129,7 @@ class PreviewFindController:
         root.setProperty("syncToken", self._sync_token)
 
     def _set_find_state(self, query: str, index: int) -> None:
-        root = self._panel.preview._pdf_view.rootObject()
+        root = self._viewer.rootObject()
         if root is not None:
             root.setProperty("findQuery", query)
             root.setProperty("findResultIndex", index)

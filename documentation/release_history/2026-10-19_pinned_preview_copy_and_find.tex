@@ -1,0 +1,53 @@
+\documentclass[a4paper]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{minted}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{todonotes}
+\usepackage{forest}
+\usepackage{xstring}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{xparse}
+\usepackage{natbib}
+\usepackage{adjustbox}
+\usepackage[active,tightpage]{preview}
+
+\PreviewBorder=4pt
+\usetikzlibrary{graphs,graphdrawing,arrows.meta,positioning,calc,fit,shapes.geometric}
+\usegdlibrary{layered}
+
+\title{}
+\date{}
+\author{Mohammad Rahmani}
+
+\begin{document}
+   \maketitle
+   \begin{preview}
+\section*{Pinned PDF Preview clipboard and search (2026-10-19)}
+
+\textbf{Problem:} Pinned PDF windows did not reliably copy words selected by
+double-click with \texttt{Ctrl+C}, lacked a right-click Copy action, and did
+not provide the existing PDF preview search on \texttt{Ctrl+F}.
+
+\textbf{Changes:} Native Qt widget shortcuts now copy either the explicit
+word selection or the native drag selection, without depending on the
+embedded Qt Quick shortcut handler. The pinned reader exposes a context
+menu with Copy enabled only when text is selected. Pinned previews reuse
+the PDF find controller and provide an independent find field, match
+highlights, next/previous controls, and match counts, operating on each
+window's immutable PDF snapshot. Source and Visual search routing is
+unchanged.
+
+\textbf{Verification:} Real offscreen Qt tests exercise pinned-window
+double-click copying, the context-menu Copy action, Ctrl+F, independent
+search state across PDF windows, match counting, and next/previous navigation.
+   \end{preview}
+
+   \bibliographystyle{plainnat}
+   \bibliography{/home/donkarlo/Dropbox/repo/nd_shared_research/bibliography/bibliography.bib}
+\end{document}

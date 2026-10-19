@@ -166,3 +166,65 @@ def test_unicode_word_boundaries_are_not_ascii_only(tmp_path):
     result = word_at_pdf_point(doc, 0, point.x(), point.y())
     assert result is not None and result[0] == "Mädchen"
     doc.close()
+
+
+def test_pinned_preview_copies_selected_word_and_shows_copy_menu(tmp_path):
+    app = _app()
+    pdf = tmp_path / "copy.pdf"
+    _make_pdf(pdf, "Example pinned selection")
+    window = PinnedPdfPreviewWindow(pdf, "Copy")
+    try:
+        window.show()
+        root = _ready(window._viewer)
+        point = _pdf_hit(root)
+        QTest.mouseDClick(window._viewer, Qt.MouseButton.LeftButton, pos=point)
+        app.processEvents()
+        assert window._viewer.selected_text() == "Example"
+        window._viewer.setFocus()
+        app.clipboard().setText("previous value")
+        QTest.keyClick(window._viewer, Qt.Key.Key_C, Qt.KeyboardModifier.ControlModifier)
+        app.processEvents()
+        assert app.clipboard().text() == "Example"
+
+        menu = window._viewer.build_copy_context_menu()
+        assert [action.text() for action in menu.actions()] == ["Copy"]
+        assert menu.actions()[0].isEnabled()
+        app.clipboard().setText("previous value")
+        menu.actions()[0].trigger()
+        assert app.clipboard().text() == "Example"
+    finally:
+        window.close()
+
+
+def test_pinned_preview_ctrl_f_has_independent_search(tmp_path):
+    app = _app()
+    one = tmp_path / "one.pdf"
+    two = tmp_path / "two.pdf"
+    _make_pdf(one, "Example Example")
+    _make_pdf(two, "Other wording")
+    first = PinnedPdfPreviewWindow(one, "One")
+    second = PinnedPdfPreviewWindow(two, "Two")
+    try:
+        first.show()
+        _ready(first._viewer)
+        first._viewer.setFocus()
+        QTest.keyClick(first._viewer, Qt.Key.Key_F, Qt.KeyboardModifier.ControlModifier)
+        app.processEvents()
+        assert first._find_controller._bar.isVisible()
+        second.show()
+        _ready(second._viewer)
+        first._find_controller._input.setText("Example")
+        app.processEvents()
+        assert first._find_controller._status.text() == "1/2"
+        assert first._viewer.rootObject().property("findQuery") == "Example"
+        first._find_controller.next()
+        assert first._find_controller._status.text() == "2/2"
+        first._find_controller.previous()
+        assert first._find_controller._status.text() == "1/2"
+        assert second._viewer.rootObject().property("findQuery") == ""
+        first._find_controller.hide()
+        assert first._viewer.rootObject().property("findQuery") == ""
+        assert not first._find_controller._bar.isVisible()
+    finally:
+        first.close()
+        second.close()
