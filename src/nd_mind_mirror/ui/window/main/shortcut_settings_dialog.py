@@ -59,7 +59,9 @@ class ShortcutSettingsDialog(QDialog):
             if keys and not normalized:
                 QMessageBox.warning(self, "Keyboard Shortcuts", f"Invalid shortcut: {keys}")
                 return
-            if normalized and normalized in seen:
+            if normalized and normalized in seen and not self._can_share_sequence(
+                action_id, seen[normalized]
+            ):
                 QMessageBox.warning(
                     self,
                     "Keyboard Shortcuts",
@@ -67,10 +69,17 @@ class ShortcutSettingsDialog(QDialog):
                 )
                 return
             if normalized:
-                seen[normalized] = id_item.text()
+                seen[normalized] = action_id
             keys_by_id[action_id] = normalized
         self._store.save_keys(keys_by_id)
         self._apply_callback()
+
+    @staticmethod
+    def _can_share_sequence(first_action_id: str, second_action_id: str) -> bool:
+        """Allow Find in the main workspace and in separate pinned windows."""
+        return {first_action_id, second_action_id} == {
+            "find.current", "preview.find"
+        }
 
     def _populate(self) -> None:
         """Fill the table from the current shortcut store while keeping stable action ids hidden in row data."""

@@ -215,7 +215,7 @@ Persistent user copy:
 
 **Settings → Keyboard Shortcuts…** validates and applies shortcut changes at runtime.
 
-Shipped configurable actions include Open (`Ctrl+O`), Save (`Ctrl+S`), Close tab (`Ctrl+W`), Auto Format (`Ctrl+Shift+F`), Find (`Ctrl+F`), Replace (`Ctrl+R`), Preview toggle (`Ctrl+Alt+P`), Bold (`Ctrl+B`), editor zoom reset (`Ctrl+0`), close Find/Replace (`Escape`), and Navigator Delete (`Delete`). Navigator file clipboard keys are handled by the dedicated Navigator key-event controller because they must coexist with clipboard-image paste.
+Shipped configurable actions include Open (`Ctrl+O`), Save (`Ctrl+S`), Close tab (`Ctrl+W`), Auto Format (`Ctrl+Shift+F`), Find in Source/Visual/live Preview (`Ctrl+F`), Find in pinned PDF Preview (`Ctrl+F`), Copy selected PDF text (`Ctrl+C`), Replace (`Ctrl+R`), Preview toggle (`Ctrl+Alt+P`), Bold (`Ctrl+B`), editor zoom reset (`Ctrl+0`), close Find/Replace (`Escape`), and Navigator Delete (`Delete`). The PDF Find and Copy entries explain their intended use in the Actions column. A pinned Preview is a separate window, so its Find shortcut can share `Ctrl+F` with the main editor; each can be customized independently, and Apply updates both already-open and newly-pinned windows. PDF Copy applies to the live Preview and pinned windows. Navigator file clipboard keys are handled by the dedicated Navigator key-event controller because they must coexist with clipboard-image paste.
 
 `latex_shortcuts.yaml` remains dedicated to LaTeX snippet/completion expansion.
 

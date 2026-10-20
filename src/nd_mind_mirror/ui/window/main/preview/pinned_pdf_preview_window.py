@@ -48,6 +48,13 @@ class PinnedPdfPreviewWindow(QMainWindow):
             self._directory.cleanup()
             raise OSError(f"Could not open a PDF snapshot for {document_name}.")
 
+    def configure_shortcuts(self, entries: dict[str, dict[str, str]]) -> None:
+        """Apply the current user-defined PDF shortcuts to this pinned window."""
+        self._find_shortcut.setKey(QKeySequence(entries["preview.find"]["keys"]))
+        self._viewer.copy_shortcut.setKey(
+            QKeySequence(entries["preview.copy"]["keys"])
+        )
+
     def closeEvent(self, event):
         # The snapshot remains available until this particular window closes.
         self._find_controller.close_document()

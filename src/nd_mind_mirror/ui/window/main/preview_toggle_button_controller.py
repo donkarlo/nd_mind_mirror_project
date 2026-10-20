@@ -41,6 +41,10 @@ class PreviewToggleButtonController(QObject):
             self,
         )
 
+    def configure_pinned_shortcuts(self, entries: dict[str, dict[str, str]]) -> None:
+        """Apply shortcut changes to all independently pinned PDF windows."""
+        self._preview_detach_controller.configure_pinned_shortcuts(entries)
+
     def _sync_from_action(self, checked: bool) -> None:
         """Update the button without recursively re-triggering the QAction."""
         if self._button.isChecked() != checked:

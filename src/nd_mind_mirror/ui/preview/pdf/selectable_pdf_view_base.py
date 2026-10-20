@@ -198,6 +198,11 @@ class SelectablePdfView(QQuickWidget):
         if text:
             QApplication.clipboard().setText(text)
 
+    @property
+    def copy_shortcut(self) -> QShortcut:
+        """Return the window-local Copy binding for shortcut configuration."""
+        return self._copy_shortcut
+
     def enable_copy_context_menu(self) -> None:
         """Expose Copy on independently pinned PDF previews."""
         self._copy_context_menu_enabled = True

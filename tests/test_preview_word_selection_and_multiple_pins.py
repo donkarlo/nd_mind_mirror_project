@@ -228,3 +228,44 @@ def test_pinned_preview_ctrl_f_has_independent_search(tmp_path):
     finally:
         first.close()
         second.close()
+
+
+def test_pinned_preview_uses_customized_find_and_copy_keys(tmp_path):
+    app = _app()
+    pdf = tmp_path / "custom-shortcuts.pdf"
+    _make_pdf(pdf, "Example custom shortcuts")
+    window = PinnedPdfPreviewWindow(pdf, "Custom")
+    try:
+        window.configure_shortcuts({
+            "preview.find": {"keys": "Ctrl+Shift+G"},
+            "preview.copy": {"keys": "Ctrl+Shift+C"},
+        })
+        window.show()
+        root = _ready(window._viewer)
+        assert window._find_shortcut.key().toString() == "Ctrl+Shift+G"
+        assert window._viewer.copy_shortcut.key().toString() == "Ctrl+Shift+C"
+        window._viewer.setFocus()
+        QTest.keyClick(
+            window._viewer, Qt.Key.Key_G,
+            Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier,
+        )
+        app.processEvents()
+        assert window._find_controller._bar.isVisible()
+        window._find_controller.hide()
+
+        QTest.mouseDClick(
+            window._viewer, Qt.MouseButton.LeftButton,
+            pos=_pdf_hit(root),
+        )
+        app.processEvents()
+        assert root.property("selectedWordText") == "Example"
+        app.clipboard().setText("previous")
+        window._viewer.setFocus()
+        QTest.keyClick(
+            window._viewer, Qt.Key.Key_C,
+            Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier,
+        )
+        app.processEvents()
+        assert app.clipboard().text() == "Example"
+    finally:
+        window.close()

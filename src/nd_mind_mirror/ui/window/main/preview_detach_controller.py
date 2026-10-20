@@ -69,6 +69,9 @@ class PreviewDetachController(QObject):
         except OSError as exc:
             QMessageBox.warning(self._panel, "Pin Preview", str(exc))
             return
+        store = getattr(self._window, "_shortcut_store", None)
+        if store is not None:
+            preview.configure_shortcuts(store.entries())
         preview.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         preview.destroyed.connect(lambda: self._forget_pinned_preview(preview))
         self._pinned_windows.append(preview)
@@ -77,6 +80,11 @@ class PreviewDetachController(QObject):
     def _forget_pinned_preview(self, preview) -> None:
         if preview in self._pinned_windows:
             self._pinned_windows.remove(preview)
+
+    def configure_pinned_shortcuts(self, entries: dict[str, dict[str, str]]) -> None:
+        """Refresh open pinned windows after shortcut settings are applied."""
+        for preview in self._pinned_windows:
+            preview.configure_shortcuts(entries)
 
     def toggle_detached(self) -> None:
         if self._detached:

@@ -61,7 +61,12 @@ class ShortcutStore:
             if key == "bookmark.toggle":
                 continue
             if key in merged:
+                shipped_label = merged[key]["label"]
                 merged[key].update(value)
+                if key == "find.current" and value.get("label") == "Find in current tab":
+                    # Only migrate the old shipped label; retain user-defined
+                    # descriptions and all previously customized key bindings.
+                    merged[key]["label"] = shipped_label
             else:
                 merged[key] = dict(value)
         self._entries = merged

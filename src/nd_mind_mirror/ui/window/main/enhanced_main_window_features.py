@@ -311,6 +311,7 @@ class EnhancedMainWindow(MainWindow):
             "tab.close": self._close_tab_action,
             "latex.format": self._format_action,
             "find.current": self._find_in_tab_action,
+            "preview.copy": self._preview_panel.preview._pdf_view.copy_shortcut,
             "replace.current": self._replace_in_tab_action,
             "preview.toggle": self._show_preview_action,
             "editor.bold": self._editor_panel._bold_shortcut,
@@ -319,6 +320,9 @@ class EnhancedMainWindow(MainWindow):
             "navigator.delete": self._file_system_panel._delete_shortcut,
         }
         self._shortcut_store.apply(bindings)
+        self._preview_toggle_button_controller.configure_pinned_shortcuts(
+            self._shortcut_store.entries()
+        )
         self.statusBar().showMessage(
             f"Keyboard shortcuts applied from {self._shortcut_store.path}",
             3500,

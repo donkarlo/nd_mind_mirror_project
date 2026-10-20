@@ -16,8 +16,14 @@ shortcuts:
     label: Format LaTeX
     keys: Ctrl+Shift+F
   find.current:
-    label: Find in current tab
+    label: Find in Source, Visual, or live PDF Preview
     keys: Ctrl+F
+  preview.find:
+    label: Find text in a pinned PDF Preview (previous/next matches)
+    keys: Ctrl+F
+  preview.copy:
+    label: Copy selected text or word from a PDF Preview (including pinned)
+    keys: Ctrl+C
   replace.current:
     label: Replace in current tab
     keys: Ctrl+R
