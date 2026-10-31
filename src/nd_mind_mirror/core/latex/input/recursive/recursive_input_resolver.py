@@ -968,6 +968,11 @@ class RecursiveInputResolver(InputResolver):
                     )
                     continue
 
+                # Preview-only page cropping configuration is not valid
+                # when a child package is imported in inactive mode.
+                if stripped.startswith(r"\PreviewBorder"):
+                    continue
+
                 package_match = (
                     self._USEPACKAGE_PATTERN.match(
                         line
@@ -989,6 +994,25 @@ class RecursiveInputResolver(InputResolver):
 
                     if not missing:
                         continue
+
+                    # A standalone child may load the preview package with
+                    # [active,tightpage] to crop its own illustrations.
+                    # When merged into a full document, active preview
+                    # suppresses every page outside a preview environment.
+                    # Keep the package's commands available, but deactivate
+                    # its page-filtering behavior for imported preambles.
+                    if "preview" in missing:
+                        additions_to_append.append(
+                            r"\usepackage[inactive]{preview}"
+                        )
+                        loaded_packages.add("preview")
+                        missing = [
+                            package
+                            for package in missing
+                            if package != "preview"
+                        ]
+                        if not missing:
+                            continue
 
                     options = package_match.group(
                         "options"
